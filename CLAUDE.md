@@ -72,7 +72,7 @@ The mobile app runs on a physical iPhone via Expo Go, not a simulator. `localhos
 
 ## Custom subagents (`.claude/agents/`)
 
-This repo defines five project-scoped subagents with a deliberate handoff chain and per-task model tiers:
+This repo defines six project-scoped subagents with a deliberate handoff chain and per-task model tiers:
 
 | Agent | Model | Role |
 |---|---|---|
@@ -81,10 +81,13 @@ This repo defines five project-scoped subagents with a deliberate handoff chain 
 | `frontend-coder` | sonnet | Implements/modifies the Expo/RN frontend. Must flag when a change requires leaving Expo Go (native code, config plugins, HealthKit, push notifications, etc.) *before* writing code, since that implies a dev build via EAS. |
 | `eas-agent` | sonnet | Owns `eas.json` / `app.config` build profiles (development/preview/production) and EAS secrets/env vars. Called in whenever `frontend-coder` needs to exit Expo Go. |
 | `reviewer` | opus | Read-only review after any significant backend/frontend change — correctness, backend↔frontend contract consistency, basic security, non-standard RN patterns. Reports findings as `[bloqueante]`/`[sugerencia]`, never edits code. |
+| `backend-docs` | sonnet | Keeps `backend/docs/ARCHITECTURE.md` in sync with the actual backend code (endpoints, schemas, where state lives). Its only allowed write target is that one file — never app code. Auto-triggered after `backend-coder` finishes (see hook below); also invokable manually. |
 
-Typical flow: `explorer` → `backend-coder` and/or `frontend-coder` (and `eas-agent` if native/build config is touched) → `reviewer`.
+Typical flow: `explorer` → `backend-coder` and/or `frontend-coder` (and `eas-agent` if native/build config is touched) → `reviewer`. `backend-docs` runs automatically whenever `backend-coder` finishes, via a `SubagentStop` hook in `.claude/settings.json`.
 
 Agent instructions are written in Spanish and should stay that way for consistency.
+
+**Caveat observed 2026-08-09:** newly-added files under `.claude/agents/` and a newly-created `.claude/settings.json` were not picked up mid-session — the Agent tool's roster and the hooks config both appeared stale until reload. If a subagent invocation fails with "Agent type not found" right after adding/editing an agent file, or a hook doesn't seem to fire, the fix is a session restart (or `/hooks` once, for hooks specifically) — not a sign the config is wrong.
 
 ## Developer context
 
