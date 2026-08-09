@@ -6,6 +6,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Never add Claude as a co-author or include any "Generated with Claude Code" / `Co-Authored-By: Claude` trailer in commits. Every commit's authorship stays solely the developer's — no exceptions.
 
+## Branch strategy
+
+`main` holds only working code — no AI-tooling clutter. `dev` is where actual development happens and is the only branch that carries `.claude/` and this `CLAUDE.md`.
+
+- Do all day-to-day work on `dev`. This file and the subagents only exist here.
+- When something on `dev` is ready to promote to `main`, do **not** `git merge dev` into `main` — that would drag `.claude/` and `CLAUDE.md` along with it. Instead, from `main`, selectively check out just the working directories:
+  ```
+  git checkout main
+  git checkout dev -- backend mobile .gitignore
+  git commit -m "..."
+  ```
+- If a new top-level working directory is added later, remember to include it explicitly in the checkout list above — it won't come along automatically.
+
 ## Project status
 
 `backend/` is scaffolded: FastAPI app with a working `/health` endpoint, routers/schemas/services split, `uv`-managed deps, one passing test. `mobile/` is still an empty directory — its commands below remain the *expected* ones for Expo/EAS, not yet verified.
