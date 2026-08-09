@@ -46,18 +46,17 @@ No Xcode/simulator commands apply — there is no Mac, so iOS builds and testing
 
 Personal physical-progress tracking app — a side project built for the developer's own use, not a commercial product, so scope should stay tight rather than feature-complete.
 
-Current target: a single **vertical slice**, end to end, before anything else gets built:
-1. Log a workout from the phone (exercise, sets/reps/weight, date).
-2. See logged workouts in a list.
-3. (Next, not yet) view progress over time for a given exercise — this is the actual point of the app, but it comes after the log→list flow works end to end.
+Full MVP spec (data model, endpoints, screens, phased test criteria) lives in [`docs/MVP.md`](docs/MVP.md). Post-MVP ideas, deliberately deferred, live in [`docs/ROADMAP.md`](docs/ROADMAP.md) — do not implement anything from there unless the human explicitly pulls it forward. Both are written in Spanish, same as the subagent instructions.
 
-Deliberately out of scope until the vertical slice is solid: HealthKit/step data, notifications, multi-user/auth, cloud sync, any state-management library beyond `useState`/Context. Don't introduce these speculatively — wait until a specific step in the roadmap above needs them, and flag it explicitly when it happens (see `frontend-coder`/`eas-agent` handoff below).
+One-line summary: predefined routines assigned to weekdays, log the day's workout in a few taps, see progress over weeks. Explicitly out of scope for the MVP: HealthKit, notifications, multi-user/auth, cloud sync, RPE/RIR, shareable templates, edit-history on past workouts. If mid-task you find yourself designing any of these, stop and go back to `docs/MVP.md`.
+
+Current phase: **Fase 0 — esqueleto conectado** (see `docs/MVP.md`). Backend has only `/health` so far; the Fase 0 deliverable is the full set of MVP endpoints returning hardcoded data plus the Expo app rendering real (not mocked) data from them on-device. Don't jump ahead to persistence, routine CRUD, or progress screens until Fase 0's test criteria are met.
 
 ## Intended architecture
 
 This is a personal physical-progress tracking app with two planned components:
 
-- **`backend/`** — FastAPI (Python), SQLite (or successor DB TBD), Pydantic for schemas. Structure is `app/routers/` (one module per resource, exports an `APIRouter`), `app/schemas/` (Pydantic models), `app/services/` (business logic) — not a single `main.py`. REST endpoints with explicit status codes and `HTTPException` error handling, pytest for non-trivial business logic.
+- **`backend/`** — FastAPI (Python), SQLite, Pydantic for schemas. Structure is `app/routers/` (one module per resource, exports an `APIRouter`), `app/schemas/` (Pydantic models), `app/services/` (business logic) — not a single `main.py`. REST endpoints with explicit status codes and `HTTPException` error handling, pytest for non-trivial business logic.
 - **`mobile/`** — Expo (React Native), TypeScript. Standard, well-documented Expo/RN patterns only — no exotic architectures or heavy state libraries (Redux etc.) until the project actually needs them; prefer `useState`/Context while small.
 - iOS builds go through **EAS Build/Submit**, not local Xcode — the developer has an iPhone but no Mac, so the native build pipeline lives entirely in the cloud.
 
