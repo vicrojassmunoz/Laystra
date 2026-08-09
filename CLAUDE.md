@@ -23,7 +23,7 @@ Never add Claude as a co-author or include any "Generated with Claude Code" / `C
 
 Fase 0 backend is done: all MVP endpoints (`/exercises`, `/routines`, `/schedule`, `/today`, `/workouts`, `/exercises/{id}/progress`) implemented against an in-memory seeded store (`app/services/store.py`) — no SQLite yet, that's Fase 1. 24 passing tests.
 
-Fase 0 mobile is scaffolded: Expo TypeScript app with a single working screen (`App.tsx`) that fetches `GET /today` and renders it, with loading/error states. Typechecks clean, Metro boots clean. **Not yet verified on an actual iPhone via Expo Go** — that verification step needs the human, since it requires scanning a QR code on a physical device.
+Fase 0 mobile is done: Expo TypeScript app with a single working screen (`App.tsx`) that fetches `GET /today` and renders it, with loading/error states. Verified on a physical iPhone via Expo Go — real data renders, rest days show correctly, killing the backend surfaces a visible error instead of a crash. Pinned to Expo SDK 54 (not the just-released 57) because the App Store's Expo Go client hadn't caught up yet as of 2026-08-09 — see `mobile/AGENTS.md`.
 
 ## Commands
 
@@ -54,7 +54,7 @@ Full MVP spec (data model, endpoints, screens, phased test criteria) lives in [`
 
 One-line summary: predefined routines assigned to weekdays, log the day's workout in a few taps, see progress over weeks. Explicitly out of scope for the MVP: HealthKit, notifications, multi-user/auth, cloud sync, RPE/RIR, shareable templates, edit-history on past workouts. If mid-task you find yourself designing any of these, stop and go back to `docs/MVP.md`.
 
-Current phase: **Fase 0 — esqueleto conectado** (see `docs/MVP.md`). Backend and mobile are both built; remaining Fase 0 test criteria require the human to run the app on their iPhone via Expo Go and confirm real data renders and a killed backend shows a visible error instead of a crash. Don't start Fase 1 (persistence, routine CRUD, weekly schedule UI) until that's confirmed.
+**Fase 0 — esqueleto conectado is done** (verified on-device 2026-08-09: `/docs` lists all endpoints, the Expo app renders real backend data over Expo Go, and killing the backend shows a visible error instead of a crash). Current phase: **Fase 1 — rutinas y calendario semanal** (see `docs/MVP.md`) — add SQLite persistence and build the routine/weekly-schedule screens. Don't touch Fase 2+ (logging "Hoy", progress) until Fase 1's test criteria are met.
 
 ## Intended architecture
 
