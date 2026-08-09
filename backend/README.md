@@ -33,9 +33,14 @@ uv run pytest
 
 ```
 app/
-  main.py       # FastAPI app instance, mounts routers
+  main.py       # FastAPI app instance, mounts routers, CORS
   routers/      # one module per resource, each exports an APIRouter
   schemas/      # Pydantic request/response models
-  services/     # business logic, kept out of routers
+  services/
+    store.py    # Fase 0 in-memory data store (seeded, resets on restart) — SQLite lands in Fase 1
 tests/
 ```
+
+Endpoints (see [`../docs/MVP.md`](../docs/MVP.md) for the full spec): `/health`, `/exercises` (+ `/exercises/{id}/progress`), `/routines`, `/schedule`, `/today`, `/workouts`. Full list at `/docs` while the server is running.
+
+`GET /today` takes `date` as a **required** query param (`?date=YYYY-MM-DD`) — the client computes "today" locally and passes it, the server never guesses from its own clock. This matters once the backend is hosted somewhere with a different timezone than the phone (Fase 4).

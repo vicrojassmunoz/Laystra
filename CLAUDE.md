@@ -21,7 +21,9 @@ Never add Claude as a co-author or include any "Generated with Claude Code" / `C
 
 ## Project status
 
-`backend/` is scaffolded: FastAPI app with a working `/health` endpoint, routers/schemas/services split, `uv`-managed deps, one passing test. `mobile/` is still an empty directory — its commands below remain the *expected* ones for Expo/EAS, not yet verified.
+Fase 0 backend is done: all MVP endpoints (`/exercises`, `/routines`, `/schedule`, `/today`, `/workouts`, `/exercises/{id}/progress`) implemented against an in-memory seeded store (`app/services/store.py`) — no SQLite yet, that's Fase 1. 24 passing tests.
+
+Fase 0 mobile is scaffolded: Expo TypeScript app with a single working screen (`App.tsx`) that fetches `GET /today` and renders it, with loading/error states. Typechecks clean, Metro boots clean. **Not yet verified on an actual iPhone via Expo Go** — that verification step needs the human, since it requires scanning a QR code on a physical device.
 
 ## Commands
 
@@ -36,7 +38,9 @@ uv add <package>                                         # add a dependency (wri
 Mobile (Expo/TypeScript, run from `mobile/`):
 ```
 npm install
+cp .env.example .env && $EDITOR .env             # set EXPO_PUBLIC_API_URL to your machine's LAN IP
 npx expo start                                    # scan QR with Expo Go on the iPhone
+npx tsc --noEmit                                  # typecheck
 eas build --profile development --platform ios    # only needed once native code/config plugins are introduced
 eas submit --platform ios
 ```
@@ -50,7 +54,7 @@ Full MVP spec (data model, endpoints, screens, phased test criteria) lives in [`
 
 One-line summary: predefined routines assigned to weekdays, log the day's workout in a few taps, see progress over weeks. Explicitly out of scope for the MVP: HealthKit, notifications, multi-user/auth, cloud sync, RPE/RIR, shareable templates, edit-history on past workouts. If mid-task you find yourself designing any of these, stop and go back to `docs/MVP.md`.
 
-Current phase: **Fase 0 — esqueleto conectado** (see `docs/MVP.md`). Backend has only `/health` so far; the Fase 0 deliverable is the full set of MVP endpoints returning hardcoded data plus the Expo app rendering real (not mocked) data from them on-device. Don't jump ahead to persistence, routine CRUD, or progress screens until Fase 0's test criteria are met.
+Current phase: **Fase 0 — esqueleto conectado** (see `docs/MVP.md`). Backend and mobile are both built; remaining Fase 0 test criteria require the human to run the app on their iPhone via Expo Go and confirm real data renders and a killed backend shows a visible error instead of a crash. Don't start Fase 1 (persistence, routine CRUD, weekly schedule UI) until that's confirmed.
 
 ## Intended architecture
 

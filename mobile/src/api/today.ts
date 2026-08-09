@@ -1,0 +1,36 @@
+import { API_BASE_URL } from "../config";
+
+export type TodayExercise = {
+  exercise_id: number;
+  exercise_name: string;
+  unit: string;
+  target_sets: number;
+  target_reps: number;
+  order: number;
+};
+
+export type TodayResponse = {
+  date: string;
+  day_of_week: number;
+  routine_id: number | null;
+  routine_name: string | null;
+  exercises: TodayExercise[];
+};
+
+function todayIsoDate(): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+export async function fetchToday(): Promise<TodayResponse> {
+  const response = await fetch(`${API_BASE_URL}/today?date=${todayIsoDate()}`);
+
+  if (!response.ok) {
+    throw new Error(`El backend respondió ${response.status}`);
+  }
+
+  return response.json();
+}
