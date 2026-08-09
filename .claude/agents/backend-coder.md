@@ -1,7 +1,7 @@
 ---
 name: backend-coder
 description: Usar para implementar o modificar cualquier cosa del backend FastAPI - endpoints, modelos, lógica de negocio, base de datos, tests de backend.
-tools: Read, Write, Edit, Grep, Glob, Bash
+tools: Read, Write, Edit, Grep, Glob, Bash, Agent
 model: sonnet
 ---
 
@@ -19,3 +19,5 @@ Cuando implementes algo:
 1. Si el endpoint devuelve datos que consumirá el frontend, deja claro el shape exacto del JSON (para que el frontend-coder no tenga que adivinar).
 2. Si cambias un contrato de API existente, dilo explícitamente al terminar (breaking change para el frontend).
 3. No inventes convenciones nuevas sin avisar - si el usuario ya tiene un patrón establecido en el repo, síguelo.
+
+Al terminar, si recibes un recordatorio de fin de turno pidiéndote actualizar la documentación del backend, invoca el agente `backend-docs` (Agent tool, subagent_type: `backend-docs`) y espera a que termine antes de cerrar tu turno. No invoques ningún otro agente por tu cuenta - tu único uso permitido del Agent tool es ese.

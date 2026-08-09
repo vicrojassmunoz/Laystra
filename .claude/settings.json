@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "echo '{\"hookSpecificOutput\":{\"hookEventName\":\"SubagentStop\",\"additionalContext\":\"El subagente backend-coder acaba de terminar. Invoca el subagente backend-docs (Agent tool, subagent_type: backend-docs) para regenerar backend/docs/ARCHITECTURE.md y que refleje el estado actual del codigo.\"}}'"
+            "command": "python \"C:/Users/victo/Documents/Laystra/.claude/hooks/backend_docs_notify.py\""
           }
         ]
       }
