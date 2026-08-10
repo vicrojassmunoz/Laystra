@@ -1,9 +1,26 @@
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.db import SessionLocal, init_db
 from app.routers import exercises, health, routines, schedule, today, workouts
+from app.seed import seed_if_empty
 
-app = FastAPI(title="Laystra API")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
+    init_db()
+    db = SessionLocal()
+    try:
+        seed_if_empty(db)
+    finally:
+        db.close()
+    yield
+
+
+app = FastAPI(title="Laystra API", lifespan=lifespan)
 
 # Wildcard is fine here: single-user personal app, no auth, LAN-only for now.
 app.add_middleware(

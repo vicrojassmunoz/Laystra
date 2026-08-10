@@ -70,10 +70,15 @@ Nada de tabs elaboradas, onboarding, ni splash animado — pero sí puedes inver
 ### Fase 1 — Rutinas y calendario semanal
 **Entregable:** puedes crear una rutina con ejercicios objetivo y asignarla a un día de la semana, todo persistido.
 
+**Decisión confirmada:** persistencia vía SQLAlchemy (no `sqlite3` crudo). Afecta la estructura de `app/services/` — modelos ORM separados de los schemas Pydantic existentes.
+
 **Test de avance:**
-- [ ] Creas 2+ rutinas distintas desde el móvil, cada una con varios ejercicios objetivo
-- [ ] Las asignas a días de la semana y, al cerrar y reabrir la app, la asignación sigue ahí
-- [ ] Reinicias el backend y las rutinas/asignaciones siguen en SQLite (persistencia real, no en memoria)
+- [x] Creas 2+ rutinas distintas desde el móvil, cada una con varios ejercicios objetivo
+- [x] Las asignas a días de la semana y, al cerrar y reabrir la app, la asignación sigue ahí
+- [x] Reinicias el backend y las rutinas/asignaciones siguen en SQLite (persistencia real, no en memoria)
+- [x] Los 24 tests de Fase 0 (o su equivalente adaptado) pasan contra la capa SQLAlchemy, no contra el store en memoria — antes de dar Fase 1 por cerrada y pasar a Fase 2
+
+**Verificado on-device 2026-08-10.** Además de lo planeado, se añadió edición y borrado de rutinas (`PUT`/`DELETE /routines/{id}`) — hueco real encontrado probando en el iPhone, no estaba en el plan original de Fase 1 pero era necesario para poder corregir un error al crear una rutina.
 
 ### Fase 2 — Loguear el "Hoy" (el vertical slice real)
 **Entregable:** abres la app, ves la rutina de hoy pre-rellenada, logueas peso/reps reales en pocos taps, y queda guardado como Workout.

@@ -1,6 +1,6 @@
 from datetime import date as date_
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class WorkoutSetBase(BaseModel):
@@ -15,6 +15,8 @@ class WorkoutSetCreate(WorkoutSetBase):
 
 
 class WorkoutSet(WorkoutSetBase):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     workout_id: int
 
@@ -29,5 +31,7 @@ class WorkoutCreate(WorkoutBase):
 
 
 class Workout(WorkoutBase):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     sets: list[WorkoutSet] = []

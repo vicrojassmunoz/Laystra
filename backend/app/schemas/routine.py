@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class RoutineExerciseBase(BaseModel):
@@ -13,6 +13,8 @@ class RoutineExerciseCreate(RoutineExerciseBase):
 
 
 class RoutineExercise(RoutineExerciseBase):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     routine_id: int
 
@@ -26,5 +28,7 @@ class RoutineCreate(RoutineBase):
 
 
 class Routine(RoutineBase):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     exercises: list[RoutineExercise] = []

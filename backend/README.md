@@ -36,10 +36,13 @@ app/
   main.py       # FastAPI app instance, mounts routers, CORS
   routers/      # one module per resource, each exports an APIRouter
   schemas/      # Pydantic request/response models
-  services/
-    store.py    # Fase 0 in-memory data store (seeded, resets on restart) — SQLite lands in Fase 1
+  db.py         # SQLAlchemy engine, SessionLocal, get_db dependency
+  models.py     # SQLAlchemy ORM models
+  seed.py       # idempotent dev seed (only runs against an empty DB)
 tests/
 ```
+
+Persistence is SQLite (Fase 1) via SQLAlchemy — the database file is `laystra.db`, a sibling of `pyproject.toml`, gitignored via the root `.gitignore`'s `*.db` pattern. No migrations (Alembic) yet; tables are created with `Base.metadata.create_all` on startup.
 
 Endpoints (see [`../docs/MVP.md`](../docs/MVP.md) for the full spec): `/health`, `/exercises` (+ `/exercises/{id}/progress`), `/routines`, `/schedule`, `/today`, `/workouts`. Full list at `/docs` while the server is running.
 

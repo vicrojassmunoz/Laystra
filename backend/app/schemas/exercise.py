@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class ExerciseBase(BaseModel):
@@ -13,4 +13,6 @@ class ExerciseCreate(ExerciseBase):
 
 
 class Exercise(ExerciseBase):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int

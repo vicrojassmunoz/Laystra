@@ -1,39 +1,70 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
 
-from app.schemas.routine import Routine, RoutineCreate, RoutineExercise
-from app.services.store import store
+from app import models
+from app.db import get_db
+from app.schemas.routine import Routine, RoutineCreate
 
 router = APIRouter(prefix="/routines", tags=["routines"])
 
 
 @router.get("", response_model=list[Routine])
-def list_routines() -> list[Routine]:
-    return list(store.routines.values())
+def list_routines(db: Session = Depends(get_db)) -> list[models.Routine]:
+    return db.query(models.Routine).order_by(models.Routine.id).all()
 
 
 @router.post("", response_model=Routine, status_code=201)
-def create_routine(payload: RoutineCreate) -> Routine:
+def create_routine(payload: RoutineCreate, db: Session = Depends(get_db)) -> models.Routine:
     for item in payload.exercises:
-        if item.exercise_id not in store.exercises:
+        if db.get(models.Exercise, item.exercise_id) is None:
             raise HTTPException(status_code=404, detail=f"Exercise {item.exercise_id} not found")
 
-    routine_id = store.next_routine_id()
-    exercises = [
-        RoutineExercise(
-            id=store.next_routine_exercise_id(),
-            routine_id=routine_id,
-            **item.model_dump(),
-        )
-        for item in payload.exercises
-    ]
-    routine = Routine(id=routine_id, name=payload.name, exercises=exercises)
-    store.routines[routine_id] = routine
+    routine = models.Routine(
+        name=payload.name,
+        exercises=[models.RoutineExercise(**item.model_dump()) for item in payload.exercises],
+    )
+    db.add(routine)
+    db.commit()
+    db.refresh(routine)
     return routine
 
 
 @router.get("/{routine_id}", response_model=Routine)
-def get_routine(routine_id: int) -> Routine:
-    routine = store.routines.get(routine_id)
+def get_routine(routine_id: int, db: Session = Depends(get_db)) -> models.Routine:
+    routine = db.get(models.Routine, routine_id)
     if routine is None:
         raise HTTPException(status_code=404, detail="Routine not found")
     return routine
+
+
+@router.put("/{routine_id}", response_model=Routine)
+def update_routine(
+    routine_id: int, payload: RoutineCreate, db: Session = Depends(get_db)
+) -> models.Routine:
+    routine = db.get(models.Routine, routine_id)
+    if routine is None:
+        raise HTTPException(status_code=404, detail="Routine not found")
+
+    for item in payload.exercises:
+        if db.get(models.Exercise, item.exercise_id) is None:
+            raise HTTPException(status_code=404, detail=f"Exercise {item.exercise_id} not found")
+
+    routine.name = payload.name
+    routine.exercises = [models.RoutineExercise(**item.model_dump()) for item in payload.exercises]
+    db.commit()
+    db.refresh(routine)
+    return routine
+
+
+@router.delete("/{routine_id}", status_code=204)
+def delete_routine(routine_id: int, db: Session = Depends(get_db)) -> None:
+    routine = db.get(models.Routine, routine_id)
+    if routine is None:
+        raise HTTPException(status_code=404, detail="Routine not found")
+
+    # ScheduleEntry.routine_id and Workout.routine_id use ondelete="SET NULL" at the
+    # DB level (see app/models.py) — deleting the routine here lets SQLite null out
+    # those references instead of blocking the delete. Requires PRAGMA foreign_keys=ON
+    # per connection (already set in app/db.py's connect listener).
+    db.delete(routine)
+    db.commit()

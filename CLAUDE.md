@@ -21,9 +21,13 @@ Never add Claude as a co-author or include any "Generated with Claude Code" / `C
 
 ## Project status
 
-Fase 0 backend is done: all MVP endpoints (`/exercises`, `/routines`, `/schedule`, `/today`, `/workouts`, `/exercises/{id}/progress`) implemented against an in-memory seeded store (`app/services/store.py`) — no SQLite yet, that's Fase 1. 24 passing tests.
+Fase 0 backend is done: all MVP endpoints (`/exercises`, `/routines`, `/schedule`, `/today`, `/workouts`, `/exercises/{id}/progress`) implemented against an in-memory seeded store — no SQLite yet, that came in Fase 1.
 
 Fase 0 mobile is done: Expo TypeScript app with a single working screen (`App.tsx`) that fetches `GET /today` and renders it, with loading/error states. Verified on a physical iPhone via Expo Go — real data renders, rest days show correctly, killing the backend surfaces a visible error instead of a crash. Pinned to Expo SDK 54 (not the just-released 57) because the App Store's Expo Go client hadn't caught up yet as of 2026-08-09 — see `mobile/AGENTS.md`.
+
+Fase 1 backend is done: the in-memory store (`app/services/store.py`) was replaced with real persistence via SQLAlchemy + SQLite (`app/db.py`, `app/models.py`, `app/seed.py`). `GET /schedule` now always returns all 7 days by construction, `PUT /schedule/{day}` uses FastAPI's native path validation, SQLite foreign-key enforcement is on (`PRAGMA foreign_keys=ON`), and `PUT`/`DELETE /routines/{id}` were added so a routine can be edited or removed — deleting one auto-clears (`ondelete="SET NULL"`) any day/workout that referenced it instead of blocking the delete. 30 passing tests.
+
+Fase 1 mobile is done: added bottom-tab navigation (Hoy / Rutinas / Semana) via `@react-navigation`. "Rutinas" lists existing routines and has a form to create, edit, and delete them (exercise picker as a modal, not the inline iOS `Picker` wheel — that stacked badly with multiple rows). "Semana" shows the 7-day schedule and lets you assign a routine or rest day per day via a modal. All three tab screens refetch on focus (`useFocusEffect`), not just on mount, since React Navigation keeps tab screens mounted when switching tabs. Verified on a physical iPhone: create/edit/delete routines, assign them across the week, restart the backend, everything persists.
 
 ## Commands
 
@@ -54,7 +58,9 @@ Full MVP spec (data model, endpoints, screens, phased test criteria) lives in [`
 
 One-line summary: predefined routines assigned to weekdays, log the day's workout in a few taps, see progress over weeks. Explicitly out of scope for the MVP: HealthKit, notifications, multi-user/auth, cloud sync, RPE/RIR, shareable templates, edit-history on past workouts. If mid-task you find yourself designing any of these, stop and go back to `docs/MVP.md`.
 
-**Fase 0 — esqueleto conectado is done** (verified on-device 2026-08-09: `/docs` lists all endpoints, the Expo app renders real backend data over Expo Go, and killing the backend shows a visible error instead of a crash). Current phase: **Fase 1 — rutinas y calendario semanal** (see `docs/MVP.md`) — add SQLite persistence and build the routine/weekly-schedule screens. Don't touch Fase 2+ (logging "Hoy", progress) until Fase 1's test criteria are met.
+**Fase 0 — esqueleto conectado is done** (verified on-device 2026-08-09: `/docs` lists all endpoints, the Expo app renders real backend data over Expo Go, and killing the backend shows a visible error instead of a crash).
+
+**Fase 1 — rutinas y calendario semanal is done** (verified on-device 2026-08-10: create/edit/delete routines and assign them to weekdays from the phone, restart the backend, everything survives in SQLite). Current phase: **Fase 2 — loguear el "Hoy"** (see `docs/MVP.md`) — the real vertical slice: pre-filled today's routine, log actual sets/reps in a few taps, persisted as a `Workout`. Don't touch Fase 3+ (progress) until Fase 2's test criteria are met.
 
 ## Intended architecture
 
