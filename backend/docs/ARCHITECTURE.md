@@ -1,6 +1,6 @@
 # Backend architecture
 
-FastAPI app for Laystra. Fase 1 state: full MVP endpoint surface, backed by real SQLite persistence via SQLAlchemy.
+FastAPI app for Laystra. Full MVP endpoint surface, backed by real SQLite persistence via SQLAlchemy (Fase 1). Fase 2 quitó `target_reps` de `RoutineExercise`: las rutinas ya solo fijan sets objetivo, no reps.
 
 ## Estado (dónde vive el dato)
 
@@ -10,7 +10,7 @@ El dato vive en SQLite, fichero `backend/laystra.db` (sibling de `pyproject.toml
 - `get_db()` — generador que abre/cierra una `Session` por request, inyectado en los routers vía `Depends(get_db)`.
 - Un listener `@event.listens_for(engine, "connect")` ejecuta `PRAGMA foreign_keys=ON` en cada conexión nueva — SQLite ignora las FKs por defecto si no se activan explícitamente por conexión, así que sin esto los `ForeignKey` de `models.py` no se validaban de verdad a nivel de motor.
 
-`app/main.py` usa un `lifespan` (`@asynccontextmanager`) que llama `init_db()` y luego `seed_if_empty()` (`app/seed.py`) al arrancar, antes de aceptar tráfico. `seed_if_empty(db)` siembra el mismo dataset de ejemplo que tenía el viejo store en memoria (5 ejercicios, rutinas "Push day"/"Pierna", schedule con lunes→Push, miércoles→Pierna) solo si la tabla `exercises` está vacía — seguro de llamar en cada arranque sin duplicar filas.
+`app/main.py` usa un `lifespan` (`@asynccontextmanager`) que llama `init_db()` y luego `seed_if_empty()` (`app/seed.py`) al arrancar, antes de aceptar tráfico. `seed_if_empty(db)` solo corre si la tabla `exercises` está vacía — seguro de llamar en cada arranque sin duplicar filas. Siembra 24 `Exercise` en total: los 5 originales de ejemplo (Fase 0/1: Press banca, Sentadilla, Peso muerto, Dominadas, Remo con barra) más 19 añadidos el 2026-08-10 que son los ejercicios reales que el usuario entrena hoy (Remo mancuerna unilateral, Flexiones, Pullover, Curl martillo, etc. — ver `app/seed.py` para la lista completa). Las rutinas de ejemplo ("Push day"/"Pierna") y el schedule (lunes→Push, miércoles→Pierna) solo usan los 5 originales; los 19 nuevos existen como `Exercise` sueltos, sin rutina que los use todavía, para que el usuario los tenga disponibles al crear/editar rutinas desde el móvil. Esta siembra solo corre en una BD nueva; contra la `laystra.db` real ya poblada (con rutinas/entrenos del usuario), los mismos 19 ejercicios se insertaron una vez con un script puntual (no forma parte del repo ni de `seed_if_empty`, ya se ejecutó y se descartó) para no perder datos existentes.
 
 Los routers ya no importan un store singleton; reciben `db: Session = Depends(get_db)` y hacen queries SQLAlchemy directas (`db.query(...)`, `db.get(...)`, `db.add()`, `db.commit()`, `db.refresh()`). No existe `app/services/` — ese paquete y el `InMemoryStore` que contenía se eliminaron por completo al migrar.
 
@@ -38,20 +38,21 @@ Los routers ya no importan un store singleton; reciben `db: Session = Depends(ge
 - `PUT /schedule/{day}` → asigna/limpia la rutina de un día. `day` se valida con `Path(ge=0, le=6)` de FastAPI, así que un valor fuera de rango da el 422 estándar de FastAPI (`detail` es una lista de errores de validación, no un string a mano). 404 si el `routine_id` no existe (`null` es válido, limpia el día).
 
 ### `app/routers/today.py`
-- `GET /today?date=YYYY-MM-DD` → **`date` es un query param obligatorio**, no hay default ni se usa el reloj del servidor. Decisión deliberada: el cliente (el móvil) calcula "hoy" en su propia zona horaria y se lo pasa al backend; evita que un backend alojado en otra zona horaria (Fase 4) calcule mal el día alrededor de medianoche. Devuelve `day_of_week` (`date.weekday()`: lunes=0), la rutina asignada ese día (o `null` si es descanso) y su lista de ejercicios ya resueltos (nombre, unidad, sets/reps objetivo) listos para pre-rellenar el log.
+- `GET /today?date=YYYY-MM-DD` → **`date` es un query param obligatorio**, no hay default ni se usa el reloj del servidor. Decisión deliberada: el cliente (el móvil) calcula "hoy" en su propia zona horaria y se lo pasa al backend; evita que un backend alojado en otra zona horaria (Fase 4) calcule mal el día alrededor de medianoche. Devuelve `day_of_week` (`date.weekday()`: lunes=0), la rutina asignada ese día (o `null` si es descanso) y su lista de ejercicios ya resueltos (`TodayExercise`: nombre, unidad, `target_sets`, `order`) listos para pre-rellenar el log. **No incluye reps objetivo** — desde Fase 2 las reps ya no se definen al crear la rutina, solo se registran al loguear el entreno real (`WorkoutSet.reps`).
 
 ### `app/routers/workouts.py` (prefix `/workouts`)
 - `GET /workouts` → lista ordenada por fecha descendente
 - `POST /workouts` → crea workout + sus `WorkoutSet` (201). 404 si `routine_id` o algún `exercise_id` de los sets no existen.
 - `GET /workouts/{id}` → 404 si no existe
+- `PUT /workouts/{id}` → edición completa de un workout ya guardado, mismo patrón que `PUT /routines/{id}`: `WorkoutCreate` (mismo body que `POST /workouts`) reemplaza `date`, `routine_id` y toda la lista de `WorkoutSet` (se reasigna `workout.sets`, cascade `delete-orphan` borra las filas viejas). 404 si el workout no existe, si `routine_id` viene no-nulo y no existe, o si algún `exercise_id` de `sets` no existe. Sin historial de cambios — sobrescritura simple, pulido a mitad de Fase 2 a petición del usuario (fuera del alcance original del MVP).
 
 ## Modelo de datos
 
 ### Tablas ORM (`app/models.py`, SQLAlchemy 2.0, `Mapped`/`mapped_column`)
 
-- `Exercise` (`exercises`): `id`, `name`, `unit` (default `"kg"`)
+- `Exercise` (`exercises`): `id`, `name`, `unit` (default `"kg"`). En el schema Pydantic (no en la tabla ORM, que solo tiene `str`) `unit` es `Literal["kg", "lb"]` — cualquier otro valor da 422 al crear un ejercicio.
 - `Routine` (`routines`): `id`, `name`; `exercises: list["RoutineExercise"]` (relación 1:N, cascade `all, delete-orphan`, ordenada por `RoutineExercise.order`)
-- `RoutineExercise` (`routine_exercises`): `id`, `routine_id` (FK), `exercise_id` (FK), `target_sets`, `target_reps`, `order`
+- `RoutineExercise` (`routine_exercises`): `id`, `routine_id` (FK), `exercise_id` (FK), `target_sets`, `order` — **sin `target_reps`** desde Fase 2 (ver "Decisiones no obvias"): las reps objetivo dejaron de definirse al crear la rutina.
 - `ScheduleEntry` (`schedule_entries`): `id`, `day` (columna `unique`, 0-6 — una fila por día de la semana), `routine_id` (FK a `routines.id`, nullable, `ondelete="SET NULL"`)
 - `Workout` (`workouts`): `id`, `date`, `routine_id` (FK a `routines.id`, nullable, `ondelete="SET NULL"`); `sets: list["WorkoutSet"]` (relación 1:N, mismo cascade/orden que `Routine.exercises`)
 - `WorkoutSet` (`workout_sets`): `id`, `workout_id` (FK), `exercise_id` (FK), `weight`, `reps`, `order`
@@ -77,3 +78,4 @@ Todos los `*Create` (p.ej. `ExerciseCreate`, `RoutineCreate`, `WorkoutCreate`) s
 - **FKs de SQLite activadas por conexión**: SQLite no aplica `FOREIGN KEY` por defecto salvo que cada conexión ejecute `PRAGMA foreign_keys=ON` (ver `app/db.py`). Sin el listener de conexión, las FKs declaradas en `models.py` existían solo como documentación del esquema y no bloqueaban inserts/deletes inválidos.
 - **Borrar una rutina no bloquea ni arrastra en cascada**: `ScheduleEntry.routine_id` y `Workout.routine_id` usan `ondelete="SET NULL"` (`app/models.py`). Al hacer `DELETE /routines/{id}`, SQLite pone a `null` el `routine_id` de cualquier día de la semana o workout histórico que apuntara a esa rutina, en vez de lanzar un error de integridad o borrar esas filas. Esto depende del `PRAGMA foreign_keys=ON` de `app/db.py` — sin él, `ondelete="SET NULL"` no se aplicaría (SQLite ignoraría la cláusula igual que ignora las FKs). Un workout histórico con `routine_id=null` sigue siendo válido: la rutina que se siguió ese día ya no importa una vez logueados los sets.
 - **`pydantic` es dependencia directa** en `pyproject.toml` (antes solo llegaba transitivamente vía `fastapi`), para no depender de qué versión de pydantic decida arrastrar fastapi.
+- **`RoutineExercise` sin `target_reps` (Fase 2)**: crear/editar una rutina (`POST`/`PUT /routines`) solo fija `target_sets` y `order` por ejercicio, no un número de reps objetivo. Las reps reales solo existen a nivel de `WorkoutSet.reps`, capturadas al loguear el entreno del día — reflejan lo que de verdad se hizo esa sesión, no un objetivo fijado de antemano en la rutina. Consecuencia directa: `TodayExercise` (la lista que pre-rellena la pantalla "Hoy") tampoco trae reps objetivo, solo `target_sets`.

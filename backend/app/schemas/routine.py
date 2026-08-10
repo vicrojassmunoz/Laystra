@@ -4,7 +4,6 @@ from pydantic import BaseModel, ConfigDict, Field
 class RoutineExerciseBase(BaseModel):
     exercise_id: int
     target_sets: int = Field(gt=0)
-    target_reps: int = Field(gt=0)
     order: int = Field(ge=0)
 
 

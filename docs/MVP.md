@@ -4,7 +4,9 @@
 Tener rutinas predefinidas asignadas a días de la semana, loguear el entreno del día en pocos clics, y ver semanas después si estás progresando.
 
 ## Fuera de alcance (recuérdalo cuando la tentación aparezca)
-HealthKit, notificaciones, multiusuario/auth, sync en la nube, RPE/RIR, plantillas compartidas o descargables, edición de entrenos pasados con historial de cambios. Todo esto es v2 (ver [ROADMAP.md](ROADMAP.md)). Si en mitad del MVP te encuentras diseñando esto, para y vuelve al plan.
+HealthKit, notificaciones, multiusuario/auth, sync en la nube, RPE/RIR, plantillas compartidas o descargables. Todo esto es v2 (ver [ROADMAP.md](ROADMAP.md)). Si en mitad del MVP te encuentras diseñando esto, para y vuelve al plan.
+
+**Excepción pulida a mitad de Fase 2:** edición simple de un Entreno ya guardado (`PUT /workouts/{id}`, sobrescribe sus sets) se trajo del v2 a petición explícita mientras se probaba en el móvil — sin ella, un error al loguear (peso mal tecleado, serie olvidada) no tenía forma de corregirse. Lo que sigue fuera de alcance es el **historial de cambios** (versión anterior, quién/cuándo editó) — la edición actual sobrescribe sin más, igual que ya hace `PUT /routines/{id}`.
 
 ## De qué depende todo lo demás (no negociable)
 Las rutinas y el progreso solo sirven si el dato logueado sobrevive. Esto te sale casi gratis con SQLite, así que no hay motivo real para bajarle prioridad frente a lo visual — mantenlo como suelo mínimo en cada fase, aunque el resto del pulido (UI, velocidad) sea donde inviertas el esfuerzo visible.
@@ -15,7 +17,7 @@ Las rutinas y el progreso solo sirven si el dato logueado sobrevive. Esto te sal
 
 - **Exercise**: id, nombre, unidad (kg/lb)
 - **Routine**: id, nombre (ej. "Push day", "Pierna")
-- **RoutineExercise**: id, routine_id, exercise_id, sets objetivo, reps objetivo, orden
+- **RoutineExercise**: id, routine_id, exercise_id, sets objetivo, orden. Sin reps objetivo — al definir una rutina solo se fija cuántas series tocan por ejercicio; peso y reps reales se deciden por completo al loguear en "Hoy" (decisión tomada durante Fase 2, ver su sección de test de avance).
 - **ScheduleEntry**: id, día de la semana (0-6), routine_id — qué rutina toca cada día
 - **Workout**: id, fecha, routine_id (nullable, por si algún día entrenas algo libre)
 - **WorkoutSet**: id, workout_id, exercise_id, peso, reps, orden
@@ -47,7 +49,7 @@ GET    /exercises/{id}/progress  (histórico de peso/reps — la razón de ser d
 
 ## Pantallas mínimas (mobile)
 
-1. **Rutinas** — crear/editar rutina y sus ejercicios objetivo (sets/reps planeados).
+1. **Rutinas** — crear/editar rutina y sus ejercicios objetivo (solo sets planeados, sin reps objetivo).
 2. **Semana** — vista simple de 7 días, asignar una rutina a cada día (o dejarlo vacío = descanso).
 3. **Hoy** — pantalla de inicio real: muestra la rutina de hoy pre-rellenada, logueas peso/reps reales contra cada ejercicio en pocos taps. Aquí es donde va la velocidad de logueo que priorizaste.
 4. **Historial** — lista de entrenos pasados.
@@ -83,12 +85,21 @@ Nada de tabs elaboradas, onboarding, ni splash animado — pero sí puedes inver
 ### Fase 2 — Loguear el "Hoy" (el vertical slice real)
 **Entregable:** abres la app, ves la rutina de hoy pre-rellenada, logueas peso/reps reales en pocos taps, y queda guardado como Workout.
 
+**Decisión confirmada (durante la propia Fase 2):** `RoutineExercise` pierde `target_reps` — una rutina solo fija cuántas series tocan por ejercicio (`target_sets`), no las reps. En "Hoy" cada ejercicio pre-rellena `target_sets` filas vacías de peso+reps (ajustables con "+ añadir serie"/"Quitar" por si un día haces más o menos series de las planeadas), en vez de pedir reps objetivo por adelantado.
+
 **Test de avance:**
-- [ ] Un día con rutina asignada: la pantalla "Hoy" te muestra los ejercicios de esa rutina sin que tengas que buscarlos
-- [ ] Un día sin rutina asignada (descanso): la pantalla lo indica claramente en vez de mostrar algo vacío confuso
-- [ ] Logueas un entreno completo en menos de 10 taps para una rutina de 4 ejercicios
-- [ ] El entreno logueado aparece en Historial y sobrevive a reiniciar el backend
-- [ ] Metes un input inválido a propósito (peso vacío, reps negativas) y la app no crashea
+- [x] Un día con rutina asignada: la pantalla "Hoy" te muestra los ejercicios de esa rutina sin que tengas que buscarlos
+- [x] Un día sin rutina asignada (descanso): la pantalla lo indica claramente en vez de mostrar algo vacío confuso
+- [x] Logueas un entreno completo en menos de 10 taps para una rutina de 4 ejercicios
+- [x] El entreno logueado aparece en Historial y sobrevive a reiniciar el backend
+- [x] Metes un input inválido a propósito (peso vacío, reps negativas) y la app no crashea
+
+**Verificado on-device 2026-08-10.** Además de lo planeado, durante la propia fase se pulieron varios huecos reales encontrados probando en el iPhone: el formulario de "Hoy" perdía la marca de "ya guardado" al cambiar de pestaña y volver (riesgo de entrenos duplicados), el teclado tapaba el botón de guardar en "Rutinas"/"Hoy"/"Historial" por no tener en cuenta la altura de la tab bar, y se trajo adelantado del roadmap v2 un `PUT /workouts/{id}` para poder corregir un entreno ya guardado (sin historial de cambios — ver "Fuera de alcance" más arriba).
+
+**Pendiente dentro de esta fase (no cerrar Fase 2 sin esto):**
+- [x] Añadir a `backend/app/seed.py` los ejercicios reales que el usuario entrena ahora mismo — lista dada 2026-08-10, 19 ejercicios nuevos + "Dominadas" ya existente. Insertados también en la `laystra.db` real sin tocar las rutinas/entrenos ya logueados por el usuario (24 ejercicios en total, 35/35 tests en verde).
+
+**Fase 2 cerrada 2026-08-10.**
 
 ### Fase 3 — Progreso
 **Entregable:** pantalla de progreso por ejercicio.

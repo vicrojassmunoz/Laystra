@@ -1,3 +1,4 @@
+import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { useFocusEffect } from "@react-navigation/native";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -31,14 +32,14 @@ type DraftRow = {
   id: number;
   exerciseId: number | null;
   sets: string;
-  reps: string;
 };
 
 function makeEmptyRow(id: number): DraftRow {
-  return { id, exerciseId: null, sets: "", reps: "" };
+  return { id, exerciseId: null, sets: "" };
 }
 
 export default function RoutinesScreen() {
+  const tabBarHeight = useBottomTabBarHeight();
   const [state, setState] = useState<State>({ status: "loading" });
   const hasDataRef = useRef(false);
 
@@ -127,7 +128,6 @@ export default function RoutinesScreen() {
       id: index,
       exerciseId: re.exercise_id,
       sets: String(re.target_sets),
-      reps: String(re.target_reps),
     }));
 
     nextRowIdRef.current = newRows.length;
@@ -175,7 +175,7 @@ export default function RoutinesScreen() {
 
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
-      const isUntouched = row.exerciseId === null && !row.sets.trim() && !row.reps.trim();
+      const isUntouched = row.exerciseId === null && !row.sets.trim();
       if (isUntouched) {
         // Fila añadida pero nunca rellenada: se ignora en silencio, no es un error.
         continue;
@@ -187,16 +187,14 @@ export default function RoutinesScreen() {
       }
 
       const sets = Number(row.sets);
-      const reps = Number(row.reps);
-      if (!Number.isInteger(sets) || sets <= 0 || !Number.isInteger(reps) || reps <= 0) {
-        setFormError("Sets y reps deben ser números enteros mayores que 0.");
+      if (!Number.isInteger(sets) || sets <= 0) {
+        setFormError("Sets debe ser un número entero mayor que 0.");
         return;
       }
 
       exercises.push({
         exercise_id: row.exerciseId,
         target_sets: sets,
-        target_reps: reps,
         order: order++,
       });
     }
@@ -247,6 +245,7 @@ export default function RoutinesScreen() {
       <KeyboardAvoidingView
         style={styles.container}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
+        keyboardVerticalOffset={tabBarHeight}
       >
         <ScrollView
           ref={scrollRef}
@@ -271,8 +270,7 @@ export default function RoutinesScreen() {
                   const exercise = exercises.find((e) => e.id === re.exercise_id);
                   return (
                     <Text key={re.id} style={styles.exerciseLine}>
-                      {exercise?.name ?? `Ejercicio #${re.exercise_id}`} — {re.target_sets}x
-                      {re.target_reps}
+                      {exercise?.name ?? `Ejercicio #${re.exercise_id}`} — {re.target_sets} series
                     </Text>
                   );
                 })}
@@ -318,13 +316,6 @@ export default function RoutinesScreen() {
                     keyboardType="number-pad"
                     value={row.sets}
                     onChangeText={(text) => updateRow(row.id, { sets: text })}
-                  />
-                  <TextInput
-                    style={styles.numberInput}
-                    placeholder="Reps"
-                    keyboardType="number-pad"
-                    value={row.reps}
-                    onChangeText={(text) => updateRow(row.id, { reps: text })}
                   />
 
                   {rows.length > 1 && (

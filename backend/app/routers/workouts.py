@@ -38,3 +38,25 @@ def get_workout(workout_id: int, db: Session = Depends(get_db)) -> models.Workou
     if workout is None:
         raise HTTPException(status_code=404, detail="Workout not found")
     return workout
+
+
+@router.put("/{workout_id}", response_model=Workout)
+def update_workout(
+    workout_id: int, payload: WorkoutCreate, db: Session = Depends(get_db)
+) -> models.Workout:
+    workout = db.get(models.Workout, workout_id)
+    if workout is None:
+        raise HTTPException(status_code=404, detail="Workout not found")
+
+    if payload.routine_id is not None and db.get(models.Routine, payload.routine_id) is None:
+        raise HTTPException(status_code=404, detail="Routine not found")
+    for item in payload.sets:
+        if db.get(models.Exercise, item.exercise_id) is None:
+            raise HTTPException(status_code=404, detail=f"Exercise {item.exercise_id} not found")
+
+    workout.date = payload.date
+    workout.routine_id = payload.routine_id
+    workout.sets = [models.WorkoutSet(**item.model_dump()) for item in payload.sets]
+    db.commit()
+    db.refresh(workout)
+    return workout

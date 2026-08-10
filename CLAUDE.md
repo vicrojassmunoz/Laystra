@@ -29,6 +29,10 @@ Fase 1 backend is done: the in-memory store (`app/services/store.py`) was replac
 
 Fase 1 mobile is done: added bottom-tab navigation (Hoy / Rutinas / Semana) via `@react-navigation`. "Rutinas" lists existing routines and has a form to create, edit, and delete them (exercise picker as a modal, not the inline iOS `Picker` wheel — that stacked badly with multiple rows). "Semana" shows the 7-day schedule and lets you assign a routine or rest day per day via a modal. All three tab screens refetch on focus (`useFocusEffect`), not just on mount, since React Navigation keeps tab screens mounted when switching tabs. Verified on a physical iPhone: create/edit/delete routines, assign them across the week, restart the backend, everything persists.
 
+Fase 2 backend is done: `POST/GET /workouts`, `GET /workouts/{id}`, and `GET /today` were already real (not hardcoded) from earlier work. Mid-phase, `RoutineExercise` was simplified to drop `target_reps` — a routine now only fixes `target_sets` per exercise, reps/weight are decided entirely at log time (breaking schema change, `laystra.db` was reset once for it). Also mid-phase, `PUT /workouts/{id}` was added — a deliberate, user-requested exception pulled forward from the MVP's "no editing past workouts" exclusion; it's a plain overwrite (same `cascade="all, delete-orphan"` replace pattern as `PUT /routines/{id}`), no edit-history/audit trail, which stays excluded. 35 passing tests.
+
+Fase 2 mobile is done: `TodayScreen` rewritten into a real logging form — per-set weight/reps inputs pre-filled to `target_sets` rows, "+ añadir serie"/"Quitar" to adjust, weight auto-fills across a set's empty rows, Spanish decimal-comma input normalized, and the draft now survives tab switches (keyed on date+routine+exercise signature, not on every refocus) so a saved state doesn't quietly reset. New `HistorialScreen` (4th tab) lists past workouts grouped by exercise and supports inline per-workout editing (same dynamic-row pattern, can't add a brand-new exercise to a past workout — noted in `docs/ROADMAP.md`). `KeyboardAvoidingView` across `RoutinasScreen`/`TodayScreen`/`HistorialScreen` now uses `useBottomTabBarHeight()` as `keyboardVerticalOffset` — without it the save button hid behind the keyboard, since the plain `"padding"` behavior didn't account for the tab bar. Verified on a physical iPhone. The seed list (`app/seed.py`) was also expanded from 5 to 24 exercises with the developer's real ones (2026-08-10), inserted into the live `laystra.db` without touching existing routines/workouts.
+
 ## Commands
 
 Backend (Python/FastAPI, run from `backend/`, dependencies managed via `uv` + `pyproject.toml`):
@@ -60,7 +64,9 @@ One-line summary: predefined routines assigned to weekdays, log the day's workou
 
 **Fase 0 — esqueleto conectado is done** (verified on-device 2026-08-09: `/docs` lists all endpoints, the Expo app renders real backend data over Expo Go, and killing the backend shows a visible error instead of a crash).
 
-**Fase 1 — rutinas y calendario semanal is done** (verified on-device 2026-08-10: create/edit/delete routines and assign them to weekdays from the phone, restart the backend, everything survives in SQLite). Current phase: **Fase 2 — loguear el "Hoy"** (see `docs/MVP.md`) — the real vertical slice: pre-filled today's routine, log actual sets/reps in a few taps, persisted as a `Workout`. Don't touch Fase 3+ (progress) until Fase 2's test criteria are met.
+**Fase 1 — rutinas y calendario semanal is done** (verified on-device 2026-08-10: create/edit/delete routines and assign them to weekdays from the phone, restart the backend, everything survives in SQLite).
+
+**Fase 2 — loguear el "Hoy" is done** (verified on-device 2026-08-10: pre-filled today's routine, log real sets/reps in a few taps, persisted as a `Workout`, survives a backend restart, shows up in Historial, invalid input doesn't crash). Current phase: **Fase 3 — progreso** (see `docs/MVP.md`) — a per-exercise progress screen. Don't design anything from `docs/ROADMAP.md` (muscle groups, splits, AI analysis, etc.) unless the human explicitly pulls it forward.
 
 ## Intended architecture
 
