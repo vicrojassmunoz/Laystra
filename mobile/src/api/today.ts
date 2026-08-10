@@ -1,12 +1,12 @@
 import { API_BASE_URL } from "../config";
+import { Exercise } from "../types/exercise";
 import { buildErrorMessage } from "./http";
 
 export type TodayExercise = {
   exercise_id: number;
   exercise_name: string;
-  unit: string;
+  unit: Exercise["unit"];
   target_sets: number;
-  target_reps: number;
   order: number;
 };
 
@@ -18,7 +18,7 @@ export type TodayResponse = {
   exercises: TodayExercise[];
 };
 
-function todayIsoDate(): string {
+export function todayIsoDate(): string {
   const now = new Date();
   const year = now.getFullYear();
   const month = String(now.getMonth() + 1).padStart(2, "0");

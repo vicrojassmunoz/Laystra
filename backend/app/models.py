@@ -34,7 +34,6 @@ class RoutineExercise(Base):
     routine_id: Mapped[int] = mapped_column(ForeignKey("routines.id"))
     exercise_id: Mapped[int] = mapped_column(ForeignKey("exercises.id"))
     target_sets: Mapped[int]
-    target_reps: Mapped[int]
     order: Mapped[int]
 
     routine: Mapped["Routine"] = relationship(back_populates="exercises")

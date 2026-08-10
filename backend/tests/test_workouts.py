@@ -60,6 +60,77 @@ def test_get_unknown_workout_is_404(client: TestClient) -> None:
     assert response.status_code == 404
 
 
+def test_update_workout_changes_sets(client: TestClient) -> None:
+    exercise_id = client.get("/exercises").json()[0]["id"]
+
+    create_response = client.post(
+        "/workouts",
+        json={
+            "date": "2026-08-09",
+            "sets": [{"exercise_id": exercise_id, "weight": 60, "reps": 8, "order": 0}],
+        },
+    )
+    workout_id = create_response.json()["id"]
+
+    update_response = client.put(
+        f"/workouts/{workout_id}",
+        json={
+            "date": "2026-08-10",
+            "sets": [
+                {"exercise_id": exercise_id, "weight": 65, "reps": 5, "order": 0},
+                {"exercise_id": exercise_id, "weight": 67.5, "reps": 3, "order": 1},
+            ],
+        },
+    )
+
+    assert update_response.status_code == 200
+    updated = update_response.json()
+    assert updated["date"] == "2026-08-10"
+    assert len(updated["sets"]) == 2
+    assert updated["sets"][0]["weight"] == 65
+    assert updated["sets"][0]["reps"] == 5
+
+    get_response = client.get(f"/workouts/{workout_id}")
+    assert get_response.status_code == 200
+    fetched = get_response.json()
+    assert len(fetched["sets"]) == 2
+    assert fetched["sets"][1]["weight"] == 67.5
+
+
+def test_update_unknown_workout_is_404(client: TestClient) -> None:
+    exercise_id = client.get("/exercises").json()[0]["id"]
+
+    response = client.put(
+        "/workouts/9999",
+        json={
+            "date": "2026-08-09",
+            "sets": [{"exercise_id": exercise_id, "weight": 10, "reps": 5, "order": 0}],
+        },
+    )
+
+    assert response.status_code == 404
+
+
+def test_update_workout_with_unknown_exercise_is_404(client: TestClient) -> None:
+    exercise_id = client.get("/exercises").json()[0]["id"]
+
+    create_response = client.post(
+        "/workouts",
+        json={
+            "date": "2026-08-09",
+            "sets": [{"exercise_id": exercise_id, "weight": 60, "reps": 8, "order": 0}],
+        },
+    )
+    workout_id = create_response.json()["id"]
+
+    response = client.put(
+        f"/workouts/{workout_id}",
+        json={"date": "2026-08-09", "sets": [{"exercise_id": 9999, "weight": 10, "reps": 5, "order": 0}]},
+    )
+
+    assert response.status_code == 404
+
+
 def test_progress_reflects_logged_workout(client: TestClient) -> None:
     exercise_id = client.get("/exercises").json()[0]["id"]
     client.post(

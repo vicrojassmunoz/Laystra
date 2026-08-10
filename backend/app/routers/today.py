@@ -28,7 +28,6 @@ def get_today(date: date_, db: Session = Depends(get_db)) -> TodayResponse:
                     exercise_name=exercise.name,
                     unit=exercise.unit,
                     target_sets=routine_exercise.target_sets,
-                    target_reps=routine_exercise.target_reps,
                     order=routine_exercise.order,
                 )
             )

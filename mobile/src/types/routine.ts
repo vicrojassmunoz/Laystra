@@ -3,14 +3,12 @@ export type RoutineExercise = {
   routine_id: number;
   exercise_id: number;
   target_sets: number;
-  target_reps: number;
   order: number;
 };
 
 export type RoutineExerciseCreate = {
   exercise_id: number;
   target_sets: number;
-  target_reps: number;
   order: number;
 };
 

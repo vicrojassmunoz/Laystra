@@ -8,7 +8,6 @@ class TodayExercise(BaseModel):
     exercise_name: str
     unit: str
     target_sets: int
-    target_reps: int
     order: int
 
 
