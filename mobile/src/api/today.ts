@@ -1,4 +1,5 @@
 import { API_BASE_URL } from "../config";
+import { buildErrorMessage } from "./http";
 
 export type TodayExercise = {
   exercise_id: number;
@@ -29,7 +30,7 @@ export async function fetchToday(): Promise<TodayResponse> {
   const response = await fetch(`${API_BASE_URL}/today?date=${todayIsoDate()}`);
 
   if (!response.ok) {
-    throw new Error(`El backend respondió ${response.status}`);
+    throw new Error(await buildErrorMessage(response));
   }
 
   return response.json();

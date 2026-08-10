@@ -1,22 +1,35 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Path
+from sqlalchemy.orm import Session
 
+from app import models
+from app.db import get_db
 from app.schemas.schedule import ScheduleEntry, ScheduleUpdate
-from app.services.store import store
 
 router = APIRouter(prefix="/schedule", tags=["schedule"])
 
 
 @router.get("", response_model=list[ScheduleEntry])
-def get_schedule() -> list[ScheduleEntry]:
-    return [ScheduleEntry(day=day, routine_id=routine_id) for day, routine_id in sorted(store.schedule.items())]
+def get_schedule(db: Session = Depends(get_db)) -> list[ScheduleEntry]:
+    entries = db.query(models.ScheduleEntry).order_by(models.ScheduleEntry.day).all()
+    routine_by_day = {entry.day: entry.routine_id for entry in entries}
+    return [ScheduleEntry(day=day, routine_id=routine_by_day.get(day)) for day in range(7)]
 
 
 @router.put("/{day}", response_model=ScheduleEntry)
-def set_schedule_day(day: int, payload: ScheduleUpdate) -> ScheduleEntry:
-    if day not in store.schedule:
-        raise HTTPException(status_code=422, detail="day must be between 0 (Monday) and 6 (Sunday)")
-    if payload.routine_id is not None and payload.routine_id not in store.routines:
+def set_schedule_day(
+    payload: ScheduleUpdate,
+    day: int = Path(ge=0, le=6),
+    db: Session = Depends(get_db),
+) -> ScheduleEntry:
+    if payload.routine_id is not None and db.get(models.Routine, payload.routine_id) is None:
         raise HTTPException(status_code=404, detail="Routine not found")
 
-    store.schedule[day] = payload.routine_id
+    entry = db.query(models.ScheduleEntry).filter(models.ScheduleEntry.day == day).one_or_none()
+    if entry is None:
+        entry = models.ScheduleEntry(day=day, routine_id=payload.routine_id)
+        db.add(entry)
+    else:
+        entry.routine_id = payload.routine_id
+    db.commit()
+
     return ScheduleEntry(day=day, routine_id=payload.routine_id)
