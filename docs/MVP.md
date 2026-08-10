@@ -104,6 +104,10 @@ Nada de tabs elaboradas, onboarding, ni splash animado — pero sí puedes inver
 ### Fase 3 — Progreso
 **Entregable:** pantalla de progreso por ejercicio.
 
+**Añadido al plan de esta fase (pedido 2026-08-10):**
+- `DELETE /workouts/{id}` + botón "Borrar" por tarjeta en Historial — hace falta para limpiar entrenos de prueba sin tener que tocar la DB a mano. Mismo patrón que `PUT /workouts/{id}` (ya existe), así que es barato.
+- "Loguear otro entreno" en Hoy tiene dos problemas de raíz: (1) al pulsarlo, la confirmación del entreno recién guardado desaparece sin más — no queda constancia visible de qué ya se logueó hoy mientras rellenas el segundo; (2) el formulario que aparece está fijo a la rutina asignada de hoy, así que no sirve para el caso real: ya hiciste "Pull" (tu rutina de hoy) y luego, aparte, saliste a correr — quieres añadir eso como un segundo Workout del mismo día, no repetir "Pull". Arreglo: "Loguear otro entreno" debería (a) mantener visible/resumido lo ya guardado en vez de taparlo, y (b) dejar elegir qué loguear a continuación — otra rutina existente, o "entreno libre" (el modelo ya soporta `Workout.routine_id` nulo para esto) con un picker de ejercicios como el de `RoutinesScreen.tsx`. **Ojo:** "running" tal cual lo pusiste como ejemplo no encaja de verdad en `WorkoutSet` (peso/reps) — para loguear cardio en condiciones (distancia/tiempo) hace falta la generalización `Session`/`session_type` ya apuntada en `ROADMAP.md` → "Sección de objetivos". Sin esa generalización, esto solo resuelve poder loguear una segunda sesión de FUERZA (otra rutina o ejercicios sueltos) el mismo día, no un run de verdad.
+
 **Test de avance:**
 - [ ] Con 3+ entrenos logueados del mismo ejercicio en fechas distintas, la pantalla de progreso muestra la evolución correctamente ordenada
 - [ ] Un ejercicio sin histórico no rompe la pantalla, muestra estado vacío razonable

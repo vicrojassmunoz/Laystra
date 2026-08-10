@@ -9,8 +9,21 @@ No tocan el MVP actual (rutinas + calendario + log + progreso, ver [MVP.md](MVP.
 ### Registro de condición física (peso, % grasa)
 Entidad nueva y sencilla: `BodyMetric` (fecha, peso, %grasa opcional). Sin dependencias raras, es una pantalla + un endpoint más. De las ideas de la lista, la más barata de todas — podría entrar casi en el MVP si quisieras.
 
+### Colapsar/expandir ejercicios en "Hoy" tras guardar
+Una vez el entreno queda guardado ("Entreno guardado ✓"), cada tarjeta de ejercicio podría colapsarse a solo el nombre en vez de seguir mostrando todas las filas de series ya guardadas — y poder expandirla nuevamente tocándola para revisar el detalle, sin tener que ir a Historial. Puramente UI: estado local por tarjeta (`expandido: boolean`), sin tocar backend ni el modelo de datos. Encaja bien como pulido de la pantalla "Hoy" (la prioridad #2 que ya se marcó en `MVP.md`), no es MVP-crítico así que queda para después.
+
+### Crear ejercicios nuevos desde la propia app, con selector kg/lb
+Ahora mismo la única forma de añadir un `Exercise` es que un dev edite `backend/app/seed.py` (o inserte a mano en la DB) — no hay UI en el móvil para ello, aunque `POST /exercises` ya existe en el backend. El propio schema (`backend/app/schemas/exercise.py`) ya tiene `unit: Literal["kg", "lb"]`, así que el backend no necesita cambios; solo falta:
+- Un "+ Nuevo ejercicio" dentro del picker de ejercicios que ya usa `RoutinesScreen.tsx` (modal), en vez de solo listar los existentes.
+- Un formulario mínimo: nombre + selector kg/lb (**kg por defecto**).
+
+Barato — reutiliza UI ya existente, no toca el modelo de datos.
+
 ### Añadir un ejercicio nuevo al editar un Entreno pasado
 La edición de un Workout ya guardado (Historial → "Editar", Fase 2) solo deja tocar/añadir/quitar series de los ejercicios que ese entreno ya tenía — no añadir uno que no se logueó ese día (por ejemplo, si te olvidaste de apuntar una serie de un ejercicio entero). Se dejó fuera a propósito para no meter un picker de ejercicios dentro del formulario de edición en la primera pasada. Barato de añadir después: reutilizar el mismo modal de selección de ejercicio que ya usa `RoutinesScreen.tsx`.
+
+### Exportar el registro de entrenos a CSV
+Barata: un endpoint (`GET /workouts/export` o similar) que recorra `Workout`/`WorkoutSet` y devuelva CSV en vez de JSON — no hace falta librería nueva en el backend, es formatear texto. En el móvil, `expo-sharing` + `expo-file-system` (ya disponibles en Expo Go, no hace falta salir de él ni pasar por `eas-agent`) para guardar/compartir el archivo generado. Encaja bien justo después del MVP, no depende de nada de lo demás en este documento.
 
 ### Sección de objetivos (3, o los que sean) y planificación semanal en base a ellos
 Esto es más gordo de lo que parece porque **obliga a generalizar el modelo actual**. Ahora mismo `Routine`/`Workout` están pensados para musculación (sets/reps/peso). Si quieres meter correr como un objetivo más, necesitas algo tipo:
@@ -21,6 +34,8 @@ Esto es más gordo de lo que parece porque **obliga a generalizar el modelo actu
 No es difícil, pero es una decisión de arquitectura que conviene tomar ANTES de tener 50 entrenos de fuerza logueados con un modelo que luego hay que migrar. Si esto te importa de verdad a medio plazo, dímelo ahora y lo diseñamos genérico desde ya en el MVP, aunque solo uses el tipo "fuerza" al principio.
 
 **Decisión actual: no generalizar todavía.** Seguir con `Workout`/`WorkoutSet` solo-fuerza hasta que cardio sea un plan real a corto plazo, no "por si acaso". La migración de `Workout` a `Session` con tipos es un rename + split acotado, no una reescritura — no hay coste real en esperar.
+
+**Caso real que la reengancha (2026-08-10):** surgió pidiendo mejorar "Loguear otro entreno" en Hoy — el caso concreto es "ya hice Pull hoy (mi rutina asignada) y luego salí a correr, quiero añadir el run como segunda sesión del mismo día" (ver `MVP.md` → Fase 3). Confirma que el hueco es real, no hipotético, pero no cambia la decisión de arriba: sin esta generalización, ese caso concreto solo se resuelve a medias (loguear una segunda sesión de fuerza sí, un run con distancia/tiempo no).
 
 ### Asistencia en directo durante la sesión
 Lo trocearía así por coste:
