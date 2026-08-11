@@ -45,6 +45,7 @@ Los routers ya no importan un store singleton; reciben `db: Session = Depends(ge
 - `POST /workouts` → crea workout + sus `WorkoutSet` (201). 404 si `routine_id` o algún `exercise_id` de los sets no existen.
 - `GET /workouts/{id}` → 404 si no existe
 - `PUT /workouts/{id}` → edición completa de un workout ya guardado, mismo patrón que `PUT /routines/{id}`: `WorkoutCreate` (mismo body que `POST /workouts`) reemplaza `date`, `routine_id` y toda la lista de `WorkoutSet` (se reasigna `workout.sets`, cascade `delete-orphan` borra las filas viejas). 404 si el workout no existe, si `routine_id` viene no-nulo y no existe, o si algún `exercise_id` de `sets` no existe. Sin historial de cambios — sobrescritura simple, pulido a mitad de Fase 2 a petición del usuario (fuera del alcance original del MVP).
+- `DELETE /workouts/{id}` → 204, borra el workout. 404 si no existe. Mismo patrón que `DELETE /routines/{id}`: el cascade `delete-orphan` de `Workout.sets` borra también los `WorkoutSet` asociados. Añadido en Fase 3 a petición del usuario (ver `docs/MVP.md`, sección "Fase 3 — Progreso").
 
 ## Modelo de datos
 

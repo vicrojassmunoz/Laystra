@@ -4,6 +4,17 @@ No tocan el MVP actual (rutinas + calendario + log + progreso, ver [MVP.md](MVP.
 
 ---
 
+## v1 - evolución a app más profesional
+
+### Menú Home
+Pantalla principal con 
+- Pequeño resumen de la semana arriba, marcando días pasados con distinción de si se ha entrenado o no. Acceso directo a `Semana`.
+- Debajo acceso directo a `Objetivos` - pantalla por hacer - ahora mismo dummy
+- Mitad bloque medio de la pantalla acceso directo a `User` - pantalla por hacer, ahora mismo dummy
+- Otra mitad bloque medio acceso directo a `Análisis` - pantalla por hacer, ahora mismo dummy
+- Justo debajo, mitad para acceso directo a `Rutinas`
+- En la otra mitad acceso directo a `historial`
+
 ## v2 — extensiones naturales del MVP, coste bajo/medio
 
 ### Registro de condición física (peso, % grasa)

@@ -60,3 +60,15 @@ def update_workout(
     db.commit()
     db.refresh(workout)
     return workout
+
+
+@router.delete("/{workout_id}", status_code=204)
+def delete_workout(workout_id: int, db: Session = Depends(get_db)) -> None:
+    workout = db.get(models.Workout, workout_id)
+    if workout is None:
+        raise HTTPException(status_code=404, detail="Workout not found")
+
+    # Workout.sets uses cascade="all, delete-orphan" (see app/models.py), so
+    # deleting the workout also deletes its WorkoutSet rows.
+    db.delete(workout)
+    db.commit()

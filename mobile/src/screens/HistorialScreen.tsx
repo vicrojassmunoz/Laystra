@@ -3,6 +3,7 @@ import { useFocusEffect } from "@react-navigation/native";
 import { useCallback, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Button,
   KeyboardAvoidingView,
   Platform,
@@ -16,7 +17,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { fetchExercises } from "../api/exercises";
 import { fetchRoutines } from "../api/routines";
-import { fetchWorkouts, updateWorkout } from "../api/workouts";
+import { deleteWorkout, fetchWorkouts, updateWorkout } from "../api/workouts";
 import { Exercise } from "../types/exercise";
 import { Routine } from "../types/routine";
 import { Workout, WorkoutSet, WorkoutSetCreate } from "../types/workout";
@@ -106,6 +107,11 @@ export default function HistorialScreen() {
   const [editRows, setEditRows] = useState<EditExerciseGroup[]>([]);
   const [editError, setEditError] = useState<string | null>(null);
   const [editSaving, setEditSaving] = useState(false);
+  // Error de borrado, separado de editError porque no está atado al formulario
+  // de edición (puede pasar sobre cualquier tarjeta, esté o no en modo edición).
+  const [actionError, setActionError] = useState<string | null>(null);
+  // Evita doble-tap mientras la petición de borrado está en curso.
+  const [deletingWorkoutId, setDeletingWorkoutId] = useState<number | null>(null);
   // Contador compartido para ids de fila de serie en el formulario de edición,
   // igual que nextSetIdRef en TodayScreen -- da a cada fila una key estable.
   const nextEditIdRef = useRef(1);
@@ -122,6 +128,9 @@ export default function HistorialScreen() {
       .then(([workouts, exercises, routines]) => {
         hasDataRef.current = true;
         setState({ status: "ready", workouts, exercises, routines });
+        // Una recarga exitosa deja la pantalla al día con el backend -- si había
+        // un actionError de un borrado fallido anterior, ya no aplica.
+        setActionError(null);
       })
       .catch((error: Error) => {
         if (!hasDataRef.current) {
@@ -148,6 +157,44 @@ export default function HistorialScreen() {
     setEditingWorkoutId(null);
     setEditRows([]);
     setEditError(null);
+  }
+
+  function confirmDelete(workout: Workout, routineName: string) {
+    Alert.alert(
+      "¿Borrar entreno?",
+      `Se borrará el entreno de "${routineName}" del ${workout.date} permanentemente.`,
+      [
+        { text: "Cancelar", style: "cancel" },
+        {
+          text: "Borrar",
+          style: "destructive",
+          onPress: () => handleDelete(workout.id),
+        },
+      ]
+    );
+  }
+
+  function handleDelete(id: number) {
+    setActionError(null);
+    setDeletingWorkoutId(id);
+    deleteWorkout(id)
+      .then(() => {
+        if (editingWorkoutId === id) {
+          cancelEdit();
+        }
+        load();
+      })
+      .catch((error: Error) => {
+        setActionError(error.message);
+        // Si el borrado falló porque el workout ya no existe (p.ej. 404, borrado
+        // desde otro sitio), la tarjeta se queda "fantasma" en pantalla y cada
+        // reintento repite el mismo error hasta cambiar de pestaña -- se recarga
+        // la lista para reconciliar la UI con el estado real del backend.
+        load();
+      })
+      .finally(() => {
+        setDeletingWorkoutId(null);
+      });
   }
 
   function updateEditSet(groupIndex: number, setIndex: number, patch: Partial<EditSetDraft>) {
@@ -286,6 +333,8 @@ export default function HistorialScreen() {
             <Text style={styles.emptyText}>Aún no has logueado ningún entreno.</Text>
           )}
 
+          {actionError && <Text style={styles.errorDetail}>{actionError}</Text>}
+
           {workouts.map((workout) => {
             const routineName =
               workout.routine_id != null
@@ -308,7 +357,13 @@ export default function HistorialScreen() {
                       const exercise = exerciseById.get(group.exerciseId);
                       const name = exercise?.name ?? `Ejercicio #${group.exerciseId}`;
                       return (
-                        <View key={group.exerciseId} style={styles.editGroup}>
+                        // buildEditGroups agrupa por tramos contiguos del mismo
+                        // ejercicio -- un entreno con el mismo ejercicio en dos
+                        // tramos separados (ej. superserie A-B-A) genera dos
+                        // grupos con el mismo exerciseId, así que hace falta
+                        // combinarlo con el índice del tramo para que la key
+                        // sea única.
+                        <View key={`${group.exerciseId}-${groupIndex}`} style={styles.editGroup}>
                           <Text style={styles.exerciseName}>{name}</Text>
 
                           {group.sets.map((setDraft, setIndex) => (
@@ -377,7 +432,13 @@ export default function HistorialScreen() {
                       <Button
                         title="Editar"
                         onPress={() => startEdit(workout)}
-                        disabled={editingWorkoutId !== null}
+                        disabled={editingWorkoutId !== null || deletingWorkoutId !== null}
+                      />
+                      <Button
+                        title={deletingWorkoutId === workout.id ? "Borrando..." : "Borrar"}
+                        color="#b00020"
+                        onPress={() => confirmDelete(workout, routineName)}
+                        disabled={editingWorkoutId !== null || deletingWorkoutId !== null}
                       />
                     </View>
                   </>
