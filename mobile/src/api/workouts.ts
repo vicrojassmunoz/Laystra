@@ -39,3 +39,15 @@ export async function updateWorkout(id: number, payload: WorkoutCreate): Promise
 
   return response.json();
 }
+
+export async function deleteWorkout(id: number): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/workouts/${id}`, {
+    method: "DELETE",
+  });
+
+  if (!response.ok) {
+    throw new Error(await buildErrorMessage(response));
+  }
+
+  // 204 No Content: no hay body que parsear.
+}

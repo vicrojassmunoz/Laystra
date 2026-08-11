@@ -5,23 +5,30 @@ import {
   ActivityIndicator,
   Button,
   KeyboardAvoidingView,
+  Modal,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
+  TouchableOpacity,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { fetchExercises } from "../api/exercises";
+import { fetchRoutines } from "../api/routines";
 import { createWorkout } from "../api/workouts";
 import { fetchToday, TodayExercise, TodayResponse } from "../api/today";
+import { Exercise } from "../types/exercise";
+import { Routine } from "../types/routine";
 import { WorkoutSetCreate } from "../types/workout";
 
 type State =
   | { status: "loading" }
   | { status: "error"; message: string }
-  | { status: "ready"; data: TodayResponse };
+  | { status: "ready"; data: TodayResponse; routines: Routine[]; exercises: Exercise[] };
 
 type SetDraft = {
   id: number;
@@ -34,13 +41,31 @@ type ExerciseDraft = {
   sets: SetDraft[];
 };
 
+// Qué rutina (o "entreno libre") está representando el formulario ahora mismo.
+// Empieza igualada a la rutina de hoy (routine_id/routine_name de /today), pero
+// tras "Loguear otro entreno" puede apuntar a otra rutina distinta o a ninguna
+// (entreno libre, routine_id null) -- se guarda aparte de `state.data` porque
+// state.data siempre es "lo de hoy" tal cual lo devuelve el backend.
+type FormTarget = {
+  routineId: number | null;
+  routineName: string | null; // null = entreno libre
+  exercises: TodayExercise[];
+};
+
+// Resumen colapsado de un entreno ya guardado en esta sesión de pantalla, para
+// no perderlo de vista mientras se rellena un segundo (o tercer) entreno.
+type SavedSummary = {
+  workoutId: number;
+  label: string;
+};
+
 // `nextId` es un contador compartido (no uno distinto por ejercicio) que la
 // pantalla pasa desde un useRef, igual que `nextRowIdRef` en RoutinesScreen.
 // Da a cada fila de serie un id estable para usar como key en vez del índice
 // -- así, al quitar una fila del medio, React no reutiliza por error el
 // TextInput enfocado para otra serie distinta.
-function buildDraft(data: TodayResponse, nextId: () => number): ExerciseDraft[] {
-  return data.exercises.map((exercise) => ({
+function buildDraft(exercises: TodayExercise[], nextId: () => number): ExerciseDraft[] {
+  return exercises.map((exercise) => ({
     exercise,
     // Pre-rellena con `target_sets` filas vacías (el número de series objetivo
     // de la rutina); "+ añadir serie"/"Quitar" siguen disponibles por si un día
@@ -53,6 +78,49 @@ function buildDraft(data: TodayResponse, nextId: () => number): ExerciseDraft[] 
   }));
 }
 
+// Convierte los ejercicios de una rutina cualquiera (no necesariamente la de
+// hoy) al mismo shape que usa /today, para poder reusar buildDraft. Routine
+// solo trae exercise_id -- el nombre/unidad hay que resolverlos aparte con la
+// lista completa de ejercicios.
+function routineToExercises(routine: Routine, exerciseById: Map<number, Exercise>): TodayExercise[] {
+  return routine.exercises
+    .slice()
+    .sort((a, b) => a.order - b.order)
+    .map((re) => {
+      const exercise = exerciseById.get(re.exercise_id);
+      return {
+        exercise_id: re.exercise_id,
+        exercise_name: exercise?.name ?? `Ejercicio #${re.exercise_id}`,
+        unit: exercise?.unit ?? "kg",
+        target_sets: re.target_sets,
+        order: re.order,
+      };
+    });
+}
+
+// Para un entreno libre no hay rutina que fije target_sets, así que se parte
+// de 1 serie por ejercicio elegido -- "+ añadir serie" cubre el resto.
+function freeExercisesToDraftExercises(selected: Exercise[]): TodayExercise[] {
+  return selected.map((exercise, index) => ({
+    exercise_id: exercise.id,
+    exercise_name: exercise.name,
+    unit: exercise.unit,
+    target_sets: 1,
+    order: index,
+  }));
+}
+
+// Título que se muestra arriba del formulario: mientras no se ha elegido nada
+// (formTarget null, primer entreno del día) refleja la rutina de /today; en
+// cuanto el usuario elige otra rutina o "entreno libre" con "Loguear otro
+// entreno", tiene que reflejar ESO en vez de seguir mostrando la rutina de hoy.
+function headerRoutineName(formTarget: FormTarget | null, data: TodayResponse): string {
+  if (formTarget) {
+    return formTarget.routineId === null ? "Entreno libre" : formTarget.routineName ?? "Rutina";
+  }
+  return data.routine_name ?? "Día de descanso";
+}
+
 export default function TodayScreen() {
   const tabBarHeight = useBottomTabBarHeight();
   const [state, setState] = useState<State>({ status: "loading" });
@@ -60,21 +128,49 @@ export default function TodayScreen() {
   // spinner cada vez que el usuario vuelve a esta pestaña.
   const hasDataRef = useRef(false);
 
+  const [formTarget, setFormTarget] = useState<FormTarget | null>(null);
   const [formRows, setFormRows] = useState<ExerciseDraft[]>([]);
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  // El usuario descartó el entreno pre-rellenado de hoy (rutina asignada, o el
+  // que dejó abierto "Loguear otro entreno") sin llegar a guardarlo -- no
+  // quiere loguear nada ahora mismo, ni ese ni ningún otro por el momento.
+  // Distinto de "Cancelar" (que solo aplica si ya hay algo guardado hoy al
+  // que volver): esto es para el caso en que todavía no se ha guardado nada.
+  const [skipped, setSkipped] = useState(false);
+  // Entrenos ya guardados hoy en esta pantalla (el de /today más los que se
+  // vayan añadiendo con "Loguear otro entreno"), para mostrarlos de forma
+  // resumida mientras se rellena el siguiente. Se reinicia cuando cambia el
+  // día (ver el useEffect de más abajo).
+  const [savedSummaries, setSavedSummaries] = useState<SavedSummary[]>([]);
+
+  // Picker de dos pasos para "Loguear otro entreno": "target" (elegir otra
+  // rutina o "entreno libre") y "exercises" (solo para entreno libre, elegir
+  // qué ejercicios sueltos). Es un único estado de "paso" en vez de dos
+  // booleanos de dos <Modal> hermanos -- montar un segundo Modal en el mismo
+  // tick en que se cierra el primero (setTargetPickerVisible(false) +
+  // setExercisePickerVisible(true) juntos) es un patrón conocido por dar
+  // glitches en iOS/RN (el segundo modal no aparece, o queda el backdrop del
+  // primero). Con un solo <Modal visible={pickerStep !== null}> solo hay uno
+  // montado/desmontado a la vez; lo que cambia es el contenido de dentro.
+  const [pickerStep, setPickerStep] = useState<"target" | "exercises" | null>(null);
+  const [freeSelection, setFreeSelection] = useState<number[]>([]);
+
+  // Instantánea de formTarget/formRows justo tras el último guardado exitoso,
+  // para poder volver a ella si el usuario pulsa "Loguear otro entreno", elige
+  // un destino, y luego se arrepiente -- sin esto no había forma de salir de
+  // ese formulario en blanco salvo guardarlo o cambiar de pestaña.
+  const lastSubmittedSnapshotRef = useRef<{
+    formTarget: FormTarget;
+    formRows: ExerciseDraft[];
+  } | null>(null);
+
   // Identifica qué se está logueando (fecha + rutina + firma de ejercicios/sets/reps
   // objetivo). Mientras esta clave no cambie, el formulario no se reconstruye en
   // cada focus -- si no, volver de "Historial" a "Hoy" borraría lo ya escrito (o,
   // peor, invitaría a re-guardar un entreno ya guardado como si fuera nuevo).
   const draftKeyRef = useRef<string | null>(null);
-  // Copia en ref de `submitted`: la usa el useEffect de abajo para decidir si debe
-  // reconstruir el draft. No puede depender del state `submitted` directamente
-  // porque ese efecto también corre justo después de guardar (arriba se hace
-  // setSubmitted(true)) y con state en las deps se autoborraría la confirmación
-  // antes de que el usuario llegue a verla.
-  const submittedRef = useRef(false);
   // Contador compartido para los ids de fila de serie (ver comentario en
   // buildDraft). Empieza en 1 y nunca se resetea entre reconstrucciones del
   // draft -- no hace falta, solo importa que cada id sea único dentro de la
@@ -89,10 +185,13 @@ export default function TodayScreen() {
       setState({ status: "loading" });
     }
 
-    fetchToday()
-      .then((data) => {
+    // Se piden rutinas y ejercicios junto con /today -- no solo para el
+    // formulario de hoy, sino porque "Loguear otro entreno" necesita elegir
+    // entre todas las rutinas (no solo la de hoy) o ejercicios sueltos.
+    Promise.all([fetchToday(), fetchRoutines(), fetchExercises()])
+      .then(([data, routines, exercises]) => {
         hasDataRef.current = true;
-        setState({ status: "ready", data });
+        setState({ status: "ready", data, routines, exercises });
       })
       .catch((error: Error) => {
         // Si ya había datos visibles, los dejamos y simplemente no se refrescan
@@ -139,11 +238,19 @@ export default function TodayScreen() {
       return;
     }
 
+    // Cambió el día (o la rutina de hoy): es un día nuevo, así que también se
+    // olvidan los resúmenes de entrenos guardados anteriormente.
     draftKeyRef.current = key;
-    submittedRef.current = false;
-    setFormRows(buildDraft(state.data, nextSetId));
+    setFormTarget({
+      routineId: state.data.routine_id,
+      routineName: state.data.routine_name,
+      exercises: state.data.exercises,
+    });
+    setFormRows(buildDraft(state.data.exercises, nextSetId));
     setFormError(null);
     setSubmitted(false);
+    setSkipped(false);
+    setSavedSummaries([]);
   }, [state]);
 
   function updateSet(exerciseIndex: number, setIndex: number, patch: Partial<SetDraft>) {
@@ -201,18 +308,86 @@ export default function TodayScreen() {
     );
   }
 
+  // "Loguear otro entreno" ya no reutiliza directamente la rutina de hoy --
+  // abre el picker para elegir otra rutina o un entreno libre. El formulario
+  // solo se reconstruye cuando el usuario termina de elegir (ver
+  // chooseRoutineForAnother / confirmFreeSelection).
   function handleLogAnother() {
+    setPickerStep("target");
+  }
+
+  function chooseRoutineForAnother(routine: Routine) {
     if (state.status !== "ready") {
       return;
     }
-    submittedRef.current = false;
+
+    const exerciseById = new Map(state.exercises.map((e) => [e.id, e]));
+    const exercises = routineToExercises(routine, exerciseById);
+
+    setFormTarget({ routineId: routine.id, routineName: routine.name, exercises });
+    setFormRows(buildDraft(exercises, nextSetId));
+    setFormError(null);
     setSubmitted(false);
-    setFormRows(buildDraft(state.data, nextSetId));
+    setSkipped(false);
+    setPickerStep(null);
+  }
+
+  function chooseFreeForAnother() {
+    setFreeSelection([]);
+    setPickerStep("exercises");
+  }
+
+  function toggleFreeExercise(id: number) {
+    setFreeSelection((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  }
+
+  function confirmFreeSelection() {
+    if (state.status !== "ready" || freeSelection.length === 0) {
+      return;
+    }
+
+    const exerciseById = new Map(state.exercises.map((e) => [e.id, e]));
+    const selected = freeSelection
+      .map((id) => exerciseById.get(id))
+      .filter((e): e is Exercise => e !== undefined);
+    const exercises = freeExercisesToDraftExercises(selected);
+
+    setFormTarget({ routineId: null, routineName: null, exercises });
+    setFormRows(buildDraft(exercises, nextSetId));
+    setFormError(null);
+    setSubmitted(false);
+    setSkipped(false);
+    setPickerStep(null);
+  }
+
+  // Descarta el entreno pre-rellenado de hoy (o el que se estuviera montando
+  // tras "Loguear otro entreno") sin haberlo guardado -- para cuando el
+  // usuario no quiere loguear nada ahora mismo, ni siquiera lo que ya había en
+  // pantalla. Deja la puerta abierta a elegir algo después con el mismo picker
+  // que usa "Loguear otro entreno" (reutiliza handleLogAnother).
+  function handleSkipToday() {
+    setSkipped(true);
     setFormError(null);
   }
 
+  // Abandona el formulario en blanco abierto tras "Loguear otro entreno" y
+  // vuelve a mostrar el último entreno guardado como si no se hubiera pulsado
+  // ese botón. Solo tiene sentido si ya hay una instantánea previa (siempre la
+  // hay en cuanto savedSummaries no está vacío, ver dónde se guarda el ref).
+  function handleCancelAnother() {
+    const snapshot = lastSubmittedSnapshotRef.current;
+    if (!snapshot) {
+      return;
+    }
+
+    setFormTarget(snapshot.formTarget);
+    setFormRows(snapshot.formRows);
+    setFormError(null);
+    setSubmitted(true);
+  }
+
   function handleSave() {
-    if (state.status !== "ready") {
+    if (state.status !== "ready" || !formTarget) {
       return;
     }
 
@@ -268,11 +443,17 @@ export default function TodayScreen() {
     setSaving(true);
     // Se usa la fecha que ya devolvió /today (no se recalcula "hoy" en el momento
     // de guardar) para que fecha y rutina no puedan desincronizarse si la app
-    // queda abierta justo a caballo de medianoche.
-    createWorkout({ date: state.data.date, routine_id: state.data.routine_id, sets })
-      .then(() => {
-        submittedRef.current = true;
+    // queda abierta justo a caballo de medianoche. El routine_id, en cambio, sale
+    // de formTarget -- puede ser distinto al de /today si esto es un "otro entreno".
+    createWorkout({ date: state.data.date, routine_id: formTarget.routineId, sets })
+      .then((workout) => {
+        const distinctExercises = new Set(sets.map((s) => s.exercise_id)).size;
+        const label = `${formTarget.routineName ?? "Entreno libre"} — ${distinctExercises} ejercicio${
+          distinctExercises === 1 ? "" : "s"
+        }`;
+        setSavedSummaries((prev) => [...prev, { workoutId: workout.id, label }]);
         setSubmitted(true);
+        lastSubmittedSnapshotRef.current = { formTarget, formRows };
       })
       .catch((error: Error) => {
         setFormError(error.message);
@@ -301,7 +482,7 @@ export default function TodayScreen() {
         >
           <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
             <Text style={styles.title}>Hoy</Text>
-            <Text style={styles.subtitle}>{state.data.routine_name ?? "Día de descanso"}</Text>
+            <Text style={styles.subtitle}>{headerRoutineName(formTarget, state.data)}</Text>
 
             {state.data.exercises.length === 0 && (
               <Text style={styles.restDayText}>
@@ -309,13 +490,50 @@ export default function TodayScreen() {
               </Text>
             )}
 
-            {formRows.map((row, exerciseIndex) => (
-              // Una rutina puede repetir el mismo ejercicio (p.ej. press banca
-              // pesado + press banca ligero), así que exercise_id solo no es una
-              // key única -- se combina con la posición en la lista.
-              <View key={`${row.exercise.exercise_id}-${exerciseIndex}`} style={styles.card}>
+            {/* Resumen de entrenos ya guardados hoy. Se muestra siempre que haya
+                alguno -- también tras guardar el último, no solo mientras se
+                rellena el siguiente -- si no, guardar un segundo entreno hacía
+                desaparecer de la pantalla la constancia del primero. */}
+            {savedSummaries.length > 0 && (
+              <View style={styles.savedSummaries}>
+                {savedSummaries.map((s) => (
+                  <Text key={s.workoutId} style={styles.savedSummaryText}>
+                    ✓ {s.label}
+                  </Text>
+                ))}
+              </View>
+            )}
+
+            {/* El usuario descartó explícitamente el entreno pre-rellenado (o el
+                que estaba montando) sin guardarlo -- en vez del formulario, solo
+                un aviso y la puerta abierta a elegir algo con el mismo picker de
+                "Loguear otro entreno". */}
+            {skipped && (
+              <View style={styles.skippedBox}>
+                <Text style={styles.skippedText}>
+                  No vas a loguear ningún entreno ahora mismo.
+                </Text>
+                <View style={styles.logAnotherButton}>
+                  <Button title="Elegir un entreno" onPress={handleLogAnother} />
+                </View>
+              </View>
+            )}
+
+            {!skipped &&
+              formRows.map((row, exerciseIndex) => (
+                // Una rutina puede repetir el mismo ejercicio (p.ej. press banca
+                // pesado + press banca ligero), así que exercise_id solo no es una
+                // key única -- se combina con la posición en la lista.
+                <View key={`${row.exercise.exercise_id}-${exerciseIndex}`} style={styles.card}>
                 <Text style={styles.exerciseName}>{row.exercise.exercise_name}</Text>
-                <Text style={styles.targetText}>Objetivo: {row.exercise.target_sets} series</Text>
+                {/* En entreno libre no hay rutina que fije target_sets -- se le
+                    pone 1 de relleno (ver freeExercisesToDraftExercises) pero no
+                    significa nada real, así que no tiene sentido mostrarlo. */}
+                {formTarget?.routineId !== null && (
+                  <Text style={styles.targetText}>
+                    Objetivo: {row.exercise.target_sets} serie{row.exercise.target_sets === 1 ? "" : "s"}
+                  </Text>
+                )}
 
                 {row.sets.map((setDraft, setIndex) => (
                   <View key={setDraft.id} style={styles.setRow}>
@@ -361,25 +579,147 @@ export default function TodayScreen() {
 
             {formError && <Text style={styles.errorDetail}>{formError}</Text>}
 
-            {formRows.length > 0 && (
+            {!skipped && formRows.length > 0 && (
               <View style={styles.saveButton}>
                 {submitted ? (
-                  <>
-                    <Text style={styles.successText}>Entreno guardado ✓</Text>
-                    <View style={styles.logAnotherButton}>
-                      <Button title="Loguear otro entreno" onPress={handleLogAnother} />
-                    </View>
-                  </>
+                  // El resumen de arriba (savedSummaries) ya deja constancia de que
+                  // este entreno se guardó, como último ítem de la lista -- no hace
+                  // falta repetirlo aquí también.
+                  <View style={styles.logAnotherButton}>
+                    <Button title="Loguear otro entreno" onPress={handleLogAnother} />
+                  </View>
                 ) : (
-                  <Button
-                    title={saving ? "Guardando..." : "Guardar entreno"}
-                    onPress={handleSave}
-                    disabled={saving}
-                  />
+                  <>
+                    <Button
+                      title={saving ? "Guardando..." : "Guardar entreno"}
+                      onPress={handleSave}
+                      disabled={saving}
+                    />
+                    {/* "Cancelar" (volver a lo último guardado) solo tiene
+                        sentido si ya hay algo guardado hoy a lo que volver;
+                        si es el primer entreno del día, en su lugar se ofrece
+                        "Quitar" para descartarlo sin más. Mutuamente
+                        excluyentes, nunca se muestran los dos a la vez. */}
+                    {savedSummaries.length > 0 ? (
+                      <View style={styles.cancelAnotherButton}>
+                        <Button
+                          title="Cancelar"
+                          color="#b00020"
+                          onPress={handleCancelAnother}
+                          disabled={saving}
+                        />
+                      </View>
+                    ) : (
+                      <View style={styles.cancelAnotherButton}>
+                        <Button
+                          title="Quitar entreno de hoy"
+                          color="#b00020"
+                          onPress={handleSkipToday}
+                          disabled={saving}
+                        />
+                      </View>
+                    )}
+                  </>
                 )}
               </View>
             )}
           </ScrollView>
+
+          {/* Un único Modal para los dos pasos de "Loguear otro entreno" -- ver
+              comentario en la declaración de pickerStep sobre por qué no son
+              dos <Modal> hermanos alternando visibilidad. El fondo es un
+              Pressable que cierra el picker al tocar fuera de la tarjeta --
+              salida rápida sin depender de llegar hasta el botón "Cancelar"
+              (que puede quedar más abajo si la lista de rutinas/ejercicios es
+              larga). La tarjeta en sí es otro Pressable con onPress vacío: en
+              RN, el toque lo capta el Pressable más interno bajo el dedo, así
+              que tocar dentro de la tarjeta nunca llega a "burbujear" hasta el
+              del fondo. */}
+          <Modal
+            visible={pickerStep !== null}
+            transparent
+            animationType="slide"
+            onRequestClose={() => setPickerStep(null)}
+          >
+            <Pressable style={styles.modalBackdrop} onPress={() => setPickerStep(null)}>
+              <Pressable style={styles.modalCard} onPress={() => {}}>
+                {pickerStep === "target" && (
+                  <>
+                    <Text style={styles.modalTitle}>¿Qué quieres loguear?</Text>
+
+                    <ScrollView>
+                      <TouchableOpacity style={styles.freeOption} onPress={chooseFreeForAnother}>
+                        <Text style={styles.freeOptionText}>Entreno libre (ejercicios sueltos)</Text>
+                      </TouchableOpacity>
+
+                      {state.routines.map((routine) => (
+                        <TouchableOpacity
+                          key={routine.id}
+                          style={styles.option}
+                          onPress={() => chooseRoutineForAnother(routine)}
+                        >
+                          <Text style={styles.optionText}>{routine.name}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+
+                    <TouchableOpacity
+                      style={styles.cancelButton}
+                      onPress={() => setPickerStep(null)}
+                    >
+                      <Text style={styles.cancelText}>Cancelar</Text>
+                    </TouchableOpacity>
+                  </>
+                )}
+
+                {pickerStep === "exercises" && (
+                  <>
+                    <Text style={styles.modalTitle}>Elige ejercicios</Text>
+
+                    <ScrollView>
+                      {state.exercises.map((exercise) => {
+                        const selected = freeSelection.includes(exercise.id);
+                        return (
+                          <TouchableOpacity
+                            key={exercise.id}
+                            style={styles.option}
+                            onPress={() => toggleFreeExercise(exercise.id)}
+                          >
+                            <Text style={selected ? styles.optionTextSelected : styles.optionText}>
+                              {selected ? "✓ " : ""}
+                              {exercise.name}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+
+                    <View style={styles.modalActions}>
+                      <TouchableOpacity
+                        style={styles.cancelButton}
+                        onPress={() => setPickerStep(null)}
+                      >
+                        <Text style={styles.cancelText}>Cancelar</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.doneButton}
+                        onPress={confirmFreeSelection}
+                        disabled={freeSelection.length === 0}
+                      >
+                        <Text
+                          style={
+                            freeSelection.length === 0 ? styles.doneTextDisabled : styles.doneText
+                          }
+                        >
+                          Listo ({freeSelection.length})
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  </>
+                )}
+              </Pressable>
+            </Pressable>
+          </Modal>
         </KeyboardAvoidingView>
       )}
     </SafeAreaView>
@@ -413,6 +753,23 @@ const styles = StyleSheet.create({
     color: "#555",
     textAlign: "center",
     marginTop: 8,
+  },
+  skippedBox: {
+    alignItems: "center",
+    marginTop: 8,
+  },
+  skippedText: {
+    fontSize: 16,
+    color: "#555",
+    textAlign: "center",
+  },
+  savedSummaries: {
+    marginBottom: 12,
+  },
+  savedSummaryText: {
+    fontSize: 14,
+    color: "#1b8a1b",
+    marginBottom: 2,
   },
   card: {
     backgroundColor: "#f4f4f4",
@@ -464,18 +821,94 @@ const styles = StyleSheet.create({
     marginTop: 12,
     alignItems: "center",
   },
-  successText: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#1b8a1b",
-  },
   logAnotherButton: {
     marginTop: 12,
+  },
+  cancelAnotherButton: {
+    marginTop: 8,
   },
   errorDetail: {
     fontSize: 14,
     color: "#b00020",
     marginTop: 8,
     textAlign: "center",
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.4)",
+    justifyContent: "flex-end",
+  },
+  modalCard: {
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    padding: 20,
+    maxHeight: "70%",
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: "600",
+    marginBottom: 16,
+    textAlign: "center",
+  },
+  option: {
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: "#eee",
+  },
+  optionText: {
+    fontSize: 16,
+    textAlign: "center",
+  },
+  optionTextSelected: {
+    fontSize: 16,
+    textAlign: "center",
+    fontWeight: "600",
+    color: "#1b8a1b",
+  },
+  // "Entreno libre" es una opción especial (no una rutina), separada del resto
+  // con más peso visual y un borde algo más marcado para que no se confunda
+  // con una rutina más de la lista.
+  freeOption: {
+    paddingVertical: 14,
+    borderBottomWidth: 2,
+    borderBottomColor: "#ccc",
+    marginBottom: 4,
+  },
+  freeOptionText: {
+    fontSize: 16,
+    fontWeight: "600",
+    textAlign: "center",
+  },
+  modalActions: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 8,
+  },
+  cancelButton: {
+    flex: 1,
+    paddingVertical: 14,
+  },
+  cancelText: {
+    fontSize: 16,
+    textAlign: "center",
+    color: "#b00020",
+    fontWeight: "600",
+  },
+  doneButton: {
+    flex: 1,
+    paddingVertical: 14,
+  },
+  doneText: {
+    fontSize: 16,
+    textAlign: "center",
+    color: "#1b8a1b",
+    fontWeight: "600",
+  },
+  doneTextDisabled: {
+    fontSize: 16,
+    textAlign: "center",
+    color: "#aaa",
+    fontWeight: "600",
   },
 });

@@ -131,6 +131,32 @@ def test_update_workout_with_unknown_exercise_is_404(client: TestClient) -> None
     assert response.status_code == 404
 
 
+def test_delete_workout(client: TestClient) -> None:
+    exercise_id = client.get("/exercises").json()[0]["id"]
+
+    create_response = client.post(
+        "/workouts",
+        json={
+            "date": "2026-08-09",
+            "sets": [{"exercise_id": exercise_id, "weight": 60, "reps": 8, "order": 0}],
+        },
+    )
+    workout_id = create_response.json()["id"]
+
+    delete_response = client.delete(f"/workouts/{workout_id}")
+    assert delete_response.status_code == 204
+    assert delete_response.content == b""
+
+    get_response = client.get(f"/workouts/{workout_id}")
+    assert get_response.status_code == 404
+
+
+def test_delete_unknown_workout_is_404(client: TestClient) -> None:
+    response = client.delete("/workouts/9999")
+
+    assert response.status_code == 404
+
+
 def test_progress_reflects_logged_workout(client: TestClient) -> None:
     exercise_id = client.get("/exercises").json()[0]["id"]
     client.post(
