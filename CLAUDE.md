@@ -33,6 +33,8 @@ Fase 2 backend is done: `POST/GET /workouts`, `GET /workouts/{id}`, and `GET /to
 
 Fase 2 mobile is done: `TodayScreen` rewritten into a real logging form — per-set weight/reps inputs pre-filled to `target_sets` rows, "+ añadir serie"/"Quitar" to adjust, weight auto-fills across a set's empty rows, Spanish decimal-comma input normalized, and the draft now survives tab switches (keyed on date+routine+exercise signature, not on every refocus) so a saved state doesn't quietly reset. New `HistorialScreen` (4th tab) lists past workouts grouped by exercise and supports inline per-workout editing (same dynamic-row pattern, can't add a brand-new exercise to a past workout — noted in `docs/ROADMAP.md`). `KeyboardAvoidingView` across `RoutinasScreen`/`TodayScreen`/`HistorialScreen` now uses `useBottomTabBarHeight()` as `keyboardVerticalOffset` — without it the save button hid behind the keyboard, since the plain `"padding"` behavior didn't account for the tab bar. Verified on a physical iPhone. The seed list (`app/seed.py`) was also expanded from 5 to 24 exercises with the developer's real ones (2026-08-10), inserted into the live `laystra.db` without touching existing routines/workouts.
 
+Fase 3 is done: `DELETE /workouts/{id}` + a "Borrar" card button in Historial, and `TodayScreen`'s "Loguear otro entreno" now keeps the just-saved workout visibly summarized instead of hiding it, and lets you pick a different existing routine or a free-form session (`Workout.routine_id` nullable, exercise picker like `RoutinesScreen.tsx`'s) instead of only re-logging today's assigned routine. Core deliverable — a 5th `ProgressScreen` tab — added on top of the existing `GET /exercises/{id}/progress` (no backend changes needed there beyond an `id` tie-break on the date ordering, to match `list_workouts`'s ordering when two workouts share a date). `reviewer` caught a real bug pre-merge: `ProgressScreen`'s `useFocusEffect` held a stale closure and never refreshed on refocus — fixed with the same ref pattern `TodayScreen` already uses. Verified on a physical iPhone.
+
 ## Commands
 
 Backend (Python/FastAPI, run from `backend/`, dependencies managed via `uv` + `pyproject.toml`):
@@ -66,7 +68,9 @@ One-line summary: predefined routines assigned to weekdays, log the day's workou
 
 **Fase 1 — rutinas y calendario semanal is done** (verified on-device 2026-08-10: create/edit/delete routines and assign them to weekdays from the phone, restart the backend, everything survives in SQLite).
 
-**Fase 2 — loguear el "Hoy" is done** (verified on-device 2026-08-10: pre-filled today's routine, log real sets/reps in a few taps, persisted as a `Workout`, survives a backend restart, shows up in Historial, invalid input doesn't crash). Current phase: **Fase 3 — progreso** (see `docs/MVP.md`) — a per-exercise progress screen. Don't design anything from `docs/ROADMAP.md` (muscle groups, splits, AI analysis, etc.) unless the human explicitly pulls it forward.
+**Fase 2 — loguear el "Hoy" is done** (verified on-device 2026-08-10: pre-filled today's routine, log real sets/reps in a few taps, persisted as a `Workout`, survives a backend restart, shows up in Historial, invalid input doesn't crash).
+
+**Fase 3 — progreso is done** (verified on-device 2026-08-11: with 3+ logged workouts for the same exercise on different dates, the progress screen shows the evolution correctly ordered; an exercise with no history shows a reasonable empty state instead of breaking). Next up is **Fase 4 — fuera de tu ordenador** (see `docs/MVP.md`) whenever the human decides to pick it up. Don't design anything from `docs/ROADMAP.md` (muscle groups, splits, AI analysis, etc.) unless the human explicitly pulls it forward.
 
 ## Intended architecture
 
