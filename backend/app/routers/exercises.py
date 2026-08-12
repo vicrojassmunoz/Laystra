@@ -29,7 +29,11 @@ def get_exercise_progress(exercise_id: int, db: Session = Depends(get_db)) -> Pr
     if exercise is None:
         raise HTTPException(status_code=404, detail="Exercise not found")
 
-    workouts = db.query(models.Workout).order_by(models.Workout.date).all()
+    workouts = (
+        db.query(models.Workout)
+        .order_by(models.Workout.date, models.Workout.id)
+        .all()
+    )
     points: list[ProgressPoint] = []
     for workout in workouts:
         matching_sets = [s for s in workout.sets if s.exercise_id == exercise_id]
