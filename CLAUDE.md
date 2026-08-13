@@ -35,6 +35,10 @@ Fase 2 mobile is done: `TodayScreen` rewritten into a real logging form — per-
 
 Fase 3 is done: `DELETE /workouts/{id}` + a "Borrar" card button in Historial, and `TodayScreen`'s "Loguear otro entreno" now keeps the just-saved workout visibly summarized instead of hiding it, and lets you pick a different existing routine or a free-form session (`Workout.routine_id` nullable, exercise picker like `RoutinesScreen.tsx`'s) instead of only re-logging today's assigned routine. Core deliverable — a 5th `ProgressScreen` tab — added on top of the existing `GET /exercises/{id}/progress` (no backend changes needed there beyond an `id` tie-break on the date ordering, to match `list_workouts`'s ordering when two workouts share a date). `reviewer` caught a real bug pre-merge: `ProgressScreen`'s `useFocusEffect` held a stale closure and never refreshed on refocus — fixed with the same ref pattern `TodayScreen` already uses. Verified on a physical iPhone.
 
+Fase 4 backend deployment is done: self-hosted via Docker Compose (`backend/Dockerfile`, `backend/docker-compose.yml`) — `backend` (FastAPI + `uv`) plus `cloudflared` (Cloudflare Tunnel), reachable at `https://laystra.vicrojas.com` on the developer's own domain (`vicrojas.com`, Namecheap, nameservers pointed at Cloudflare), no ports forwarded on the router. This wasn't the original plan: a first attempt with Caddy + DuckDNS + router port-forwarding turned out unworkable because the developer's residential ISP (Digi) uses CGNAT, confirmed through exhaustive troubleshooting (router firewall, forwarding rules, source-IP range, router reboot — a fresh unused test port still showed closed from two independent external checkers). The tunnel approach sidesteps CGNAT entirely since it's outbound-only. Full writeup in `backend/docs/ARCHITECTURE.md` → "Despliegue (Fase 4)". Docker Desktop auto-starts at sign-in and containers use `restart: unless-stopped`, so a PC reboot self-heals without manual intervention. Verified end-to-end 2026-08-13: `/health` and `/exercises` both serve real data through the public HTTPS URL.
+
+Fase 4 mobile/EAS setup is partially done: Expo/EAS account created, project created and linked (`@vicrojass/laystra`, `projectId` written into `app.json` by `eas init`), `eas.json` has `development`/`preview`/`production` build profiles with `EXPO_PUBLIC_API_URL` set per profile (preview/production point at the public HTTPS domain, not a LAN IP). **Blocked** on Apple Developer Program enrollment ($99/yr) — deliberately deferred by the developer for budget reasons (~2 weeks as of 2026-08-13) — both `eas build` for a physical device and `eas submit`/TestFlight require it, so those remain undone until enrollment clears.
+
 ## Commands
 
 Backend (Python/FastAPI, run from `backend/`, dependencies managed via `uv` + `pyproject.toml`):
@@ -51,10 +55,12 @@ npm install
 cp .env.example .env && $EDITOR .env             # set EXPO_PUBLIC_API_URL to your machine's LAN IP
 npx expo start                                    # scan QR with Expo Go on the iPhone
 npx tsc --noEmit                                  # typecheck
-eas build --profile development --platform ios    # only needed once native code/config plugins are introduced
+eas build --platform ios --profile preview        # standalone build for TestFlight; needs Apple Developer Program enrolled
 eas submit --platform ios
 ```
 No Xcode/simulator commands apply — there is no Mac, so iOS builds and testing on-device both go through EAS/Expo Go, never a local iOS toolchain.
+
+Backend production (Docker, run from `backend/`): see `backend/README.md` → "Run in Docker (production)".
 
 ## Product scope
 
@@ -70,7 +76,9 @@ One-line summary: predefined routines assigned to weekdays, log the day's workou
 
 **Fase 2 — loguear el "Hoy" is done** (verified on-device 2026-08-10: pre-filled today's routine, log real sets/reps in a few taps, persisted as a `Workout`, survives a backend restart, shows up in Historial, invalid input doesn't crash).
 
-**Fase 3 — progreso is done** (verified on-device 2026-08-11: with 3+ logged workouts for the same exercise on different dates, the progress screen shows the evolution correctly ordered; an exercise with no history shows a reasonable empty state instead of breaking). Next up is **Fase 4 — fuera de tu ordenador** (see `docs/MVP.md`) whenever the human decides to pick it up. Don't design anything from `docs/ROADMAP.md` (muscle groups, splits, AI analysis, etc.) unless the human explicitly pulls it forward.
+**Fase 3 — progreso is done** (verified on-device 2026-08-11: with 3+ logged workouts for the same exercise on different dates, the progress screen shows the evolution correctly ordered; an exercise with no history shows a reasonable empty state instead of breaking).
+
+**Fase 4 — fuera de tu ordenador is in progress** (see `docs/MVP.md`): backend deployment is done and verified (`https://laystra.vicrojas.com`, self-hosted via Docker Compose + Cloudflare Tunnel), Expo/EAS project is created and linked. Blocked on Apple Developer Program enrollment (deferred ~2 weeks as of 2026-08-13, budget reasons) before `eas build`/`eas submit`/TestFlight can happen. Don't design anything from `docs/ROADMAP.md` (muscle groups, splits, AI analysis, etc.) unless the human explicitly pulls it forward.
 
 ## Intended architecture
 

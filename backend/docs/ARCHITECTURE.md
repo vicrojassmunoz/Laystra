@@ -70,10 +70,21 @@ Los schemas de respuesta que se construyen directamente desde objetos ORM (`Exer
 
 Todos los `*Create` (p.ej. `ExerciseCreate`, `RoutineCreate`, `WorkoutCreate`) son la versión de entrada sin `id` (y sin los ids de las relaciones que el servidor asigna).
 
+## Despliegue (Fase 4)
+
+El backend corre en producción vía Docker Compose (`backend/docker-compose.yml`), self-hosted en un PC del usuario (Windows + Docker Desktop de momento, con migración prevista a una máquina Linux dedicada más adelante — por eso el setup vive en contenedores en vez de scripts atados a una máquina concreta). Dos servicios:
+
+- `backend` — construido desde `backend/Dockerfile` (`python:3.12-slim` + `uv`), sin puertos publicados al host: solo alcanzable dentro de la red interna de Compose. `laystra.db` vive en un volumen nombrado (`laystra-db:/data`), montado vía `LAYSTRA_DB_PATH=/data/laystra.db` — `app/db.py` lee esa variable de entorno si existe y si no cae al path por defecto (sibling de `pyproject.toml`), así que `uv run` en local no cambia de comportamiento.
+- `cloudflared` — cliente de Cloudflare Tunnel, se conecta de forma saliente al edge de Cloudflare y expone `https://laystra.vicrojas.com` (dominio propio del usuario, gestionado en Cloudflare) hacia `http://backend:8000` dentro de la red de Compose. TLS lo termina Cloudflare, no hace falta certificado propio.
+
+**Por qué túnel y no reverse-proxy + port-forwarding (Caddy + DuckDNS, primer intento):** el ISP residencial del usuario (Digi, España) resulta usar CGNAT — la IP pública que ve el router no es realmente enrutable desde fuera, así que ninguna regla de port-forwarding en el router podía funcionar por mucho que se configurase bien (se comprobó exhaustivamente: firewall del router, reglas de reenvío, rango de IP origen, reinicio del router — un puerto de prueba nuevo sin usar seguía apareciendo cerrado desde dos verificadores externos independientes). Un túnel saliente (Cloudflare Tunnel) evita el problema por completo: no depende de que haya un puerto público alcanzable en el router. `cloudflared` es la única pieza expuesta a internet; ya no hace falta abrir puertos en el router ni en el Firewall de Windows para 80/443.
+
+Variable real (`CLOUDFLARE_TUNNEL_TOKEN`, del dashboard de Cloudflare Zero Trust → Networks → Tunnels) va en `backend/.env` (gitignored vía el patrón `.env`/`.env.*` del `.gitignore` raíz); `backend/.env.example` documenta la clave esperada.
+
 ## Decisiones no obvias
 
 - **Validación en el borde**: `Field(gt=0)` / `Field(ge=0)` en los schemas rechaza reps negativas, sets/reps en cero, etc., directamente en la capa de Pydantic — antes de que la lógica de negocio los vea. Un valor inválido devuelve 422 automáticamente.
-- **CORS abierto** (`main.py`): `allow_origins=["*"]`. Deliberado — app personal de un solo usuario, sin auth, todavía en LAN. Revisar si esto cambia (Fase 4, hosting público).
+- **CORS abierto** (`main.py`): `allow_origins=["*"]`. Deliberado — app personal de un solo usuario, sin auth. Revisado en Fase 4 (hosting público) y mantenido sin cambios: CORS es un mecanismo que aplican los navegadores, no el `fetch` de React Native, así que exponer el backend públicamente no lo hace más relevante — solo importaría si alguna vez se sirve un cliente web contra esta API.
 - **IDs autoincrementales de SQLite**: cada tabla usa el `id` autoincremental que da SQLite (`primary_key=True` en la columna), no hay UUIDs. En tests se reinician en cada test porque el fixture `autouse` recrea el esquema (`drop_all`/`create_all`) sobre el engine en memoria; en producción son estables mientras exista `laystra.db`.
 - **Sin migraciones (Alembic)**: `init_db()` solo hace `create_all`, que crea tablas que no existan pero no altera las existentes. Cualquier cambio de esquema sobre un `laystra.db` ya poblado requiere migración manual (borrar el fichero en dev, o Alembic cuando llegue). Pendiente para cuando el esquema necesite versionarse de verdad.
 - **FKs de SQLite activadas por conexión**: SQLite no aplica `FOREIGN KEY` por defecto salvo que cada conexión ejecute `PRAGMA foreign_keys=ON` (ver `app/db.py`). Sin el listener de conexión, las FKs declaradas en `models.py` existían solo como documentación del esquema y no bloqueaban inserts/deletes inválidos.

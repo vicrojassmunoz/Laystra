@@ -1,11 +1,14 @@
+import os
 from collections.abc import Generator
 from pathlib import Path
 
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
-# backend/laystra.db — sibling of pyproject.toml, not inside app/
-DB_PATH = Path(__file__).resolve().parent.parent / "laystra.db"
+# backend/laystra.db — sibling of pyproject.toml, not inside app/.
+# Overridable via LAYSTRA_DB_PATH (Docker mounts a volume outside the image here).
+_DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent / "laystra.db"
+DB_PATH = Path(os.environ.get("LAYSTRA_DB_PATH", _DEFAULT_DB_PATH))
 DATABASE_URL = f"sqlite:///{DB_PATH}"
 
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
