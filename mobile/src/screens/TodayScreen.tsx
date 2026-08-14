@@ -21,10 +21,12 @@ import { fetchExercises } from "../api/exercises";
 import { fetchRoutines } from "../api/routines";
 import { createWorkout } from "../api/workouts";
 import { fetchToday, TodayExercise, TodayResponse } from "../api/today";
+import ExercisePickerList from "../components/ExercisePickerList";
 import SupersetBlock, { SetDraft } from "../components/SupersetBlock";
 import { Exercise } from "../types/exercise";
 import { Routine } from "../types/routine";
 import { WorkoutSetCreate } from "../types/workout";
+import { secondaryHint } from "../utils/exercisePicker";
 import { equalizeSupersetRounds, groupBySuperset, validSupersetGroups } from "../utils/superset";
 
 type State =
@@ -223,6 +225,11 @@ export default function TodayScreen() {
     null
   );
   const [freeSelection, setFreeSelection] = useState<number[]>([]);
+  // Búsqueda del picker de ejercicios de entreno libre, aparte de la del
+  // picker de super-serie anidado -- cada uno se resetea al abrirse, no al
+  // cerrarse, para no perder lo escrito si el usuario cierra sin querer.
+  const [freeExerciseQuery, setFreeExerciseQuery] = useState("");
+  const [freeSupersetQuery, setFreeSupersetQuery] = useState("");
   // Bloques de super-serie armados para el entreno libre en curso -- viven
   // aparte de freeSelection porque un ejercicio puede estar "seleccionado"
   // sin pertenecer a ningún bloque (ejercicio suelto). Local a este picker,
@@ -438,6 +445,7 @@ export default function TodayScreen() {
   function chooseFreeForAnother() {
     setFreeSelection([]);
     setFreeSupersetBlocks([]);
+    setFreeExerciseQuery("");
     setPickerStep("exercises");
   }
 
@@ -462,6 +470,7 @@ export default function TodayScreen() {
 
   function openFreeSupersetPicker() {
     setFreeSupersetSelection([]);
+    setFreeSupersetQuery("");
     setPickerStep("free-superset");
   }
 
@@ -870,160 +879,179 @@ export default function TodayScreen() {
             onRequestClose={() => setPickerStep(null)}
           >
             <Pressable style={styles.modalBackdrop} onPress={() => setPickerStep(null)}>
-              <Pressable style={styles.modalCard} onPress={() => {}}>
-                {pickerStep === "target" && (
-                  <>
-                    <Text style={styles.modalTitle}>¿Qué quieres loguear?</Text>
+              {/* Este Modal se renderiza fuera del navigator de tabs (por eso
+                  el KeyboardAvoidingView de más abajo, el que envuelve toda
+                  la pantalla, no llega hasta aquí dentro) -- así que no usa
+                  useBottomTabBarHeight() como offset, eso solo aplica al de
+                  la pantalla normal. Aquí no hay nada por encima de la
+                  tarjeta que compensar, offset 0 le basta. */}
+              <KeyboardAvoidingView
+                behavior={Platform.OS === "ios" ? "padding" : undefined}
+                keyboardVerticalOffset={0}
+              >
+                <Pressable style={styles.modalCard} onPress={() => {}}>
+                  {pickerStep === "target" && (
+                    <>
+                      <Text style={styles.modalTitle}>¿Qué quieres loguear?</Text>
 
-                    <ScrollView>
-                      <TouchableOpacity style={styles.freeOption} onPress={chooseFreeForAnother}>
-                        <Text style={styles.freeOptionText}>Entreno libre (ejercicios sueltos)</Text>
-                      </TouchableOpacity>
-
-                      {state.routines.map((routine) => (
-                        <TouchableOpacity
-                          key={routine.id}
-                          style={styles.option}
-                          onPress={() => chooseRoutineForAnother(routine)}
-                        >
-                          <Text style={styles.optionText}>{routine.name}</Text>
+                      <ScrollView>
+                        <TouchableOpacity style={styles.freeOption} onPress={chooseFreeForAnother}>
+                          <Text style={styles.freeOptionText}>Entreno libre (ejercicios sueltos)</Text>
                         </TouchableOpacity>
-                      ))}
-                    </ScrollView>
 
-                    <TouchableOpacity
-                      style={styles.cancelButton}
-                      onPress={() => setPickerStep(null)}
-                    >
-                      <Text style={styles.cancelText}>Cancelar</Text>
-                    </TouchableOpacity>
-                  </>
-                )}
-
-                {pickerStep === "exercises" && (
-                  <>
-                    <Text style={styles.modalTitle}>Elige ejercicios</Text>
-
-                    <ScrollView>
-                      {state.exercises.map((exercise) => {
-                        const selected = freeSelection.includes(exercise.id);
-                        // Solo indicativo (no afecta la selección): si este
-                        // ejercicio ya forma parte de un bloque de
-                        // super-serie armado con "+ Super-serie" más abajo.
-                        const inBlock = freeSupersetBlocks.some((b) =>
-                          b.exerciseIds.includes(exercise.id)
-                        );
-                        return (
+                        {state.routines.map((routine) => (
                           <TouchableOpacity
-                            key={exercise.id}
+                            key={routine.id}
                             style={styles.option}
-                            onPress={() => toggleFreeExercise(exercise.id)}
+                            onPress={() => chooseRoutineForAnother(routine)}
                           >
-                            <Text style={selected ? styles.optionTextSelected : styles.optionText}>
-                              {selected ? "✓ " : ""}
-                              {exercise.name}
-                              {inBlock ? " · Super-serie" : ""}
-                            </Text>
+                            <Text style={styles.optionText}>{routine.name}</Text>
                           </TouchableOpacity>
-                        );
-                      })}
-                    </ScrollView>
+                        ))}
+                      </ScrollView>
 
-                    <TouchableOpacity style={styles.supersetOption} onPress={openFreeSupersetPicker}>
-                      <Text style={styles.supersetOptionText}>+ Super-serie</Text>
-                    </TouchableOpacity>
-
-                    <View style={styles.modalActions}>
                       <TouchableOpacity
                         style={styles.cancelButton}
                         onPress={() => setPickerStep(null)}
                       >
                         <Text style={styles.cancelText}>Cancelar</Text>
                       </TouchableOpacity>
-                      <TouchableOpacity
-                        style={styles.doneButton}
-                        onPress={confirmFreeSelection}
-                        disabled={freeSelection.length === 0}
-                      >
-                        <Text
-                          style={
-                            freeSelection.length === 0 ? styles.doneTextDisabled : styles.doneText
-                          }
-                        >
-                          Listo ({freeSelection.length})
-                        </Text>
-                      </TouchableOpacity>
-                    </View>
-                  </>
-                )}
+                    </>
+                  )}
 
-                {/* Paso anidado dentro de "exercises": elige qué ejercicios
-                    (de todos los existentes, no solo los ya marcados) forman
-                    un bloque de super-serie para este entreno libre. Al
-                    confirmar vuelve a "exercises", no cierra el picker. */}
-                {pickerStep === "free-superset" && (
-                  <>
-                    <Text style={styles.modalTitle}>Elige ejercicios para la super-serie</Text>
+                  {pickerStep === "exercises" && (
+                    <>
+                      <Text style={styles.modalTitle}>Elige ejercicios</Text>
 
-                    <ScrollView>
-                      {state.exercises.map((exercise) => {
-                        const selected = freeSupersetSelection.includes(exercise.id);
-                        // Un ejercicio que ya pertenece a un bloque anterior
-                        // no puede elegirse para uno nuevo -- ver comentario
-                        // en alreadyGroupedFreeExerciseIds.
-                        const alreadyGrouped =
-                          !selected && alreadyGroupedFreeExerciseIds().has(exercise.id);
-                        return (
-                          <TouchableOpacity
-                            key={exercise.id}
-                            style={styles.option}
-                            onPress={() => toggleFreeSupersetExercise(exercise.id)}
-                            disabled={alreadyGrouped}
-                          >
-                            <Text
-                              style={
-                                alreadyGrouped
-                                  ? styles.optionTextDisabled
-                                  : selected
-                                  ? styles.optionTextSelected
-                                  : styles.optionText
-                              }
+                      <ExercisePickerList
+                        exercises={state.exercises}
+                        query={freeExerciseQuery}
+                        onQueryChange={setFreeExerciseQuery}
+                        renderItem={(exercise) => {
+                          const selected = freeSelection.includes(exercise.id);
+                          // Solo indicativo (no afecta la selección): si este
+                          // ejercicio ya forma parte de un bloque de
+                          // super-serie armado con "+ Super-serie" más abajo.
+                          const inBlock = freeSupersetBlocks.some((b) =>
+                            b.exerciseIds.includes(exercise.id)
+                          );
+                          const hint = secondaryHint(exercise);
+                          return (
+                            <TouchableOpacity
+                              style={styles.option}
+                              onPress={() => toggleFreeExercise(exercise.id)}
                             >
-                              {selected ? "✓ " : ""}
-                              {exercise.name}
-                              {alreadyGrouped ? " · ya en otro bloque" : ""}
-                            </Text>
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </ScrollView>
+                              <Text style={selected ? styles.optionTextSelected : styles.optionText}>
+                                {selected ? "✓ " : ""}
+                                {exercise.name}
+                                {inBlock ? " · Super-serie" : ""}
+                              </Text>
+                              {hint && <Text style={styles.optionHint}>{hint}</Text>}
+                            </TouchableOpacity>
+                          );
+                        }}
+                      />
 
-                    <View style={styles.modalActions}>
-                      <TouchableOpacity
-                        style={styles.cancelButton}
-                        onPress={() => setPickerStep("exercises")}
-                      >
-                        <Text style={styles.cancelText}>Cancelar</Text>
+                      <TouchableOpacity style={styles.supersetOption} onPress={openFreeSupersetPicker}>
+                        <Text style={styles.supersetOptionText}>+ Super-serie</Text>
                       </TouchableOpacity>
-                      <TouchableOpacity
-                        style={styles.doneButton}
-                        onPress={confirmFreeSuperset}
-                        disabled={freeSupersetSelection.length < 2}
-                      >
-                        <Text
-                          style={
-                            freeSupersetSelection.length < 2
-                              ? styles.doneTextDisabled
-                              : styles.doneText
-                          }
+
+                      <View style={styles.modalActions}>
+                        <TouchableOpacity
+                          style={styles.cancelButton}
+                          onPress={() => setPickerStep(null)}
                         >
-                          Listo ({freeSupersetSelection.length})
-                        </Text>
-                      </TouchableOpacity>
-                    </View>
-                  </>
-                )}
-              </Pressable>
+                          <Text style={styles.cancelText}>Cancelar</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={styles.doneButton}
+                          onPress={confirmFreeSelection}
+                          disabled={freeSelection.length === 0}
+                        >
+                          <Text
+                            style={
+                              freeSelection.length === 0 ? styles.doneTextDisabled : styles.doneText
+                            }
+                          >
+                            Listo ({freeSelection.length})
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    </>
+                  )}
+
+                  {/* Paso anidado dentro de "exercises": elige qué ejercicios
+                      (de todos los existentes, no solo los ya marcados) forman
+                      un bloque de super-serie para este entreno libre. Al
+                      confirmar vuelve a "exercises", no cierra el picker. */}
+                  {pickerStep === "free-superset" && (
+                    <>
+                      <Text style={styles.modalTitle}>Elige ejercicios para la super-serie</Text>
+
+                      <ExercisePickerList
+                        exercises={state.exercises}
+                        query={freeSupersetQuery}
+                        onQueryChange={setFreeSupersetQuery}
+                        renderItem={(exercise) => {
+                          const selected = freeSupersetSelection.includes(exercise.id);
+                          // Un ejercicio que ya pertenece a un bloque anterior
+                          // no puede elegirse para uno nuevo -- ver comentario
+                          // en alreadyGroupedFreeExerciseIds.
+                          const alreadyGrouped =
+                            !selected && alreadyGroupedFreeExerciseIds().has(exercise.id);
+                          const hint = secondaryHint(exercise);
+                          return (
+                            <TouchableOpacity
+                              style={styles.option}
+                              onPress={() => toggleFreeSupersetExercise(exercise.id)}
+                              disabled={alreadyGrouped}
+                            >
+                              <Text
+                                style={
+                                  alreadyGrouped
+                                    ? styles.optionTextDisabled
+                                    : selected
+                                    ? styles.optionTextSelected
+                                    : styles.optionText
+                                }
+                              >
+                                {selected ? "✓ " : ""}
+                                {exercise.name}
+                                {alreadyGrouped ? " · ya en otro bloque" : ""}
+                              </Text>
+                              {hint && <Text style={styles.optionHint}>{hint}</Text>}
+                            </TouchableOpacity>
+                          );
+                        }}
+                      />
+
+                      <View style={styles.modalActions}>
+                        <TouchableOpacity
+                          style={styles.cancelButton}
+                          onPress={() => setPickerStep("exercises")}
+                        >
+                          <Text style={styles.cancelText}>Cancelar</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={styles.doneButton}
+                          onPress={confirmFreeSuperset}
+                          disabled={freeSupersetSelection.length < 2}
+                        >
+                          <Text
+                            style={
+                              freeSupersetSelection.length < 2
+                                ? styles.doneTextDisabled
+                                : styles.doneText
+                            }
+                          >
+                            Listo ({freeSupersetSelection.length})
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    </>
+                  )}
+                </Pressable>
+              </KeyboardAvoidingView>
             </Pressable>
           </Modal>
         </KeyboardAvoidingView>
@@ -1178,6 +1206,12 @@ const styles = StyleSheet.create({
     fontSize: 16,
     textAlign: "center",
     color: "#aaa",
+  },
+  optionHint: {
+    fontSize: 12,
+    color: "#999",
+    textAlign: "center",
+    marginTop: 2,
   },
   // "Entreno libre" es una opción especial (no una rutina), separada del resto
   // con más peso visual y un borde algo más marcado para que no se confunda

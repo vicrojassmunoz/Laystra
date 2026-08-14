@@ -1,6 +1,22 @@
 from sqlalchemy.orm import Session
 
 from app import models
+from app.muscle_taxonomy import EXERCISE_MUSCLE_GROUPS
+
+
+def _exercise(name: str, unit: str = "kg") -> models.Exercise:
+    """Construye un Exercise ya clasificado por grupo muscular a partir del
+    catálogo compartido en app/muscle_taxonomy.py — una DB nueva (tests, dev
+    limpio) nace clasificada sin depender del backfill ad-hoc de app/db.py,
+    que existe solo para laystra.db en producción (tenía estas filas ya
+    insertadas antes de que este campo existiera)."""
+    primary, secondaries = EXERCISE_MUSCLE_GROUPS[name]
+    return models.Exercise(
+        name=name,
+        unit=unit,
+        muscle_group_primary=primary,
+        secondary_muscles=[models.ExerciseSecondaryMuscle(muscle_group=m) for m in secondaries],
+    )
 
 
 def seed_if_empty(db: Session) -> None:
@@ -12,36 +28,36 @@ def seed_if_empty(db: Session) -> None:
     if db.query(models.Exercise).first() is not None:
         return
 
-    bench = models.Exercise(name="Press banca", unit="kg")
-    squat = models.Exercise(name="Sentadilla", unit="kg")
-    deadlift = models.Exercise(name="Peso muerto", unit="kg")
-    pullup = models.Exercise(name="Dominadas", unit="kg")
-    row = models.Exercise(name="Remo con barra", unit="kg")
+    bench = _exercise("Press banca")
+    squat = _exercise("Sentadilla")
+    deadlift = _exercise("Peso muerto")
+    pullup = _exercise("Dominadas")
+    row = _exercise("Remo con barra")
     db.add_all([bench, squat, deadlift, pullup, row])
 
     # Ejercicios reales que el usuario entrena actualmente (lista dada 2026-08-10).
     # "Dominadas" ya existe arriba, no se duplica aquí.
     db.add_all(
         [
-            models.Exercise(name="Remo mancuerna unilateral", unit="kg"),
-            models.Exercise(name="Flexiones", unit="kg"),
-            models.Exercise(name="Pullover", unit="kg"),
-            models.Exercise(name="Curl martillo", unit="kg"),
-            models.Exercise(name="Remo con goma cerrado unilateral", unit="kg"),
-            models.Exercise(name="Facepull", unit="kg"),
-            models.Exercise(name="Fondos", unit="kg"),
-            models.Exercise(name="Press inclinado unilateral", unit="kg"),
-            models.Exercise(name="Elevaciones laterales", unit="kg"),
-            models.Exercise(name="Curl con goma", unit="kg"),
-            models.Exercise(name="Flexiones declinadas con goma", unit="kg"),
-            models.Exercise(name="Triceps sobre cabeza", unit="kg"),
-            models.Exercise(name="Sentadilla búlgara", unit="kg"),
-            models.Exercise(name="Curl femoral goma", unit="kg"),
-            models.Exercise(name="Goblet squat", unit="kg"),
-            models.Exercise(name="Peso muerto rumano", unit="kg"),
-            models.Exercise(name="Gemelo de pie", unit="kg"),
-            models.Exercise(name="Plancha (abdomen)", unit="kg"),
-            models.Exercise(name="Swings con kettlebell", unit="kg"),
+            _exercise("Remo mancuerna unilateral"),
+            _exercise("Flexiones"),
+            _exercise("Pullover"),
+            _exercise("Curl martillo"),
+            _exercise("Remo con goma cerrado unilateral"),
+            _exercise("Facepull"),
+            _exercise("Fondos"),
+            _exercise("Press inclinado unilateral"),
+            _exercise("Elevaciones laterales"),
+            _exercise("Curl con goma"),
+            _exercise("Flexiones declinadas con goma"),
+            _exercise("Triceps sobre cabeza"),
+            _exercise("Sentadilla búlgara"),
+            _exercise("Curl femoral goma"),
+            _exercise("Goblet squat"),
+            _exercise("Peso muerto rumano"),
+            _exercise("Gemelo de pie"),
+            _exercise("Plancha (abdomen)"),
+            _exercise("Swings con kettlebell"),
         ]
     )
     db.flush()  # assign ids before we reference them below

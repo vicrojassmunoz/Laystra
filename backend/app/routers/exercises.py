@@ -16,7 +16,17 @@ def list_exercises(db: Session = Depends(get_db)) -> list[models.Exercise]:
 
 @router.post("", response_model=Exercise, status_code=201)
 def create_exercise(payload: ExerciseCreate, db: Session = Depends(get_db)) -> models.Exercise:
-    exercise = models.Exercise(**payload.model_dump())
+    # No se puede pasar **payload.model_dump() directo al constructor: muscle_group_secondary
+    # no es una columna real en models.Exercise, es la property de solo lectura respaldada por
+    # la relación secondary_muscles — hay que construir sus filas hijas explícitamente.
+    exercise = models.Exercise(
+        name=payload.name,
+        unit=payload.unit,
+        muscle_group_primary=payload.muscle_group_primary,
+        secondary_muscles=[
+            models.ExerciseSecondaryMuscle(muscle_group=m) for m in payload.muscle_group_secondary
+        ],
+    )
     db.add(exercise)
     db.commit()
     db.refresh(exercise)

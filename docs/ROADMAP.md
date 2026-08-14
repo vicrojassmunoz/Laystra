@@ -17,15 +17,10 @@ Pantalla principal con
 
 ## v2 — extensiones naturales del MVP, coste bajo/medio
 
-### Buscador y agrupación por grupo muscular en el picker de ejercicios
-**Prioridad inmediata (2026-08-14):** con la lista de ejercicios ya en 24 y subiendo, encontrar el que tocaba al montar una rutina (o un bloque de super-serie) se ha vuelto incómodo — es una lista plana sin buscador ni agrupación, y el picker se reusa en `RoutinasScreen.tsx` y `TodayScreen.tsx` (entreno libre).
+### ~~Buscador y agrupación por grupo muscular en el picker de ejercicios~~ — hecho (2026-08-14)
+Implementado, pero con más alcance del planeado originalmente aquí: en vez de un campo plano único, `Exercise` terminó con `muscle_group_primary` (obligatorio, catálogo cerrado de 8: Pecho/Espalda/Hombros/Bíceps/Tríceps/Piernas/Core/Cardio-Otros) + una tabla hija `ExerciseSecondaryMuscle` (0 a N secundarios) — el usuario pidió explícitamente ser "clínico" con los antagonistas/sinergistas de cada ejercicio real. Esto **adelanta parte de "Modelo de músculos" de v3** más abajo: ya no hace falta la tabla `Muscle`/`ExerciseMuscle` genérica para tener múltiples músculos por ejercicio con rol (principal/secundario) — lo que sigue faltando de v3 es un asset visual (silueta tapeable) y las categorías siguen siendo un catálogo cerrado de 8, no músculos anatómicos libres.
 
-Alcance mínimo, deliberadamente más barato que el "Modelo de músculos" de v3 de más abajo:
-- Campo plano `muscle_group` en `Exercise` (string simple, un valor por ejercicio — no la tabla relacional `Muscle`/`ExerciseMuscle` de v3, que sigue reservada para cuando se ataque la silueta tapeable o el modo split). Se rellena a mano en `backend/app/seed.py`/backfill sobre `laystra.db`, igual que se hizo con la lista de 24 ejercicios reales.
-- Input de texto para filtrar por nombre dentro del modal del picker.
-- Agrupar visualmente el listado del picker por `muscle_group` (secciones con cabecera), en vez de una lista plana.
-
-No requiere el modelo relacional ni ninguna feature visual grande — es pulido de una pantalla que ya se usa constantemente (crear/editar rutinas), así que entra antes que el resto de v2.
+Picker con buscador (ignora acentos) + agrupación por sección con orden fijo, en `RoutinesScreen.tsx` y `TodayScreen.tsx` (entreno libre, incluidos los pickers de super-serie). **Pendiente, aparcado explícitamente (2026-08-14):** el tercer picker de ejercicios, en `ProgressScreen.tsx` (elegir de qué ejercicio ver el progreso), se quedó sin el mismo tratamiento — el componente compartido `ExercisePickerList.tsx` ya existe, así que aplicarlo ahí es una extensión trivial cuando se retome.
 
 ### Registro de condición física (peso, % grasa)
 Entidad nueva y sencilla: `BodyMetric` (fecha, peso, %grasa opcional). Sin dependencias raras, es una pantalla + un endpoint más. De las ideas de la lista, la más barata de todas — podría entrar casi en el MVP si quisieras.
@@ -74,18 +69,13 @@ Un campo `notes` (texto libre) en `WorkoutSet` o `Workout`. Barato. La parte "gu
 
 ## v3 — con más peso, requieren diseño propio
 
-### Modelo de músculos (base de la que dependen las dos ideas siguientes)
-Idea planteada para el medio/largo plazo: en vez de un campo plano `muscle_group` en `Exercise` (un músculo por ejercicio), un modelo relacional que refleje que un ejercicio suele trabajar varios músculos con distinto peso:
-
-- `Muscle` (id, nombre — bíceps, dorsal, cuádriceps...)
-- `ExerciseMuscle` (exercise_id, muscle_id, `role`: principal/secundario) — tabla intermedia. Ej. curl de bíceps: bíceps=principal. Jalón al pecho (lat pulldown): dorsal=principal, bíceps=secundario.
-
-Con esto, "ver tu progreso en un músculo" es una query, no una feature nueva de verdad: seleccionas todos los `Exercise` donde ese músculo aparece en `ExerciseMuscle` (como principal o secundario), y ordenas el resultado — primero por `role` (principal antes que secundario), luego por nombre — para que el ejercicio más representativo de ese músculo aparezca arriba. De ahí sale tanto la silueta tapeable como el modo split de abajo; ambas dependen de este modelo en vez del `muscle_group` de campo único mencionado antes en este documento.
+### ~~Modelo de músculos~~ — parcialmente hecho (2026-08-14), ver nota arriba
+La parte de datos ya existe: `Exercise.muscle_group_primary` + tabla hija `ExerciseSecondaryMuscle` cubren "un ejercicio trabaja varios músculos con distinto rol (principal/secundario)", que era el objetivo de esta sección. Diferencia con lo que se planteó aquí originalmente: el catálogo es cerrado (8 categorías amplias, no un `Muscle` de nombre libre tipo "dorsal"/"cuádriceps") — así que "ver tu progreso en un músculo" ya es una query real (`Exercise` con ese `muscle_group_primary` o con ese valor en sus secundarios, principal antes que secundario), pero a la granularidad de esas 8 categorías, no de músculos anatómicos individuales. Si en algún momento hace falta esa granularidad fina (p. ej. separar cuádriceps de glúteo dentro de "Piernas"), habría que decidir entonces si se amplía el catálogo cerrado o se pasa a un `Muscle` de verdad con nombre libre — no es necesario solo para la silueta tapeable de abajo, que puede mapear regiones del SVG a las 8 categorías actuales.
 
 ### Home con silueta de cuerpo tapeable por grupo muscular
 Bonita idea, viable en Expo/RN con `react-native-svg` (un SVG con regiones tapeables por grupo muscular). Dos implicaciones:
 1. Necesitas un asset SVG con las regiones bien delimitadas — o lo encargas, o lo generas con ayuda de IA de imagen y lo recortas tú.
-2. Depende del modelo de músculos de arriba (`Muscle`/`ExerciseMuscle`) para poder filtrar el progreso por la zona que tapeas, ordenando por relevancia (principal antes que secundario).
+2. Ya no depende de construir el modelo de músculos desde cero (ver nota arriba, ya existe) — solo de mapear cada región del SVG a una de las 8 categorías de `muscle_group_primary`/`muscle_group_secondary` ya existentes.
 
 Es la típica feature que vende mucho visualmente y cuesta relativamente poco una vez tienes el modelo de datos de músculos.
 
@@ -135,13 +125,13 @@ Como ya sabes, en Expo esto requiere un config plugin y development build sí o 
 
 ## Orden sugerido si algún día atacas esto en serio
 
-1. **Buscador y agrupación por grupo muscular en el picker de ejercicios** — prioridad inmediata (2026-08-14), dolor real ya, no hipotético.
+1. ~~Buscador y agrupación por grupo muscular en el picker de ejercicios~~ — hecho (2026-08-14), incluida la parte de datos del "Modelo de músculos" de v3 (ver notas arriba). Queda suelto: aplicar el mismo picker a `ProgressScreen.tsx`.
 2. `BodyMetric` (peso/%grasa) — barato, entra casi en cualquier momento.
 3. Generalizar el modelo a `Goal`/`Session` con tipos — SOLO si de verdad vas a meter cardio pronto. Si no, no lo generalices "por si acaso".
 4. Asistencia en directo: timer de sesión + info del siguiente ejercicio + frases (sin notificaciones aún).
 5. Temporizador de descanso con alarma real → primer salto a development build vía `eas-agent`.
 6. Sensaciones/notas.
-7. Modelo de músculos (`Muscle`/`ExerciseMuscle`) + Home con silueta tapeable — mételo cuando ataques esto, no antes. Nota: no es prerrequisito del punto 1 — ese usa un `muscle_group` plano mucho más barato, este modelo relacional solo hace falta para la silueta tapeable y el split de abajo.
-8. Modo split/balance desacoplado del calendario — misma dependencia, tiene sentido hacerlo junto al punto anterior.
+7. Home con silueta tapeable — ya no necesita construir el modelo de músculos desde cero (hecho en el punto 1), solo el asset SVG y el mapeo de regiones a las 8 categorías existentes.
+8. Modo split/balance desacoplado del calendario — misma base de datos que el punto anterior, tiene sentido hacerlo junto a él.
 9. Análisis con IA — solo cuando ya tengas semanas/meses de datos reales logueados.
 10. Strava / HealthKit — proyectos aparte en sí mismos, no "una feature más".
