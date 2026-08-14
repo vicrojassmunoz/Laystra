@@ -17,6 +17,16 @@ Pantalla principal con
 
 ## v2 — extensiones naturales del MVP, coste bajo/medio
 
+### Buscador y agrupación por grupo muscular en el picker de ejercicios
+**Prioridad inmediata (2026-08-14):** con la lista de ejercicios ya en 24 y subiendo, encontrar el que tocaba al montar una rutina (o un bloque de super-serie) se ha vuelto incómodo — es una lista plana sin buscador ni agrupación, y el picker se reusa en `RoutinasScreen.tsx` y `TodayScreen.tsx` (entreno libre).
+
+Alcance mínimo, deliberadamente más barato que el "Modelo de músculos" de v3 de más abajo:
+- Campo plano `muscle_group` en `Exercise` (string simple, un valor por ejercicio — no la tabla relacional `Muscle`/`ExerciseMuscle` de v3, que sigue reservada para cuando se ataque la silueta tapeable o el modo split). Se rellena a mano en `backend/app/seed.py`/backfill sobre `laystra.db`, igual que se hizo con la lista de 24 ejercicios reales.
+- Input de texto para filtrar por nombre dentro del modal del picker.
+- Agrupar visualmente el listado del picker por `muscle_group` (secciones con cabecera), en vez de una lista plana.
+
+No requiere el modelo relacional ni ninguna feature visual grande — es pulido de una pantalla que ya se usa constantemente (crear/editar rutinas), así que entra antes que el resto de v2.
+
 ### Registro de condición física (peso, % grasa)
 Entidad nueva y sencilla: `BodyMetric` (fecha, peso, %grasa opcional). Sin dependencias raras, es una pantalla + un endpoint más. De las ideas de la lista, la más barata de todas — podría entrar casi en el MVP si quisieras.
 
@@ -125,12 +135,13 @@ Como ya sabes, en Expo esto requiere un config plugin y development build sí o 
 
 ## Orden sugerido si algún día atacas esto en serio
 
-1. `BodyMetric` (peso/%grasa) — barato, entra casi en cualquier momento.
-2. Generalizar el modelo a `Goal`/`Session` con tipos — SOLO si de verdad vas a meter cardio pronto. Si no, no lo generalices "por si acaso".
-3. Asistencia en directo: timer de sesión + info del siguiente ejercicio + frases (sin notificaciones aún).
-4. Temporizador de descanso con alarma real → primer salto a development build vía `eas-agent`.
-5. Sensaciones/notas.
-6. Modelo de músculos (`Muscle`/`ExerciseMuscle`) + Home con silueta tapeable — mételo cuando ataques esto, no antes.
-7. Modo split/balance desacoplado del calendario — misma dependencia, tiene sentido hacerlo junto al punto anterior.
-8. Análisis con IA — solo cuando ya tengas semanas/meses de datos reales logueados.
-9. Strava / HealthKit — proyectos aparte en sí mismos, no "una feature más".
+1. **Buscador y agrupación por grupo muscular en el picker de ejercicios** — prioridad inmediata (2026-08-14), dolor real ya, no hipotético.
+2. `BodyMetric` (peso/%grasa) — barato, entra casi en cualquier momento.
+3. Generalizar el modelo a `Goal`/`Session` con tipos — SOLO si de verdad vas a meter cardio pronto. Si no, no lo generalices "por si acaso".
+4. Asistencia en directo: timer de sesión + info del siguiente ejercicio + frases (sin notificaciones aún).
+5. Temporizador de descanso con alarma real → primer salto a development build vía `eas-agent`.
+6. Sensaciones/notas.
+7. Modelo de músculos (`Muscle`/`ExerciseMuscle`) + Home con silueta tapeable — mételo cuando ataques esto, no antes. Nota: no es prerrequisito del punto 1 — ese usa un `muscle_group` plano mucho más barato, este modelo relacional solo hace falta para la silueta tapeable y el split de abajo.
+8. Modo split/balance desacoplado del calendario — misma dependencia, tiene sentido hacerlo junto al punto anterior.
+9. Análisis con IA — solo cuando ya tengas semanas/meses de datos reales logueados.
+10. Strava / HealthKit — proyectos aparte en sí mismos, no "una feature más".
