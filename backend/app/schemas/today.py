@@ -9,6 +9,7 @@ class TodayExercise(BaseModel):
     unit: str
     target_sets: int
     order: int
+    superset_group: int | None = None
 
 
 class TodayResponse(BaseModel):

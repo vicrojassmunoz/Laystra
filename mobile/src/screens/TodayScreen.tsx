@@ -21,21 +21,20 @@ import { fetchExercises } from "../api/exercises";
 import { fetchRoutines } from "../api/routines";
 import { createWorkout } from "../api/workouts";
 import { fetchToday, TodayExercise, TodayResponse } from "../api/today";
+import SupersetBlock, { SetDraft } from "../components/SupersetBlock";
 import { Exercise } from "../types/exercise";
 import { Routine } from "../types/routine";
 import { WorkoutSetCreate } from "../types/workout";
+import { equalizeSupersetRounds, groupBySuperset, validSupersetGroups } from "../utils/superset";
 
 type State =
   | { status: "loading" }
   | { status: "error"; message: string }
   | { status: "ready"; data: TodayResponse; routines: Routine[]; exercises: Exercise[] };
 
-type SetDraft = {
-  id: number;
-  weight: string;
-  reps: string;
-};
-
+// SetDraft (id + weight/reps como string) viene de SupersetBlock -- es la
+// misma forma que necesita una fila de serie tanto suelta como dentro de un
+// bloque, así que se reusa un único tipo en vez de declararlo dos veces.
 type ExerciseDraft = {
   exercise: TodayExercise;
   sets: SetDraft[];
@@ -65,7 +64,7 @@ type SavedSummary = {
 // -- así, al quitar una fila del medio, React no reutiliza por error el
 // TextInput enfocado para otra serie distinta.
 function buildDraft(exercises: TodayExercise[], nextId: () => number): ExerciseDraft[] {
-  return exercises.map((exercise) => ({
+  const drafts = exercises.map((exercise) => ({
     exercise,
     // Pre-rellena con `target_sets` filas vacías (el número de series objetivo
     // de la rutina); "+ añadir serie"/"Quitar" siguen disponibles por si un día
@@ -76,6 +75,17 @@ function buildDraft(exercises: TodayExercise[], nextId: () => number): ExerciseD
       reps: "",
     })),
   }));
+
+  // Si esta rutina agrupa ejercicios con distinto target_sets en el mismo
+  // bloque de super-serie, iguala las rondas al nacer -- ver comentario en
+  // equalizeSupersetRounds.
+  return equalizeSupersetRounds(
+    drafts,
+    (d) => d.exercise.superset_group,
+    (d) => d.sets,
+    (d, sets) => ({ ...d, sets }),
+    () => ({ id: nextId(), weight: "", reps: "" })
+  );
 }
 
 // Convierte los ejercicios de una rutina cualquiera (no necesariamente la de
@@ -94,19 +104,70 @@ function routineToExercises(routine: Routine, exerciseById: Map<number, Exercise
         unit: exercise?.unit ?? "kg",
         target_sets: re.target_sets,
         order: re.order,
+        superset_group: re.superset_group,
       };
     });
 }
 
+// Reordena los ids elegidos para un entreno libre de forma que los miembros
+// de un mismo bloque de super-serie queden contiguos -- necesario porque el
+// usuario puede haber elegido los ejercicios sueltos primero y agruparlos
+// después (o al revés), y tanto el render (groupBySuperset) como el backend
+// asumen que un bloque es un tramo contiguo, no ids salpicados.
+function buildOrderedFreeExerciseIds(
+  freeSelection: number[],
+  blocks: { groupId: number; exerciseIds: number[] }[]
+): number[] {
+  const groupOf = new Map<number, number>();
+  for (const block of blocks) {
+    for (const id of block.exerciseIds) {
+      groupOf.set(id, block.groupId);
+    }
+  }
+
+  const emitted = new Set<number>();
+  const ordered: number[] = [];
+
+  for (const id of freeSelection) {
+    if (emitted.has(id)) {
+      continue;
+    }
+
+    const groupId = groupOf.get(id);
+    if (groupId === undefined) {
+      ordered.push(id);
+      emitted.add(id);
+      continue;
+    }
+
+    const block = blocks.find((b) => b.groupId === groupId)!;
+    for (const memberId of block.exerciseIds) {
+      if (!emitted.has(memberId)) {
+        ordered.push(memberId);
+        emitted.add(memberId);
+      }
+    }
+  }
+
+  return ordered;
+}
+
 // Para un entreno libre no hay rutina que fije target_sets, así que se parte
 // de 1 serie por ejercicio elegido -- "+ añadir serie" cubre el resto.
-function freeExercisesToDraftExercises(selected: Exercise[]): TodayExercise[] {
+// `groupByExerciseId` viene de los bloques de super-serie armados en el
+// picker de "entreno libre" (ver confirmFreeSuperset) -- ninguno si no se
+// usó "+ Super-serie".
+function freeExercisesToDraftExercises(
+  selected: Exercise[],
+  groupByExerciseId: Map<number, number>
+): TodayExercise[] {
   return selected.map((exercise, index) => ({
     exercise_id: exercise.id,
     exercise_name: exercise.name,
     unit: exercise.unit,
     target_sets: 1,
     order: index,
+    superset_group: groupByExerciseId.get(exercise.id) ?? null,
   }));
 }
 
@@ -154,8 +215,23 @@ export default function TodayScreen() {
   // glitches en iOS/RN (el segundo modal no aparece, o queda el backdrop del
   // primero). Con un solo <Modal visible={pickerStep !== null}> solo hay uno
   // montado/desmontado a la vez; lo que cambia es el contenido de dentro.
-  const [pickerStep, setPickerStep] = useState<"target" | "exercises" | null>(null);
+  // "free-superset" es un tercer paso anidado dentro de "exercises": desde
+  // ahí se elige qué ejercicios (de los que existen, no necesariamente ya
+  // marcados) forman un bloque de super-serie para el entreno libre. Al
+  // confirmar, vuelve a "exercises" (no cierra todo el picker).
+  const [pickerStep, setPickerStep] = useState<"target" | "exercises" | "free-superset" | null>(
+    null
+  );
   const [freeSelection, setFreeSelection] = useState<number[]>([]);
+  // Bloques de super-serie armados para el entreno libre en curso -- viven
+  // aparte de freeSelection porque un ejercicio puede estar "seleccionado"
+  // sin pertenecer a ningún bloque (ejercicio suelto). Local a este picker,
+  // se resetea cada vez que se vuelve a abrir "Entreno libre".
+  const [freeSupersetBlocks, setFreeSupersetBlocks] = useState<
+    { groupId: number; exerciseIds: number[] }[]
+  >([]);
+  const [freeSupersetSelection, setFreeSupersetSelection] = useState<number[]>([]);
+  const nextFreeGroupIdRef = useRef(1);
 
   // Instantánea de formTarget/formRows justo tras el último guardado exitoso,
   // para poder volver a ella si el usuario pulsa "Loguear otro entreno", elige
@@ -228,7 +304,14 @@ export default function TodayScreen() {
     const key = [
       state.data.date,
       state.data.routine_id,
-      ...state.data.exercises.map((e) => `${e.exercise_id}:${e.target_sets}`),
+      // superset_group entra en la firma para que agrupar/desagrupar
+      // ejercicios ya existentes desde "Rutinas" (sin tocar ejercicios ni
+      // sets) también invalide el draft cacheado -- si no, volver a "Hoy"
+      // seguía mostrando la agrupación vieja, y guardar así persistía el
+      // entreno con esa agrupación desactualizada en silencio.
+      ...state.data.exercises.map(
+        (e) => `${e.exercise_id}:${e.target_sets}:${e.superset_group}`
+      ),
     ].join("|");
 
     if (draftKeyRef.current === key) {
@@ -308,6 +391,26 @@ export default function TodayScreen() {
     );
   }
 
+  // Variantes de addSet/removeSet para un bloque de super-serie: en vez de
+  // tocar un solo ejercicio, añaden/quitan la misma "ronda" (posición de
+  // serie) en TODOS los ejercicios del bloque a la vez -- exerciseIndices son
+  // las posiciones dentro de formRows de los miembros de ese bloque.
+  function addRoundToGroup(exerciseIndices: number[]) {
+    for (const index of exerciseIndices) {
+      addSet(index);
+    }
+  }
+
+  function removeRoundFromGroup(exerciseIndices: number[], roundIndex: number) {
+    setFormRows((prev) =>
+      prev.map((row, i) =>
+        exerciseIndices.includes(i)
+          ? { ...row, sets: row.sets.filter((_, j) => j !== roundIndex) }
+          : row
+      )
+    );
+  }
+
   // "Loguear otro entreno" ya no reutiliza directamente la rutina de hoy --
   // abre el picker para elegir otra rutina o un entreno libre. El formulario
   // solo se reconstruye cuando el usuario termina de elegir (ver
@@ -334,11 +437,77 @@ export default function TodayScreen() {
 
   function chooseFreeForAnother() {
     setFreeSelection([]);
+    setFreeSupersetBlocks([]);
     setPickerStep("exercises");
   }
 
+  // Si el ejercicio que se desmarca pertenecía a un bloque, se le quita del
+  // bloque; si eso deja el bloque con menos de 2 miembros, se disuelve del
+  // todo (el miembro que quede, si queda uno, pasa a suelto sin más pasos --
+  // no hace falta "desagruparlo" a mano porque ya no hay bloque que lo
+  // referencie). Al marcar un ejercicio (no desmarcarlo) esto no tiene efecto,
+  // ya que un ejercicio recién marcado nunca pertenece todavía a ningún bloque.
   function toggleFreeExercise(id: number) {
     setFreeSelection((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+    setFreeSupersetBlocks((prev) =>
+      prev
+        .map((block) =>
+          block.exerciseIds.includes(id)
+            ? { ...block, exerciseIds: block.exerciseIds.filter((x) => x !== id) }
+            : block
+        )
+        .filter((block) => block.exerciseIds.length >= 2)
+    );
+  }
+
+  function openFreeSupersetPicker() {
+    setFreeSupersetSelection([]);
+    setPickerStep("free-superset");
+  }
+
+  // Ids que ya pertenecen a un bloque de super-serie armado anteriormente en
+  // este entreno libre -- no pueden volver a elegirse para un bloque nuevo.
+  // Sin esto, elegir un ejercicio ya agrupado para un segundo bloque
+  // sobrescribía a qué grupo pertenecía (el Map de abajo se construye por
+  // ejercicio, no por bloque) y dejaba el bloque viejo con un solo miembro,
+  // que el backend rechaza con 400 al guardar.
+  function alreadyGroupedFreeExerciseIds(): Set<number> {
+    const ids = new Set<number>();
+    for (const block of freeSupersetBlocks) {
+      for (const id of block.exerciseIds) {
+        ids.add(id);
+      }
+    }
+    return ids;
+  }
+
+  function toggleFreeSupersetExercise(id: number) {
+    if (alreadyGroupedFreeExerciseIds().has(id)) {
+      return;
+    }
+    setFreeSupersetSelection((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  }
+
+  // Confirma un bloque de super-serie para el entreno libre: los ejercicios
+  // elegidos aquí se añaden también a freeSelection si no lo estaban ya --
+  // agruparlos implica que forman parte del entreno, igual que en Rutinas.
+  function confirmFreeSuperset() {
+    if (freeSupersetSelection.length < 2) {
+      return;
+    }
+
+    const groupId = nextFreeGroupIdRef.current++;
+    setFreeSupersetBlocks((prev) => [...prev, { groupId, exerciseIds: freeSupersetSelection }]);
+    setFreeSelection((prev) => {
+      const merged = new Set(prev);
+      for (const id of freeSupersetSelection) {
+        merged.add(id);
+      }
+      return Array.from(merged);
+    });
+    setPickerStep("exercises");
   }
 
   function confirmFreeSelection() {
@@ -347,10 +516,19 @@ export default function TodayScreen() {
     }
 
     const exerciseById = new Map(state.exercises.map((e) => [e.id, e]));
-    const selected = freeSelection
+    const orderedIds = buildOrderedFreeExerciseIds(freeSelection, freeSupersetBlocks);
+    const selected = orderedIds
       .map((id) => exerciseById.get(id))
       .filter((e): e is Exercise => e !== undefined);
-    const exercises = freeExercisesToDraftExercises(selected);
+
+    const groupByExerciseId = new Map<number, number>();
+    for (const block of freeSupersetBlocks) {
+      for (const id of block.exerciseIds) {
+        groupByExerciseId.set(id, block.groupId);
+      }
+    }
+
+    const exercises = freeExercisesToDraftExercises(selected, groupByExerciseId);
 
     setFormTarget({ routineId: null, routineName: null, exercises });
     setFormRows(buildDraft(exercises, nextSetId));
@@ -393,6 +571,20 @@ export default function TodayScreen() {
 
     setFormError(null);
 
+    // Red de seguridad: pese a equalizeSupersetRounds (en buildDraft) y al
+    // picker de super-serie de entreno libre bloqueando solapes, cualquier
+    // superset_group que en este momento cubra menos de 2 exercise_id
+    // distintos (entre las filas que de verdad van a mandar series) se anula
+    // a null aquí en vez de dejar que el backend lo rechace con un 400 que el
+    // usuario no sabría interpretar.
+    const validGroups = validSupersetGroups(
+      formRows.map((row) => ({
+        exerciseId: row.exercise.exercise_id,
+        group: row.exercise.superset_group,
+        hasSets: row.sets.length > 0,
+      }))
+    );
+
     const sets: WorkoutSetCreate[] = [];
     let order = 0;
 
@@ -426,11 +618,14 @@ export default function TodayScreen() {
           return;
         }
 
+        const group = row.exercise.superset_group;
+
         sets.push({
           exercise_id: row.exercise.exercise_id,
           weight,
           reps,
           order: order++,
+          superset_group: group != null && validGroups.has(group) ? group : null,
         });
       }
     }
@@ -520,62 +715,95 @@ export default function TodayScreen() {
             )}
 
             {!skipped &&
-              formRows.map((row, exerciseIndex) => (
-                // Una rutina puede repetir el mismo ejercicio (p.ej. press banca
-                // pesado + press banca ligero), así que exercise_id solo no es una
-                // key única -- se combina con la posición en la lista.
-                <View key={`${row.exercise.exercise_id}-${exerciseIndex}`} style={styles.card}>
-                <Text style={styles.exerciseName}>{row.exercise.exercise_name}</Text>
-                {/* En entreno libre no hay rutina que fije target_sets -- se le
-                    pone 1 de relleno (ver freeExercisesToDraftExercises) pero no
-                    significa nada real, así que no tiene sentido mostrarlo. */}
-                {formTarget?.routineId !== null && (
-                  <Text style={styles.targetText}>
-                    Objetivo: {row.exercise.target_sets} serie{row.exercise.target_sets === 1 ? "" : "s"}
-                  </Text>
-                )}
+              groupBySuperset(
+                formRows.map((row, index) => ({ row, index })),
+                (entry) => entry.row.exercise.superset_group
+              ).map((entry) => {
+                if (entry.type === "single") {
+                  const { row, index: exerciseIndex } = entry.item;
+                  return (
+                    // Una rutina puede repetir el mismo ejercicio (p.ej. press
+                    // banca pesado + press banca ligero), así que exercise_id
+                    // solo no es una key única -- se combina con la posición.
+                    <View key={`${row.exercise.exercise_id}-${exerciseIndex}`} style={styles.card}>
+                      <Text style={styles.exerciseName}>{row.exercise.exercise_name}</Text>
+                      {/* En entreno libre no hay rutina que fije target_sets --
+                          se le pone 1 de relleno (ver freeExercisesToDraftExercises)
+                          pero no significa nada real, así que no tiene sentido
+                          mostrarlo. */}
+                      {formTarget?.routineId !== null && (
+                        <Text style={styles.targetText}>
+                          Objetivo: {row.exercise.target_sets} serie
+                          {row.exercise.target_sets === 1 ? "" : "s"}
+                        </Text>
+                      )}
 
-                {row.sets.map((setDraft, setIndex) => (
-                  <View key={setDraft.id} style={styles.setRow}>
-                    <Text style={styles.setLabel}>Serie {setIndex + 1}</Text>
-                    <TextInput
-                      style={styles.weightInput}
-                      placeholder={row.exercise.unit}
-                      keyboardType="decimal-pad"
-                      value={setDraft.weight}
-                      editable={!submitted && !saving}
-                      onChangeText={(text) => updateSet(exerciseIndex, setIndex, { weight: text })}
-                    />
-                    <TextInput
-                      style={styles.repsInput}
-                      placeholder="reps"
-                      keyboardType="number-pad"
-                      value={setDraft.reps}
-                      editable={!submitted && !saving}
-                      onChangeText={(text) => updateSet(exerciseIndex, setIndex, { reps: text })}
-                    />
-                    {!submitted && (
-                      <Button
-                        title="Quitar"
-                        color="#b00020"
-                        onPress={() => removeSet(exerciseIndex, setIndex)}
-                        disabled={saving}
-                      />
-                    )}
-                  </View>
-                ))}
+                      {row.sets.map((setDraft, setIndex) => (
+                        <View key={setDraft.id} style={styles.setRow}>
+                          <Text style={styles.setLabel}>Serie {setIndex + 1}</Text>
+                          <TextInput
+                            style={styles.weightInput}
+                            placeholder={row.exercise.unit}
+                            keyboardType="decimal-pad"
+                            value={setDraft.weight}
+                            editable={!submitted && !saving}
+                            onChangeText={(text) =>
+                              updateSet(exerciseIndex, setIndex, { weight: text })
+                            }
+                          />
+                          <TextInput
+                            style={styles.repsInput}
+                            placeholder="reps"
+                            keyboardType="number-pad"
+                            value={setDraft.reps}
+                            editable={!submitted && !saving}
+                            onChangeText={(text) => updateSet(exerciseIndex, setIndex, { reps: text })}
+                          />
+                          {!submitted && (
+                            <Button
+                              title="Quitar"
+                              color="#b00020"
+                              onPress={() => removeSet(exerciseIndex, setIndex)}
+                              disabled={saving}
+                            />
+                          )}
+                        </View>
+                      ))}
 
-                {!submitted && (
-                  <View style={styles.addSetButton}>
-                    <Button
-                      title="+ añadir serie"
-                      onPress={() => addSet(exerciseIndex)}
-                      disabled={saving}
-                    />
-                  </View>
-                )}
-              </View>
-            ))}
+                      {!submitted && (
+                        <View style={styles.addSetButton}>
+                          <Button
+                            title="+ añadir serie"
+                            onPress={() => addSet(exerciseIndex)}
+                            disabled={saving}
+                          />
+                        </View>
+                      )}
+                    </View>
+                  );
+                }
+
+                const indices = entry.items.map((it) => it.index);
+                const members = entry.items.map((it) => ({
+                  key: `${it.row.exercise.exercise_id}-${it.index}`,
+                  name: it.row.exercise.exercise_name,
+                  unit: it.row.exercise.unit,
+                  sets: it.row.sets,
+                }));
+
+                return (
+                  <SupersetBlock
+                    key={`group-${entry.groupId}`}
+                    members={members}
+                    disabled={submitted || saving}
+                    onChangeSet={(memberIndex, roundIndex, patch) =>
+                      updateSet(indices[memberIndex], roundIndex, patch)
+                    }
+                    onAddRound={() => addRoundToGroup(indices)}
+                    onRemoveRound={(roundIndex) => removeRoundFromGroup(indices, roundIndex)}
+                  />
+                );
+              })}
 
             {formError && <Text style={styles.errorDetail}>{formError}</Text>}
 
@@ -679,6 +907,12 @@ export default function TodayScreen() {
                     <ScrollView>
                       {state.exercises.map((exercise) => {
                         const selected = freeSelection.includes(exercise.id);
+                        // Solo indicativo (no afecta la selección): si este
+                        // ejercicio ya forma parte de un bloque de
+                        // super-serie armado con "+ Super-serie" más abajo.
+                        const inBlock = freeSupersetBlocks.some((b) =>
+                          b.exerciseIds.includes(exercise.id)
+                        );
                         return (
                           <TouchableOpacity
                             key={exercise.id}
@@ -688,11 +922,16 @@ export default function TodayScreen() {
                             <Text style={selected ? styles.optionTextSelected : styles.optionText}>
                               {selected ? "✓ " : ""}
                               {exercise.name}
+                              {inBlock ? " · Super-serie" : ""}
                             </Text>
                           </TouchableOpacity>
                         );
                       })}
                     </ScrollView>
+
+                    <TouchableOpacity style={styles.supersetOption} onPress={openFreeSupersetPicker}>
+                      <Text style={styles.supersetOptionText}>+ Super-serie</Text>
+                    </TouchableOpacity>
 
                     <View style={styles.modalActions}>
                       <TouchableOpacity
@@ -712,6 +951,73 @@ export default function TodayScreen() {
                           }
                         >
                           Listo ({freeSelection.length})
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  </>
+                )}
+
+                {/* Paso anidado dentro de "exercises": elige qué ejercicios
+                    (de todos los existentes, no solo los ya marcados) forman
+                    un bloque de super-serie para este entreno libre. Al
+                    confirmar vuelve a "exercises", no cierra el picker. */}
+                {pickerStep === "free-superset" && (
+                  <>
+                    <Text style={styles.modalTitle}>Elige ejercicios para la super-serie</Text>
+
+                    <ScrollView>
+                      {state.exercises.map((exercise) => {
+                        const selected = freeSupersetSelection.includes(exercise.id);
+                        // Un ejercicio que ya pertenece a un bloque anterior
+                        // no puede elegirse para uno nuevo -- ver comentario
+                        // en alreadyGroupedFreeExerciseIds.
+                        const alreadyGrouped =
+                          !selected && alreadyGroupedFreeExerciseIds().has(exercise.id);
+                        return (
+                          <TouchableOpacity
+                            key={exercise.id}
+                            style={styles.option}
+                            onPress={() => toggleFreeSupersetExercise(exercise.id)}
+                            disabled={alreadyGrouped}
+                          >
+                            <Text
+                              style={
+                                alreadyGrouped
+                                  ? styles.optionTextDisabled
+                                  : selected
+                                  ? styles.optionTextSelected
+                                  : styles.optionText
+                              }
+                            >
+                              {selected ? "✓ " : ""}
+                              {exercise.name}
+                              {alreadyGrouped ? " · ya en otro bloque" : ""}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+
+                    <View style={styles.modalActions}>
+                      <TouchableOpacity
+                        style={styles.cancelButton}
+                        onPress={() => setPickerStep("exercises")}
+                      >
+                        <Text style={styles.cancelText}>Cancelar</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.doneButton}
+                        onPress={confirmFreeSuperset}
+                        disabled={freeSupersetSelection.length < 2}
+                      >
+                        <Text
+                          style={
+                            freeSupersetSelection.length < 2
+                              ? styles.doneTextDisabled
+                              : styles.doneText
+                          }
+                        >
+                          Listo ({freeSupersetSelection.length})
                         </Text>
                       </TouchableOpacity>
                     </View>
@@ -866,6 +1172,13 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#1b8a1b",
   },
+  // Ejercicio ya perteneciente a otro bloque de super-serie -- no
+  // seleccionable para uno nuevo, ver alreadyGroupedFreeExerciseIds.
+  optionTextDisabled: {
+    fontSize: 16,
+    textAlign: "center",
+    color: "#aaa",
+  },
   // "Entreno libre" es una opción especial (no una rutina), separada del resto
   // con más peso visual y un borde algo más marcado para que no se confunda
   // con una rutina más de la lista.
@@ -879,6 +1192,21 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
     textAlign: "center",
+  },
+  // Abre el paso anidado "free-superset" -- separado visualmente del listado
+  // de ejercicios con un borde superior, ya que no es un ejercicio más de la
+  // lista sino una acción distinta.
+  supersetOption: {
+    paddingVertical: 12,
+    borderTopWidth: 2,
+    borderTopColor: "#ccc",
+    marginTop: 4,
+  },
+  supersetOptionText: {
+    fontSize: 15,
+    fontWeight: "600",
+    textAlign: "center",
+    color: "#3b5bdb",
   },
   modalActions: {
     flexDirection: "row",

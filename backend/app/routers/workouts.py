@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from app import models
 from app.db import get_db
 from app.schemas.workout import Workout, WorkoutCreate
+from app.services.superset import validate_superset_groups
 
 router = APIRouter(prefix="/workouts", tags=["workouts"])
 
@@ -20,6 +21,7 @@ def create_workout(payload: WorkoutCreate, db: Session = Depends(get_db)) -> mod
     for item in payload.sets:
         if db.get(models.Exercise, item.exercise_id) is None:
             raise HTTPException(status_code=404, detail=f"Exercise {item.exercise_id} not found")
+    validate_superset_groups(payload.sets)
 
     workout = models.Workout(
         date=payload.date,
@@ -53,6 +55,7 @@ def update_workout(
     for item in payload.sets:
         if db.get(models.Exercise, item.exercise_id) is None:
             raise HTTPException(status_code=404, detail=f"Exercise {item.exercise_id} not found")
+    validate_superset_groups(payload.sets)
 
     workout.date = payload.date
     workout.routine_id = payload.routine_id

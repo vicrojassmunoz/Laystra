@@ -21,21 +21,26 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { fetchExercises } from "../api/exercises";
 import { createRoutine, deleteRoutine, fetchRoutines, updateRoutine } from "../api/routines";
 import { Exercise } from "../types/exercise";
-import { Routine, RoutineExerciseCreate } from "../types/routine";
+import { Routine, RoutineExercise, RoutineExerciseCreate } from "../types/routine";
+import { groupBySuperset } from "../utils/superset";
 
 type State =
   | { status: "loading" }
   | { status: "error"; message: string }
   | { status: "ready"; routines: Routine[]; exercises: Exercise[] };
 
+// supersetGroup: null = fila suelta; mismo entero (local a este formulario,
+// no es un id del backend) = misma super-serie. Ver comentario en
+// confirmSuperset/removeRow sobre cómo se asignan/limpian estos ids.
 type DraftRow = {
   id: number;
   exerciseId: number | null;
   sets: string;
+  supersetGroup: number | null;
 };
 
 function makeEmptyRow(id: number): DraftRow {
-  return { id, exerciseId: null, sets: "" };
+  return { id, exerciseId: null, sets: "", supersetGroup: null };
 }
 
 export default function RoutinesScreen() {
@@ -50,6 +55,13 @@ export default function RoutinesScreen() {
   const [formError, setFormError] = useState<string | null>(null);
   const [pickerRowId, setPickerRowId] = useState<number | null>(null);
   const scrollRef = useRef<ScrollView>(null);
+
+  // Contador de ids de bloque de super-serie, local a este formulario (no es
+  // un id del backend -- el backend solo exige que el mismo entero se repita
+  // entre los ejercicios de un mismo bloque dentro de esta rutina).
+  const nextGroupIdRef = useRef(1);
+  const [supersetPickerVisible, setSupersetPickerVisible] = useState(false);
+  const [supersetSelection, setSupersetSelection] = useState<number[]>([]);
 
   // null = formulario en modo "Nueva rutina"; si tiene un id, el formulario
   // está editando esa rutina existente (PUT en vez de POST al guardar).
@@ -101,8 +113,36 @@ export default function RoutinesScreen() {
     setRows((prev) => [...prev, makeEmptyRow(id)]);
   }
 
+  // Si la fila borrada pertenecía a un bloque de super-serie, y solo queda 1
+  // miembro de ese bloque tras borrarla, ese miembro se desagrupa solo
+  // (supersetGroup: null) -- un bloque de 1 no tiene sentido y el backend lo
+  // rechazaría igualmente.
   function removeRow(id: number) {
-    setRows((prev) => prev.filter((row) => row.id !== id));
+    setRows((prev) => {
+      const removed = prev.find((row) => row.id === id);
+      let next = prev.filter((row) => row.id !== id);
+
+      if (removed?.supersetGroup != null) {
+        const remaining = next.filter((row) => row.supersetGroup === removed.supersetGroup);
+        if (remaining.length === 1) {
+          next = next.map((row) =>
+            row.id === remaining[0].id ? { ...row, supersetGroup: null } : row
+          );
+        }
+      }
+
+      return next;
+    });
+  }
+
+  // Quita el bloque entero de una vez (todas sus filas). Si eso deja el
+  // formulario sin ninguna fila, se repone una fila vacía -- el formulario
+  // siempre debe tener al menos una.
+  function removeGroup(groupId: number) {
+    setRows((prev) => {
+      const next = prev.filter((row) => row.supersetGroup !== groupId);
+      return next.length > 0 ? next : [makeEmptyRow(nextRowIdRef.current++)];
+    });
   }
 
   function selectExercise(rowId: number, exerciseId: number) {
@@ -110,10 +150,40 @@ export default function RoutinesScreen() {
     setPickerRowId(null);
   }
 
+  function openSupersetPicker() {
+    setSupersetSelection([]);
+    setSupersetPickerVisible(true);
+  }
+
+  function toggleSupersetExercise(id: number) {
+    setSupersetSelection((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  }
+
+  // Añade N filas nuevas (una por ejercicio elegido), todas con el mismo
+  // supersetGroup nuevo. Cada una conserva su propio input de "Sets" -- no
+  // se fuerza que sean iguales entre miembros del bloque.
+  function confirmSuperset() {
+    if (supersetSelection.length < 2) {
+      return;
+    }
+
+    const groupId = nextGroupIdRef.current++;
+    const newRows: DraftRow[] = supersetSelection.map((exerciseId) => ({
+      id: nextRowIdRef.current++,
+      exerciseId,
+      sets: "",
+      supersetGroup: groupId,
+    }));
+
+    setRows((prev) => [...prev, ...newRows]);
+    setSupersetPickerVisible(false);
+  }
+
   function resetForm() {
     setEditingId(null);
     setName("");
     nextRowIdRef.current = 1;
+    nextGroupIdRef.current = 1;
     setRows([makeEmptyRow(0)]);
     setFormError(null);
   }
@@ -128,9 +198,19 @@ export default function RoutinesScreen() {
       id: index,
       exerciseId: re.exercise_id,
       sets: String(re.target_sets),
+      supersetGroup: re.superset_group,
     }));
 
     nextRowIdRef.current = newRows.length;
+    // Los ids de grupo que trae la rutina (superset_group) se reusan tal
+    // cual como ids locales -- solo hay que asegurar que el próximo grupo
+    // que se cree en este formulario (con "+ Super-serie") no choque con
+    // ninguno ya cargado.
+    const maxGroup = sortedExercises.reduce(
+      (max, re) => (re.superset_group != null ? Math.max(max, re.superset_group) : max),
+      0
+    );
+    nextGroupIdRef.current = maxGroup + 1;
     setEditingId(routine.id);
     setName(routine.name);
     setRows(newRows.length > 0 ? newRows : [makeEmptyRow(0)]);
@@ -188,7 +268,7 @@ export default function RoutinesScreen() {
 
       const sets = Number(row.sets);
       if (!Number.isInteger(sets) || sets <= 0) {
-        setFormError("Sets debe ser un número entero mayor que 0.");
+        setFormError(`Sets debe ser un número entero mayor que 0 en la fila ${i + 1}.`);
         return;
       }
 
@@ -196,6 +276,7 @@ export default function RoutinesScreen() {
         exercise_id: row.exerciseId,
         target_sets: sets,
         order: order++,
+        superset_group: row.supersetGroup,
       });
     }
 
@@ -240,6 +321,35 @@ export default function RoutinesScreen() {
 
   const { routines, exercises } = state;
 
+  // Fila del formulario (picker de ejercicio + input de sets + "Quitar"),
+  // reusada tanto para filas sueltas como para cada miembro de un bloque de
+  // super-serie -- el JSX es idéntico en los dos casos, solo cambia si va
+  // envuelta en el contenedor de bloque o no.
+  function renderDraftRow(row: DraftRow) {
+    const selectedExercise = exercises.find((e) => e.id === row.exerciseId);
+    return (
+      <View key={row.id} style={styles.row}>
+        <TouchableOpacity style={styles.pickerButton} onPress={() => setPickerRowId(row.id)}>
+          <Text style={selectedExercise ? styles.pickerButtonText : styles.pickerPlaceholderText}>
+            {selectedExercise?.name ?? "Selecciona un ejercicio"}
+          </Text>
+        </TouchableOpacity>
+
+        <TextInput
+          style={styles.numberInput}
+          placeholder="Sets"
+          keyboardType="number-pad"
+          value={row.sets}
+          onChangeText={(text) => updateRow(row.id, { sets: text })}
+        />
+
+        {rows.length > 1 && (
+          <Button title="Quitar" color="#b00020" onPress={() => removeRow(row.id)} />
+        )}
+      </View>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container} edges={["bottom"]}>
       <KeyboardAvoidingView
@@ -263,17 +373,34 @@ export default function RoutinesScreen() {
           {routines.map((routine) => (
             <View key={routine.id} style={styles.card}>
               <Text style={styles.routineName}>{routine.name}</Text>
-              {routine.exercises
-                .slice()
-                .sort((a, b) => a.order - b.order)
-                .map((re) => {
+              {groupBySuperset(
+                routine.exercises.slice().sort((a, b) => a.order - b.order),
+                (re: RoutineExercise) => re.superset_group
+              ).map((entry) => {
+                if (entry.type === "single") {
+                  const re = entry.item;
                   const exercise = exercises.find((e) => e.id === re.exercise_id);
                   return (
                     <Text key={re.id} style={styles.exerciseLine}>
                       {exercise?.name ?? `Ejercicio #${re.exercise_id}`} — {re.target_sets} series
                     </Text>
                   );
-                })}
+                }
+
+                return (
+                  <View key={`group-${entry.groupId}`} style={styles.supersetGroupBoxReadOnly}>
+                    <Text style={styles.supersetGroupLabel}>Super-serie</Text>
+                    {entry.items.map((re) => {
+                      const exercise = exercises.find((e) => e.id === re.exercise_id);
+                      return (
+                        <Text key={re.id} style={styles.exerciseLine}>
+                          {exercise?.name ?? `Ejercicio #${re.exercise_id}`} — {re.target_sets} series
+                        </Text>
+                      );
+                    })}
+                  </View>
+                );
+              })}
               <View style={styles.cardActions}>
                 <Button title="Editar" onPress={() => startEdit(routine)} />
                 <Button title="Borrar" color="#b00020" onPress={() => confirmDelete(routine)} />
@@ -293,39 +420,30 @@ export default function RoutinesScreen() {
               onChangeText={setName}
             />
 
-            {rows.map((row) => {
-              const selectedExercise = exercises.find((e) => e.id === row.exerciseId);
+            {groupBySuperset(rows, (row) => row.supersetGroup).map((entry) => {
+              if (entry.type === "single") {
+                return renderDraftRow(entry.item);
+              }
+
               return (
-                <View key={row.id} style={styles.row}>
-                  <TouchableOpacity
-                    style={styles.pickerButton}
-                    onPress={() => setPickerRowId(row.id)}
-                  >
-                    <Text
-                      style={
-                        selectedExercise ? styles.pickerButtonText : styles.pickerPlaceholderText
-                      }
-                    >
-                      {selectedExercise?.name ?? "Selecciona un ejercicio"}
-                    </Text>
-                  </TouchableOpacity>
-
-                  <TextInput
-                    style={styles.numberInput}
-                    placeholder="Sets"
-                    keyboardType="number-pad"
-                    value={row.sets}
-                    onChangeText={(text) => updateRow(row.id, { sets: text })}
-                  />
-
-                  {rows.length > 1 && (
-                    <Button title="Quitar" color="#b00020" onPress={() => removeRow(row.id)} />
-                  )}
+                <View key={`group-${entry.groupId}`} style={styles.supersetGroupBox}>
+                  <View style={styles.supersetGroupHeader}>
+                    <Text style={styles.supersetGroupLabel}>Super-serie</Text>
+                    <Button
+                      title="Quitar bloque"
+                      color="#b00020"
+                      onPress={() => removeGroup(entry.groupId)}
+                    />
+                  </View>
+                  {entry.items.map((row) => renderDraftRow(row))}
                 </View>
               );
             })}
 
-            <Button title="Añadir ejercicio" onPress={addRow} />
+            <View style={styles.formButtonsRow}>
+              <Button title="Añadir ejercicio" onPress={addRow} />
+              <Button title="+ Super-serie" onPress={openSupersetPicker} />
+            </View>
 
             {formError && <Text style={styles.errorDetail}>{formError}</Text>}
 
@@ -368,6 +486,56 @@ export default function RoutinesScreen() {
             <TouchableOpacity style={styles.cancelButton} onPress={() => setPickerRowId(null)}>
               <Text style={styles.cancelText}>Cancelar</Text>
             </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Picker de multi-selección para armar un bloque de super-serie --
+          distinto del modal de arriba, que elige un solo ejercicio para una
+          fila concreta. Mismo estilo visual (sin cerrar al tocar fuera),
+          consistente con el resto de esta pantalla. */}
+      <Modal visible={supersetPickerVisible} transparent animationType="slide">
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Elige ejercicios para la super-serie</Text>
+
+            <ScrollView>
+              {exercises.map((exercise) => {
+                const selected = supersetSelection.includes(exercise.id);
+                return (
+                  <TouchableOpacity
+                    key={exercise.id}
+                    style={styles.option}
+                    onPress={() => toggleSupersetExercise(exercise.id)}
+                  >
+                    <Text style={selected ? styles.optionTextSelected : styles.optionText}>
+                      {selected ? "✓ " : ""}
+                      {exercise.name}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.supersetCancelButton}
+                onPress={() => setSupersetPickerVisible(false)}
+              >
+                <Text style={styles.cancelText}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.doneButton}
+                onPress={confirmSuperset}
+                disabled={supersetSelection.length < 2}
+              >
+                <Text
+                  style={supersetSelection.length < 2 ? styles.doneTextDisabled : styles.doneText}
+                >
+                  Listo ({supersetSelection.length})
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -415,6 +583,40 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
     gap: 12,
     marginTop: 8,
+  },
+  // Contenedor visual para un bloque de super-serie dentro de la lista de
+  // rutinas ya creadas (modo solo lectura) -- mismo espíritu que
+  // supersetGroupBox del formulario, pero sin acciones.
+  supersetGroupBoxReadOnly: {
+    borderWidth: 1,
+    borderColor: "#8ab4f8",
+    borderRadius: 6,
+    padding: 8,
+    marginVertical: 4,
+  },
+  supersetGroupBox: {
+    borderWidth: 1,
+    borderColor: "#8ab4f8",
+    borderRadius: 6,
+    padding: 8,
+    marginBottom: 8,
+  },
+  supersetGroupHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 4,
+  },
+  supersetGroupLabel: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#3b5bdb",
+    textTransform: "uppercase",
+  },
+  formButtonsRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 4,
   },
   formCard: {
     marginTop: 16,
@@ -499,6 +701,12 @@ const styles = StyleSheet.create({
     fontSize: 16,
     textAlign: "center",
   },
+  optionTextSelected: {
+    fontSize: 16,
+    textAlign: "center",
+    fontWeight: "600",
+    color: "#1b8a1b",
+  },
   cancelButton: {
     paddingVertical: 14,
     marginTop: 8,
@@ -507,6 +715,31 @@ const styles = StyleSheet.create({
     fontSize: 16,
     textAlign: "center",
     color: "#b00020",
+    fontWeight: "600",
+  },
+  modalActions: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 8,
+  },
+  supersetCancelButton: {
+    flex: 1,
+    paddingVertical: 14,
+  },
+  doneButton: {
+    flex: 1,
+    paddingVertical: 14,
+  },
+  doneText: {
+    fontSize: 16,
+    textAlign: "center",
+    color: "#1b8a1b",
+    fontWeight: "600",
+  },
+  doneTextDisabled: {
+    fontSize: 16,
+    textAlign: "center",
+    color: "#aaa",
     fontWeight: "600",
   },
 });

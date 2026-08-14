@@ -157,6 +157,105 @@ def test_delete_unknown_workout_is_404(client: TestClient) -> None:
     assert response.status_code == 404
 
 
+def test_create_workout_with_superset_group_persists_and_reads_back(client: TestClient) -> None:
+    exercise_ids = [e["id"] for e in client.get("/exercises").json()[:2]]
+
+    response = client.post(
+        "/workouts",
+        json={
+            "date": "2026-08-09",
+            "sets": [
+                {"exercise_id": exercise_ids[0], "weight": 40, "reps": 10, "order": 0, "superset_group": 1},
+                {"exercise_id": exercise_ids[1], "weight": 20, "reps": 12, "order": 1, "superset_group": 1},
+                {"exercise_id": exercise_ids[0], "weight": 40, "reps": 8, "order": 2, "superset_group": 2},
+                {"exercise_id": exercise_ids[1], "weight": 20, "reps": 10, "order": 3, "superset_group": 2},
+            ],
+        },
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert [s["superset_group"] for s in body["sets"]] == [1, 1, 2, 2]
+
+    refetched = client.get(f"/workouts/{body['id']}").json()
+    assert [s["superset_group"] for s in refetched["sets"]] == [1, 1, 2, 2]
+
+
+def test_create_free_workout_with_superset_group_persists(client: TestClient) -> None:
+    exercise_ids = [e["id"] for e in client.get("/exercises").json()[:2]]
+
+    response = client.post(
+        "/workouts",
+        json={
+            "date": "2026-08-09",
+            "routine_id": None,
+            "sets": [
+                {"exercise_id": exercise_ids[0], "weight": 40, "reps": 10, "order": 0, "superset_group": 1},
+                {"exercise_id": exercise_ids[1], "weight": 20, "reps": 12, "order": 1, "superset_group": 1},
+            ],
+        },
+    )
+
+    assert response.status_code == 201
+    assert [s["superset_group"] for s in response.json()["sets"]] == [1, 1]
+
+
+def test_create_workout_with_superset_group_on_single_exercise_is_400(client: TestClient) -> None:
+    exercise_id = client.get("/exercises").json()[0]["id"]
+
+    response = client.post(
+        "/workouts",
+        json={
+            "date": "2026-08-09",
+            "sets": [
+                {"exercise_id": exercise_id, "weight": 40, "reps": 10, "order": 0, "superset_group": 1},
+                {"exercise_id": exercise_id, "weight": 40, "reps": 8, "order": 1, "superset_group": 1},
+            ],
+        },
+    )
+
+    assert response.status_code == 400
+    assert "superset_group 1" in response.json()["detail"]
+
+
+def test_update_workout_with_superset_group_on_single_exercise_is_400(client: TestClient) -> None:
+    exercise_id = client.get("/exercises").json()[0]["id"]
+
+    create_response = client.post(
+        "/workouts",
+        json={
+            "date": "2026-08-09",
+            "sets": [{"exercise_id": exercise_id, "weight": 60, "reps": 8, "order": 0}],
+        },
+    )
+    workout_id = create_response.json()["id"]
+
+    response = client.put(
+        f"/workouts/{workout_id}",
+        json={
+            "date": "2026-08-09",
+            "sets": [{"exercise_id": exercise_id, "weight": 60, "reps": 8, "order": 0, "superset_group": 1}],
+        },
+    )
+
+    assert response.status_code == 400
+
+
+def test_loose_set_with_null_superset_group_behaves_as_before(client: TestClient) -> None:
+    exercise_id = client.get("/exercises").json()[0]["id"]
+
+    response = client.post(
+        "/workouts",
+        json={
+            "date": "2026-08-09",
+            "sets": [{"exercise_id": exercise_id, "weight": 60, "reps": 8, "order": 0}],
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["sets"][0]["superset_group"] is None
+
+
 def test_progress_reflects_logged_workout(client: TestClient) -> None:
     exercise_id = client.get("/exercises").json()[0]["id"]
     client.post(

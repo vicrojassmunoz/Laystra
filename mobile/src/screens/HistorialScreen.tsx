@@ -18,9 +18,11 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { fetchExercises } from "../api/exercises";
 import { fetchRoutines } from "../api/routines";
 import { deleteWorkout, fetchWorkouts, updateWorkout } from "../api/workouts";
+import SupersetBlock, { SetDraft } from "../components/SupersetBlock";
 import { Exercise } from "../types/exercise";
 import { Routine } from "../types/routine";
 import { Workout, WorkoutSet, WorkoutSetCreate } from "../types/workout";
+import { groupBySuperset, validSupersetGroups } from "../utils/superset";
 
 type State =
   | { status: "loading" }
@@ -59,14 +61,16 @@ function groupSetsByExercise(
   return groups;
 }
 
-type EditSetDraft = {
-  id: number;
-  weight: string;
-  reps: string;
-};
+// SetDraft (id + weight/reps como string) viene de SupersetBlock -- mismo
+// tipo que usa TodayScreen, así se reusa uno solo en vez de declararlo dos
+// veces con nombres distintos.
+type EditSetDraft = SetDraft;
 
+// supersetGroup: null = tramo suelto; si no, todas las series de este grupo
+// pertenecían al mismo bloque de super-serie en el workout original.
 type EditExerciseGroup = {
   exerciseId: number;
+  supersetGroup: number | null;
   sets: EditSetDraft[];
 };
 
@@ -75,6 +79,11 @@ type EditExerciseGroup = {
 // SetDraft en TodayScreen) agrupadas por ejercicio. No se permite añadir un
 // ejercicio nuevo al workout aquí -- solo editar/añadir/quitar series de los
 // que ya tenía, así que no hace falta guardar más que el exerciseId por grupo.
+// Sigue agrupando por tramos contiguos de mismo exercise_id (un workout con
+// una super-serie A-B-A genera dos grupos de A, no uno) -- lo nuevo es que
+// cada grupo también recuerda su superset_group, para poder re-agruparlos
+// visualmente en bloques de rondas intercaladas (ver groupBySuperset en el
+// render).
 function buildEditGroups(sets: WorkoutSet[], nextId: () => number): EditExerciseGroup[] {
   const groups: EditExerciseGroup[] = [];
 
@@ -86,10 +95,10 @@ function buildEditGroups(sets: WorkoutSet[], nextId: () => number): EditExercise
     };
 
     const last = groups[groups.length - 1];
-    if (last && last.exerciseId === set.exercise_id) {
+    if (last && last.exerciseId === set.exercise_id && last.supersetGroup === set.superset_group) {
       last.sets.push(draft);
     } else {
-      groups.push({ exerciseId: set.exercise_id, sets: [draft] });
+      groups.push({ exerciseId: set.exercise_id, supersetGroup: set.superset_group, sets: [draft] });
     }
   }
 
@@ -236,8 +245,44 @@ export default function HistorialScreen() {
     );
   }
 
+  // Variantes de addEditSet/removeEditSet para un bloque de super-serie:
+  // añaden/quitan la misma "ronda" (posición de serie) en todos los grupos
+  // del bloque a la vez -- groupIndices son las posiciones dentro de
+  // editRows de los miembros de ese bloque. Mismo patrón que
+  // addRoundToGroup/removeRoundFromGroup en TodayScreen.
+  function addEditRoundToGroup(groupIndices: number[]) {
+    for (const index of groupIndices) {
+      addEditSet(index);
+    }
+  }
+
+  function removeEditRoundFromGroup(groupIndices: number[], roundIndex: number) {
+    setEditRows((prev) =>
+      prev.map((group, i) =>
+        groupIndices.includes(i)
+          ? { ...group, sets: group.sets.filter((_, j) => j !== roundIndex) }
+          : group
+      )
+    );
+  }
+
   function handleSaveEdit(workout: Workout, exerciseById: Map<number, Exercise>) {
     setEditError(null);
+
+    // Red de seguridad: un bloque puede llegar aquí ya con miembros de
+    // distinta longitud (así se guardó el workout originalmente), y "Quitar
+    // ronda" (que opera sobre todos los miembros del bloque a la vez) puede
+    // dejar a uno con 0 series. Cualquier superset_group que en este momento
+    // cubra menos de 2 exercise_id distintos se anula a null en vez de dejar
+    // que el backend lo rechace con un 400 -- mismo patrón que en
+    // TodayScreen.handleSave.
+    const validGroups = validSupersetGroups(
+      editRows.map((group) => ({
+        exerciseId: group.exerciseId,
+        group: group.supersetGroup,
+        hasSets: group.sets.length > 0,
+      }))
+    );
 
     const sets: WorkoutSetCreate[] = [];
     let order = 0;
@@ -269,11 +314,15 @@ export default function HistorialScreen() {
           return;
         }
 
+        const supersetGroup = group.supersetGroup;
+
         sets.push({
           exercise_id: group.exerciseId,
           weight,
           reps,
           order: order++,
+          superset_group:
+            supersetGroup != null && validGroups.has(supersetGroup) ? supersetGroup : null,
         });
       }
     }
@@ -353,59 +402,91 @@ export default function HistorialScreen() {
 
                 {isEditing ? (
                   <>
-                    {editRows.map((group, groupIndex) => {
-                      const exercise = exerciseById.get(group.exerciseId);
-                      const name = exercise?.name ?? `Ejercicio #${group.exerciseId}`;
-                      return (
-                        // buildEditGroups agrupa por tramos contiguos del mismo
-                        // ejercicio -- un entreno con el mismo ejercicio en dos
-                        // tramos separados (ej. superserie A-B-A) genera dos
-                        // grupos con el mismo exerciseId, así que hace falta
-                        // combinarlo con el índice del tramo para que la key
-                        // sea única.
-                        <View key={`${group.exerciseId}-${groupIndex}`} style={styles.editGroup}>
-                          <Text style={styles.exerciseName}>{name}</Text>
+                    {groupBySuperset(
+                      editRows.map((group, index) => ({ group, index })),
+                      (entry) => entry.group.supersetGroup
+                    ).map((entry) => {
+                      if (entry.type === "single") {
+                        const { group, index: groupIndex } = entry.item;
+                        const exercise = exerciseById.get(group.exerciseId);
+                        const name = exercise?.name ?? `Ejercicio #${group.exerciseId}`;
+                        return (
+                          // buildEditGroups agrupa por tramos contiguos del mismo
+                          // ejercicio -- un entreno con el mismo ejercicio en dos
+                          // tramos separados (ej. superserie A-B-A) genera dos
+                          // grupos con el mismo exerciseId, así que hace falta
+                          // combinarlo con el índice del tramo para que la key
+                          // sea única.
+                          <View key={`${group.exerciseId}-${groupIndex}`} style={styles.editGroup}>
+                            <Text style={styles.exerciseName}>{name}</Text>
 
-                          {group.sets.map((setDraft, setIndex) => (
-                            <View key={setDraft.id} style={styles.setRow}>
-                              <Text style={styles.setLabel}>Serie {setIndex + 1}</Text>
-                              <TextInput
-                                style={styles.weightInput}
-                                placeholder={exercise?.unit}
-                                keyboardType="decimal-pad"
-                                value={setDraft.weight}
-                                editable={!editSaving}
-                                onChangeText={(text) =>
-                                  updateEditSet(groupIndex, setIndex, { weight: text })
-                                }
-                              />
-                              <TextInput
-                                style={styles.repsInput}
-                                placeholder="reps"
-                                keyboardType="number-pad"
-                                value={setDraft.reps}
-                                editable={!editSaving}
-                                onChangeText={(text) =>
-                                  updateEditSet(groupIndex, setIndex, { reps: text })
-                                }
-                              />
+                            {group.sets.map((setDraft, setIndex) => (
+                              <View key={setDraft.id} style={styles.setRow}>
+                                <Text style={styles.setLabel}>Serie {setIndex + 1}</Text>
+                                <TextInput
+                                  style={styles.weightInput}
+                                  placeholder={exercise?.unit}
+                                  keyboardType="decimal-pad"
+                                  value={setDraft.weight}
+                                  editable={!editSaving}
+                                  onChangeText={(text) =>
+                                    updateEditSet(groupIndex, setIndex, { weight: text })
+                                  }
+                                />
+                                <TextInput
+                                  style={styles.repsInput}
+                                  placeholder="reps"
+                                  keyboardType="number-pad"
+                                  value={setDraft.reps}
+                                  editable={!editSaving}
+                                  onChangeText={(text) =>
+                                    updateEditSet(groupIndex, setIndex, { reps: text })
+                                  }
+                                />
+                                <Button
+                                  title="Quitar"
+                                  color="#b00020"
+                                  onPress={() => removeEditSet(groupIndex, setIndex)}
+                                  disabled={editSaving}
+                                />
+                              </View>
+                            ))}
+
+                            <View style={styles.addSetButton}>
                               <Button
-                                title="Quitar"
-                                color="#b00020"
-                                onPress={() => removeEditSet(groupIndex, setIndex)}
+                                title="+ añadir serie"
+                                onPress={() => addEditSet(groupIndex)}
                                 disabled={editSaving}
                               />
                             </View>
-                          ))}
-
-                          <View style={styles.addSetButton}>
-                            <Button
-                              title="+ añadir serie"
-                              onPress={() => addEditSet(groupIndex)}
-                              disabled={editSaving}
-                            />
                           </View>
-                        </View>
+                        );
+                      }
+
+                      const indices = entry.items.map((it) => it.index);
+                      const members = entry.items.map((it) => {
+                        const exercise = exerciseById.get(it.group.exerciseId);
+                        return {
+                          key: `${it.group.exerciseId}-${it.index}`,
+                          name: exercise?.name ?? `Ejercicio #${it.group.exerciseId}`,
+                          unit: exercise?.unit ?? "",
+                          sets: it.group.sets,
+                        };
+                      });
+
+                      return (
+                        <SupersetBlock
+                          key={`group-${entry.groupId}`}
+                          members={members}
+                          disabled={editSaving}
+                          onChangeSet={(memberIndex, roundIndex, patch) =>
+                            updateEditSet(indices[memberIndex], roundIndex, patch)
+                          }
+                          onAddRound={() => addEditRoundToGroup(indices)}
+                          onRemoveRound={(roundIndex) =>
+                            removeEditRoundFromGroup(indices, roundIndex)
+                          }
+                        />
                       );
                     })}
 
