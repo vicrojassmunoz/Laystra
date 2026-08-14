@@ -1,0 +1,18 @@
+services:
+  backend:
+    build: .
+    restart: unless-stopped
+    environment:
+      LAYSTRA_DB_PATH: /data/laystra.db
+    volumes:
+      - laystra-db:/data
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - backend
+
+volumes:
+  laystra-db:

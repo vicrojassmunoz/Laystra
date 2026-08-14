@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from app import models
 from app.db import get_db
 from app.schemas.routine import Routine, RoutineCreate
+from app.services.superset import validate_superset_groups
 
 router = APIRouter(prefix="/routines", tags=["routines"])
 
@@ -18,6 +19,7 @@ def create_routine(payload: RoutineCreate, db: Session = Depends(get_db)) -> mod
     for item in payload.exercises:
         if db.get(models.Exercise, item.exercise_id) is None:
             raise HTTPException(status_code=404, detail=f"Exercise {item.exercise_id} not found")
+    validate_superset_groups(payload.exercises)
 
     routine = models.Routine(
         name=payload.name,
@@ -48,6 +50,7 @@ def update_routine(
     for item in payload.exercises:
         if db.get(models.Exercise, item.exercise_id) is None:
             raise HTTPException(status_code=404, detail=f"Exercise {item.exercise_id} not found")
+    validate_superset_groups(payload.exercises)
 
     routine.name = payload.name
     routine.exercises = [models.RoutineExercise(**item.model_dump()) for item in payload.exercises]

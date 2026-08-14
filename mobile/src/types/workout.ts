@@ -1,8 +1,11 @@
+// superset_group: null = serie suelta; mismo entero = misma super-serie.
+// El ámbito de comparación es solo dentro de este workout, no es un id global.
 export type WorkoutSetCreate = {
   exercise_id: number;
   weight: number;
   reps: number;
   order: number;
+  superset_group: number | null;
 };
 
 export type WorkoutSet = WorkoutSetCreate & {

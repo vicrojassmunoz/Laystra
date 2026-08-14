@@ -165,6 +165,94 @@ def test_delete_unknown_routine_is_404(client: TestClient) -> None:
     assert response.status_code == 404
 
 
+def test_create_routine_with_superset_group_of_three_persists_and_reads_back(client: TestClient) -> None:
+    exercise_ids = [e["id"] for e in client.get("/exercises").json()[:3]]
+
+    response = client.post(
+        "/routines",
+        json={
+            "name": "Super-serie de 3",
+            "exercises": [
+                {"exercise_id": exercise_ids[0], "target_sets": 3, "order": 0, "superset_group": 1},
+                {"exercise_id": exercise_ids[1], "target_sets": 3, "order": 1, "superset_group": 1},
+                {"exercise_id": exercise_ids[2], "target_sets": 3, "order": 2, "superset_group": 1},
+            ],
+        },
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert [e["superset_group"] for e in body["exercises"]] == [1, 1, 1]
+
+    routine_id = body["id"]
+    refetched = client.get(f"/routines/{routine_id}").json()
+    assert [e["superset_group"] for e in refetched["exercises"]] == [1, 1, 1]
+
+    client.put("/schedule/0", json={"routine_id": routine_id})
+    today = client.get("/today", params={"date": "2026-08-10"}).json()  # Monday
+    assert [e["superset_group"] for e in today["exercises"]] == [1, 1, 1]
+
+
+def test_create_routine_with_superset_group_on_single_exercise_is_400(client: TestClient) -> None:
+    exercise_ids = [e["id"] for e in client.get("/exercises").json()[:2]]
+
+    response = client.post(
+        "/routines",
+        json={
+            "name": "Bad superset",
+            "exercises": [
+                {"exercise_id": exercise_ids[0], "target_sets": 3, "order": 0, "superset_group": 1},
+                {"exercise_id": exercise_ids[1], "target_sets": 3, "order": 1, "superset_group": None},
+            ],
+        },
+    )
+
+    assert response.status_code == 400
+    assert "superset_group 1" in response.json()["detail"]
+
+
+def test_update_routine_with_superset_group_on_single_exercise_is_400(client: TestClient) -> None:
+    exercise_id = client.get("/exercises").json()[0]["id"]
+    routine_id = client.post(
+        "/routines",
+        json={
+            "name": "Original",
+            "exercises": [
+                {"exercise_id": exercise_id, "target_sets": 3, "order": 0},
+            ],
+        },
+    ).json()["id"]
+
+    response = client.put(
+        f"/routines/{routine_id}",
+        json={
+            "name": "Renamed",
+            "exercises": [
+                {"exercise_id": exercise_id, "target_sets": 3, "order": 0, "superset_group": 2},
+            ],
+        },
+    )
+
+    assert response.status_code == 400
+
+
+def test_loose_exercise_with_null_superset_group_behaves_as_before(client: TestClient) -> None:
+    exercise_id = client.get("/exercises").json()[0]["id"]
+
+    response = client.post(
+        "/routines",
+        json={
+            "name": "Solo exercises",
+            "exercises": [
+                {"exercise_id": exercise_id, "target_sets": 3, "order": 0},
+            ],
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["exercises"][0]["superset_group"] is None
+
+
 def test_delete_routine_assigned_to_a_day_clears_the_day_to_null(client: TestClient) -> None:
     exercise_id = client.get("/exercises").json()[0]["id"]
     routine_id = client.post(
