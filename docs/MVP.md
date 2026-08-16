@@ -117,19 +117,22 @@ Nada de tabs elaboradas, onboarding, ni splash animado — pero sí puedes inver
 **Fase 3 cerrada 2026-08-11.**
 
 ### Fase 4 — Fuera de tu ordenador
-**Entregable:** build vía EAS instalado en tu iPhone por TestFlight, sin depender de Expo Go ni de tu Mac inexistente.
+**Entregable:** build vía EAS instalado en tu iPhone, sin depender de Expo Go ni de tu Mac inexistente. (El plan original hablaba de TestFlight; el cierre real fue vía instalación ad-hoc directa — ver "Progreso" abajo.)
 
 **Decisión confirmada (2026-08-13):** backend self-hosted en el PC del usuario (Windows + Docker Desktop, con migración prevista a una máquina Linux dedicada más adelante) en vez de VPS/PaaS. Primer intento — Caddy + DuckDNS + port-forwarding en el router — no funcionó: el ISP residencial (Digi) usa CGNAT, así que ninguna regla de reenvío de puertos podía funcionar por bien configurada que estuviera (confirmado de forma exhaustiva: firewall del router, rango de IP origen, reinicio del router, un puerto de prueba nuevo seguía cerrado desde dos verificadores externos independientes). Se pivotó a **Cloudflare Tunnel** sobre un dominio propio (`vicrojas.com`, comprado en Namecheap, nameservers apuntando a Cloudflare) — al ser una conexión saliente desde `cloudflared`, evita el problema de CGNAT por completo, sin depender de tener un puerto público alcanzable. Detalle técnico completo en `backend/docs/ARCHITECTURE.md` → "Despliegue (Fase 4)".
 
 **Progreso (2026-08-13):**
 - Backend en producción funcionando end-to-end: `https://laystra.vicrojas.com` sirve datos reales (`/health`, `/exercises` verificados), Docker Desktop arranca solo al iniciar sesión y los contenedores tienen `restart: unless-stopped`, así que un reinicio del PC se autorecupera sin intervención manual.
 - Proyecto Expo/EAS creado y vinculado (`@vicrojass/laystra`), `eas.json` con perfiles `development`/`preview`/`production` — preview/production apuntan a `https://laystra.vicrojas.com` vía `EXPO_PUBLIC_API_URL`, no a una IP LAN.
-- **Bloqueado** en el alta del Apple Developer Program (99$/año) — aplazada por el usuario por presupuesto (~2 semanas desde 2026-08-13). `eas build` para dispositivo físico y `eas submit`/TestFlight dependen de esto, así que quedan pendientes hasta entonces.
+
+**Alta del Apple Developer Program completada 2026-08-16** — más rápido de lo aplazado (~3 días en vez de las ~2 semanas estimadas el 2026-08-13). `eas build --platform ios --profile preview` corrió sin errores e instaló el build directamente en el iPhone físico del usuario vía distribución ad-hoc/interna — verificado contra el backend de producción. **`eas submit`/TestFlight se descarta deliberadamente:** app personal de un solo dispositivo, el install ad-hoc ya cubre la necesidad sin pasar por App Store Connect. Si en el futuro hace falta instalar en más de un dispositivo, retomar TestFlight es barato (la config de `eas.json` ya está lista).
 
 **Test de avance:**
-- [ ] `eas build --profile preview` completa sin errores
-- [ ] Instalas el build vía TestFlight y el flujo completo funciona contra un backend accesible desde fuera de tu red local
-- [ ] No hay URLs de `localhost` ni tu IP local hardcodeadas en el build de producción
+- [x] `eas build --profile preview` completa sin errores
+- [x] Instalas el build (ad-hoc, no TestFlight — decisión explícita, ver arriba) y el flujo completo funciona contra un backend accesible desde fuera de tu red local
+- [x] No hay URLs de `localhost` ni tu IP local hardcodeadas en el build de producción (`EXPO_PUBLIC_API_URL` del perfil `preview` apunta a `https://laystra.vicrojas.com`)
+
+**Fase 4 cerrada 2026-08-16.**
 
 ---
 
