@@ -37,7 +37,7 @@ Fase 3 is done: `DELETE /workouts/{id}` + a "Borrar" card button in Historial, a
 
 Fase 4 backend deployment is done: self-hosted via Docker Compose (`backend/Dockerfile`, `backend/docker-compose.yml`) — `backend` (FastAPI + `uv`) plus `cloudflared` (Cloudflare Tunnel), reachable at `https://laystra.vicrojas.com` on the developer's own domain (`vicrojas.com`, Namecheap, nameservers pointed at Cloudflare), no ports forwarded on the router. This wasn't the original plan: a first attempt with Caddy + DuckDNS + router port-forwarding turned out unworkable because the developer's residential ISP (Digi) uses CGNAT, confirmed through exhaustive troubleshooting (router firewall, forwarding rules, source-IP range, router reboot — a fresh unused test port still showed closed from two independent external checkers). The tunnel approach sidesteps CGNAT entirely since it's outbound-only. Full writeup in `backend/docs/ARCHITECTURE.md` → "Despliegue (Fase 4)". Docker Desktop auto-starts at sign-in and containers use `restart: unless-stopped`, so a PC reboot self-heals without manual intervention. Verified end-to-end 2026-08-13: `/health` and `/exercises` both serve real data through the public HTTPS URL.
 
-Fase 4 mobile/EAS setup is partially done: Expo/EAS account created, project created and linked (`@vicrojass/laystra`, `projectId` written into `app.json` by `eas init`), `eas.json` has `development`/`preview`/`production` build profiles with `EXPO_PUBLIC_API_URL` set per profile (preview/production point at the public HTTPS domain, not a LAN IP). **Blocked** on Apple Developer Program enrollment ($99/yr) — deliberately deferred by the developer for budget reasons (~2 weeks as of 2026-08-13) — both `eas build` for a physical device and `eas submit`/TestFlight require it, so those remain undone until enrollment clears.
+Fase 4 mobile/EAS setup is done: Expo/EAS account created, project created and linked (`@vicrojass/laystra`, `projectId` written into `app.json` by `eas init`), `eas.json` has `development`/`preview`/`production` build profiles with `EXPO_PUBLIC_API_URL` set per profile (preview/production point at the public HTTPS domain, not a LAN IP). Apple Developer Program enrollment cleared 2026-08-16 (originally deferred for budget reasons, ~3 days early). `eas build --platform ios --profile preview` was run successfully and the build installed directly on the developer's physical iPhone (ad-hoc/internal distribution, not through TestFlight) — verified pulling real data from the production backend. `eas submit`/TestFlight was deliberately skipped: this is a personal single-device app, so the ad-hoc install satisfies the need without the extra App Store Connect step.
 
 ## Commands
 
@@ -55,8 +55,8 @@ npm install
 cp .env.example .env && $EDITOR .env             # set EXPO_PUBLIC_API_URL to your machine's LAN IP
 npx expo start                                    # scan QR with Expo Go on the iPhone
 npx tsc --noEmit                                  # typecheck
-eas build --platform ios --profile preview        # standalone build for TestFlight; needs Apple Developer Program enrolled
-eas submit --platform ios
+eas build --platform ios --profile preview        # standalone build, ad-hoc install on-device; needs Apple Developer Program enrolled
+eas submit --platform ios                         # only if TestFlight distribution is wanted later; not used so far (personal single-device app)
 ```
 No Xcode/simulator commands apply — there is no Mac, so iOS builds and testing on-device both go through EAS/Expo Go, never a local iOS toolchain.
 
@@ -78,7 +78,7 @@ One-line summary: predefined routines assigned to weekdays, log the day's workou
 
 **Fase 3 — progreso is done** (verified on-device 2026-08-11: with 3+ logged workouts for the same exercise on different dates, the progress screen shows the evolution correctly ordered; an exercise with no history shows a reasonable empty state instead of breaking).
 
-**Fase 4 — fuera de tu ordenador is in progress** (see `docs/MVP.md`): backend deployment is done and verified (`https://laystra.vicrojas.com`, self-hosted via Docker Compose + Cloudflare Tunnel), Expo/EAS project is created and linked. Blocked on Apple Developer Program enrollment (deferred ~2 weeks as of 2026-08-13, budget reasons) before `eas build`/`eas submit`/TestFlight can happen. Don't design anything from `docs/ROADMAP.md` (muscle groups, splits, AI analysis, etc.) unless the human explicitly pulls it forward.
+**Fase 4 — fuera de tu ordenador is done** (see `docs/MVP.md`): backend deployment is done and verified (`https://laystra.vicrojas.com`, self-hosted via Docker Compose + Cloudflare Tunnel), and a real EAS build (`preview` profile) is installed on the developer's physical iPhone, verified pulling real data from the production backend (2026-08-16). TestFlight/`eas submit` was skipped by choice — personal single-device app, ad-hoc install is enough. Don't design anything from `docs/ROADMAP.md` (muscle groups, splits, AI analysis, etc.) unless the human explicitly pulls it forward.
 
 ## Intended architecture
 
