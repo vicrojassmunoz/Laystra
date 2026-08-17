@@ -484,6 +484,7 @@ export default function RoutinesScreen() {
               está montado dentro del navigator) -- aquí la tarjeta no tiene
               nada por encima que compensar, así que offset 0 le basta. */}
           <KeyboardAvoidingView
+            style={styles.avoider}
             behavior={Platform.OS === "ios" ? "padding" : undefined}
             keyboardVerticalOffset={0}
           >
@@ -523,6 +524,7 @@ export default function RoutinesScreen() {
       <Modal visible={supersetPickerVisible} transparent animationType="slide">
         <View style={styles.modalBackdrop}>
           <KeyboardAvoidingView
+            style={styles.avoider}
             behavior={Platform.OS === "ios" ? "padding" : undefined}
             keyboardVerticalOffset={0}
           >
@@ -714,12 +716,23 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.4)",
     justifyContent: "flex-end",
   },
+  // El tope de altura vive aquí, no en modalCard: un maxHeight en % solo se
+  // resuelve si el padre tiene una altura definida, y modalBackdrop (flex: 1
+  // dentro de un Modal a pantalla completa) sí la tiene -- KeyboardAvoidingView
+  // es ese padre directo. Antes el 70% estaba en modalCard, cuyo padre
+  // (KeyboardAvoidingView sin estilo propio) no tiene altura definida, así
+  // que el límite nunca se aplicaba de verdad: la tarjeta crecía tanto como
+  // su contenido (todos los ejercicios) y lo que no cabía en pantalla
+  // quedaba cortado por el borde, no accesible con scroll.
+  avoider: {
+    maxHeight: "70%",
+  },
   modalCard: {
     backgroundColor: "#fff",
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
     padding: 20,
-    maxHeight: "70%",
+    flexShrink: 1,
   },
   modalTitle: {
     fontSize: 20,

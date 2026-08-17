@@ -1,5 +1,8 @@
 import { Button, StyleSheet, Text, TextInput, View } from "react-native";
 
+import PrBadge from "./PrBadge";
+import { parseDecimalInput } from "../utils/number";
+
 // Forma compartida de una fila de serie editable -- misma forma que
 // `SetDraft` en TodayScreen y `EditSetDraft` en HistorialScreen (que ahora
 // son alias de este tipo, ver comentarios en esas pantallas). Vive aquí
@@ -13,6 +16,11 @@ export type SetDraft = {
 
 export type SupersetBlockMember = {
   key: string;
+  // exercise_id real del ejercicio (no la key de fila) -- necesario para
+  // buscar en bestWeights, que se indexa por exercise_id igual que en
+  // TodayScreen. Tanto TodayScreen como HistorialScreen ya tienen este dato
+  // a mano al construir `members`, así que no cuesta nada exponerlo.
+  exerciseId: number;
   name: string;
   unit: string;
   sets: SetDraft[];
@@ -24,6 +32,11 @@ type Props = {
   onChangeSet: (memberIndex: number, roundIndex: number, patch: Partial<SetDraft>) => void;
   onAddRound: () => void;
   onRemoveRound: (roundIndex: number) => void;
+  // Mejor peso histórico por ejercicio (ver bestWeights en TodayScreen),
+  // opcional: TodayScreen lo pasa para pintar el badge de PR dentro de un
+  // bloque de super-serie; HistorialScreen no tiene concepto de PR y
+  // simplemente no lo pasa (undefined), con lo que nunca se pinta el badge.
+  bestWeights?: Map<number, number>;
 };
 
 // Renderiza un bloque de super-serie como "rondas intercaladas": una ronda
@@ -46,6 +59,7 @@ export default function SupersetBlock({
   onChangeSet,
   onAddRound,
   onRemoveRound,
+  bestWeights,
 }: Props) {
   const roundCount = members.reduce((max, m) => Math.max(max, m.sets.length), 0);
 
@@ -83,6 +97,16 @@ export default function SupersetBlock({
                 return null;
               }
 
+              // Badge de PR: mismo criterio que la rama "single" de
+              // TodayScreen -- compara solo contra el mejor peso histórico
+              // precargado (bestWeights), no contra otras series sin guardar
+              // de esta misma sesión. bestWeights es undefined en
+              // HistorialScreen, así que ahí isPr siempre da false.
+              const typedWeight = parseDecimalInput(setDraft.weight);
+              const bestWeight = bestWeights?.get(member.exerciseId);
+              const isPr =
+                typedWeight !== null && bestWeight !== undefined && typedWeight > bestWeight;
+
               return (
                 <View key={member.key} style={styles.setRow}>
                   <Text style={styles.exerciseLabel} numberOfLines={1}>
@@ -96,6 +120,7 @@ export default function SupersetBlock({
                     editable={!disabled}
                     onChangeText={(text) => onChangeSet(memberIndex, roundIndex, { weight: text })}
                   />
+                  {isPr && <PrBadge />}
                   <TextInput
                     style={styles.repsInput}
                     placeholder="reps"

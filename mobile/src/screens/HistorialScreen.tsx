@@ -22,6 +22,7 @@ import SupersetBlock, { SetDraft } from "../components/SupersetBlock";
 import { Exercise } from "../types/exercise";
 import { Routine } from "../types/routine";
 import { Workout, WorkoutSet, WorkoutSetCreate } from "../types/workout";
+import { parseDecimalInput } from "../utils/number";
 import { groupBySuperset, validSupersetGroups } from "../utils/superset";
 
 type State =
@@ -298,13 +299,10 @@ export default function HistorialScreen() {
 
       for (let i = 0; i < group.sets.length; i++) {
         const draft = group.sets[i];
-        // Mismo teclado decimal-pad, mismo problema de coma decimal en locale
-        // español que en TodayScreen.
-        const weightRaw = draft.weight.trim().replace(",", ".");
-        const weight = Number(weightRaw);
+        const weight = parseDecimalInput(draft.weight);
         const reps = Number(draft.reps);
 
-        if (weightRaw === "" || Number.isNaN(weight) || weight < 0) {
+        if (weight === null) {
           setEditError(`Peso inválido en "${exerciseName}", serie ${i + 1}.`);
           return;
         }
@@ -468,6 +466,7 @@ export default function HistorialScreen() {
                         const exercise = exerciseById.get(it.group.exerciseId);
                         return {
                           key: `${it.group.exerciseId}-${it.index}`,
+                          exerciseId: it.group.exerciseId,
                           name: exercise?.name ?? `Ejercicio #${it.group.exerciseId}`,
                           unit: exercise?.unit ?? "",
                           sets: it.group.sets,
@@ -475,6 +474,10 @@ export default function HistorialScreen() {
                       });
 
                       return (
+                        // Sin bestWeights: HistorialScreen no tiene concepto
+                        // de PR (ver comentario en SupersetBlockMember), así
+                        // que la prop queda undefined y el badge nunca se pinta
+                        // aquí.
                         <SupersetBlock
                           key={`group-${entry.groupId}`}
                           members={members}

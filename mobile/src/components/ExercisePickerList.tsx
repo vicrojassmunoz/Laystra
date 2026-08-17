@@ -37,7 +37,7 @@ export default function ExercisePickerList({ exercises, query, onQueryChange, re
         autoCorrect={false}
       />
 
-      <ScrollView keyboardShouldPersistTaps="handled">
+      <ScrollView style={styles.list} keyboardShouldPersistTaps="handled">
         {groups.length === 0 && <Text style={styles.emptyText}>Sin resultados.</Text>}
 
         {groups.map((group) => (
@@ -61,6 +61,16 @@ const styles = StyleSheet.create({
     padding: 10,
     fontSize: 16,
     marginBottom: 8,
+  },
+  // flexShrink: 1 es necesario explícitamente -- a diferencia de la web, el
+  // valor por defecto de Yoga (el motor de layout de RN) es flexShrink: 0.
+  // Sin esto, este ScrollView no respeta la altura acotada que le da el
+  // contenedor del modal (ver comentario "avoider" en cada pantalla que usa
+  // este componente): en vez de convertirse en una ventana con scroll real,
+  // crece tanto como su contenido (todos los ejercicios) y el sobrante queda
+  // cortado por el borde de la pantalla en vez de poder desplazarse hasta él.
+  list: {
+    flexShrink: 1,
   },
   sectionHeader: {
     fontSize: 13,

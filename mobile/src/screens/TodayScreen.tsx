@@ -18,21 +18,33 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { fetchExercises } from "../api/exercises";
+import { fetchProgress } from "../api/progress";
 import { fetchRoutines } from "../api/routines";
 import { createWorkout } from "../api/workouts";
 import { fetchToday, TodayExercise, TodayResponse } from "../api/today";
 import ExercisePickerList from "../components/ExercisePickerList";
+import PrBadge from "../components/PrBadge";
 import SupersetBlock, { SetDraft } from "../components/SupersetBlock";
 import { Exercise } from "../types/exercise";
 import { Routine } from "../types/routine";
 import { WorkoutSetCreate } from "../types/workout";
 import { secondaryHint } from "../utils/exercisePicker";
+import { parseDecimalInput } from "../utils/number";
 import { equalizeSupersetRounds, groupBySuperset, validSupersetGroups } from "../utils/superset";
 
 type State =
   | { status: "loading" }
   | { status: "error"; message: string }
-  | { status: "ready"; data: TodayResponse; routines: Routine[]; exercises: Exercise[] };
+  | {
+      status: "ready";
+      data: TodayResponse;
+      routines: Routine[];
+      exercises: Exercise[];
+      // Mejor peso histórico por ejercicio (exercise_id -> peso), precargado
+      // solo para los ejercicios del día -- ver comentario en load() sobre
+      // por qué no cubre destinos elegidos luego vía "Loguear otro entreno".
+      bestWeights: Map<number, number>;
+    };
 
 // SetDraft (id + weight/reps como string) viene de SupersetBlock -- es la
 // misma forma que necesita una fila de serie tanto suelta como dentro de un
@@ -274,7 +286,51 @@ export default function TodayScreen() {
     Promise.all([fetchToday(), fetchRoutines(), fetchExercises()])
       .then(([data, routines, exercises]) => {
         hasDataRef.current = true;
-        setState({ status: "ready", data, routines, exercises });
+        // La pantalla pasa a "ready" en cuanto estas tres llamadas resuelven,
+        // con bestWeights vacío -- el spinner ya no depende de precargar los
+        // PR (ver más abajo). Antes, /today+/routines+/exercises resueltas no
+        // bastaban: la pantalla seguía en "loading" hasta que TODAS las
+        // llamadas a /progress (una por ejercicio del día, encadenadas antes
+        // de este setState) también resolvían, y fetch no tiene timeout -- una
+        // sola colgada dejaba la pantalla principal cargando indefinidamente
+        // aunque /today ya hubiera respondido.
+        setState({ status: "ready", data, routines, exercises, bestWeights: new Map() });
+
+        // Precarga el mejor peso histórico de cada ejercicio del día (para el
+        // badge de PR al loguear una serie) llamando a /progress una vez por
+        // ejercicio, en paralelo y SIN bloquear el setState de arriba. Si
+        // alguna llamada falla, no tira abajo la pantalla -- ese ejercicio
+        // simplemente se queda sin badge de PR.
+        Promise.all(
+          data.exercises.map((exercise) =>
+            fetchProgress(exercise.exercise_id).catch(() => null)
+          )
+        ).then((progresses) => {
+          const bestWeights = new Map<number, number>();
+          for (const progress of progresses) {
+            if (!progress || progress.points.length === 0) {
+              continue;
+            }
+            const best = Math.max(...progress.points.map((p) => p.best_weight));
+            bestWeights.set(progress.exercise_id, best);
+          }
+
+          // Segundo setState, solo para bestWeights, aplicado sobre el estado
+          // "ready" ya construido (updater function, no un objeto nuevo desde
+          // cero) -- si para cuando /progress termina el estado ya avanzó a
+          // otro día/rutina (p.ej. un refocus disparó otro load() de por
+          // medio), no pisa esos datos más nuevos con un bestWeights que ya
+          // no les corresponde. No toca `data`/`routines`/`exercises`, así
+          // que la firma que usa el useEffect de más abajo para decidir si
+          // reconstruir el formulario no cambia y el draft no se resetea.
+          setState((prev) =>
+            prev.status === "ready" &&
+            prev.data.date === data.date &&
+            prev.data.routine_id === data.routine_id
+              ? { ...prev, bestWeights }
+              : prev
+          );
+        });
       })
       .catch((error: Error) => {
         // Si ya había datos visibles, los dejamos y simplemente no se refrescan
@@ -607,13 +663,10 @@ export default function TodayScreen() {
 
       for (let i = 0; i < row.sets.length; i++) {
         const draft = row.sets[i];
-        // El teclado decimal-pad en un iPhone con locale español muestra coma,
-        // no punto, así que "82,5" tiene que normalizarse antes de Number(...).
-        const weightRaw = draft.weight.trim().replace(",", ".");
-        const weight = Number(weightRaw);
+        const weight = parseDecimalInput(draft.weight);
         const reps = Number(draft.reps);
 
-        if (weightRaw === "" || Number.isNaN(weight) || weight < 0) {
+        if (weight === null) {
           setFormError(
             `Peso inválido en "${row.exercise.exercise_name}", serie ${i + 1}.`
           );
@@ -747,37 +800,50 @@ export default function TodayScreen() {
                         </Text>
                       )}
 
-                      {row.sets.map((setDraft, setIndex) => (
-                        <View key={setDraft.id} style={styles.setRow}>
-                          <Text style={styles.setLabel}>Serie {setIndex + 1}</Text>
-                          <TextInput
-                            style={styles.weightInput}
-                            placeholder={row.exercise.unit}
-                            keyboardType="decimal-pad"
-                            value={setDraft.weight}
-                            editable={!submitted && !saving}
-                            onChangeText={(text) =>
-                              updateSet(exerciseIndex, setIndex, { weight: text })
-                            }
-                          />
-                          <TextInput
-                            style={styles.repsInput}
-                            placeholder="reps"
-                            keyboardType="number-pad"
-                            value={setDraft.reps}
-                            editable={!submitted && !saving}
-                            onChangeText={(text) => updateSet(exerciseIndex, setIndex, { reps: text })}
-                          />
-                          {!submitted && (
-                            <Button
-                              title="Quitar"
-                              color="#b00020"
-                              onPress={() => removeSet(exerciseIndex, setIndex)}
-                              disabled={saving}
+                      {row.sets.map((setDraft, setIndex) => {
+                        // Badge de PR: compara solo contra el mejor peso
+                        // histórico precargado en load() (bestWeights), no
+                        // contra otras series sin guardar de esta misma
+                        // sesión -- suficiente para v1, ver comentario junto
+                        // a bestWeights en el tipo State.
+                        const typedWeight = parseDecimalInput(setDraft.weight);
+                        const bestWeight = state.bestWeights.get(row.exercise.exercise_id);
+                        const isPr =
+                          typedWeight !== null && bestWeight !== undefined && typedWeight > bestWeight;
+
+                        return (
+                          <View key={setDraft.id} style={styles.setRow}>
+                            <Text style={styles.setLabel}>Serie {setIndex + 1}</Text>
+                            <TextInput
+                              style={styles.weightInput}
+                              placeholder={row.exercise.unit}
+                              keyboardType="decimal-pad"
+                              value={setDraft.weight}
+                              editable={!submitted && !saving}
+                              onChangeText={(text) =>
+                                updateSet(exerciseIndex, setIndex, { weight: text })
+                              }
                             />
-                          )}
-                        </View>
-                      ))}
+                            {isPr && <PrBadge />}
+                            <TextInput
+                              style={styles.repsInput}
+                              placeholder="reps"
+                              keyboardType="number-pad"
+                              value={setDraft.reps}
+                              editable={!submitted && !saving}
+                              onChangeText={(text) => updateSet(exerciseIndex, setIndex, { reps: text })}
+                            />
+                            {!submitted && (
+                              <Button
+                                title="Quitar"
+                                color="#b00020"
+                                onPress={() => removeSet(exerciseIndex, setIndex)}
+                                disabled={saving}
+                              />
+                            )}
+                          </View>
+                        );
+                      })}
 
                       {!submitted && (
                         <View style={styles.addSetButton}>
@@ -795,6 +861,7 @@ export default function TodayScreen() {
                 const indices = entry.items.map((it) => it.index);
                 const members = entry.items.map((it) => ({
                   key: `${it.row.exercise.exercise_id}-${it.index}`,
+                  exerciseId: it.row.exercise.exercise_id,
                   name: it.row.exercise.exercise_name,
                   unit: it.row.exercise.unit,
                   sets: it.row.sets,
@@ -810,6 +877,7 @@ export default function TodayScreen() {
                     }
                     onAddRound={() => addRoundToGroup(indices)}
                     onRemoveRound={(roundIndex) => removeRoundFromGroup(indices, roundIndex)}
+                    bestWeights={state.bestWeights}
                   />
                 );
               })}
@@ -886,6 +954,7 @@ export default function TodayScreen() {
                   la pantalla normal. Aquí no hay nada por encima de la
                   tarjeta que compensar, offset 0 le basta. */}
               <KeyboardAvoidingView
+                style={styles.avoider}
                 behavior={Platform.OS === "ios" ? "padding" : undefined}
                 keyboardVerticalOffset={0}
               >
@@ -894,7 +963,7 @@ export default function TodayScreen() {
                     <>
                       <Text style={styles.modalTitle}>¿Qué quieres loguear?</Text>
 
-                      <ScrollView>
+                      <ScrollView style={styles.list}>
                         <TouchableOpacity style={styles.freeOption} onPress={chooseFreeForAnother}>
                           <Text style={styles.freeOptionText}>Entreno libre (ejercicios sueltos)</Text>
                         </TouchableOpacity>
@@ -1172,12 +1241,22 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.4)",
     justifyContent: "flex-end",
   },
+  // Ver comentario equivalente en RoutinesScreen.tsx: el tope de altura debe
+  // vivir en el padre con altura definida (KeyboardAvoidingView, hijo directo
+  // de modalBackdrop que sí tiene flex: 1), no en modalCard -- ahí el % nunca
+  // se resolvía y la tarjeta crecía sin límite real.
+  avoider: {
+    maxHeight: "70%",
+  },
   modalCard: {
     backgroundColor: "#fff",
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
     padding: 20,
-    maxHeight: "70%",
+    flexShrink: 1,
+  },
+  list: {
+    flexShrink: 1,
   },
   modalTitle: {
     fontSize: 20,
