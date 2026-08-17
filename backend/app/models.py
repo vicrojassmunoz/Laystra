@@ -119,3 +119,22 @@ class WorkoutSet(Base):
     superset_group: Mapped[int | None] = mapped_column(nullable=True, default=None)
 
     workout: Mapped["Workout"] = relationship(back_populates="sets")
+
+
+class BodyMetric(Base):
+    __tablename__ = "body_metrics"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    date: Mapped[date_]
+    weight: Mapped[float]
+    body_fat_pct: Mapped[float | None] = mapped_column(nullable=True, default=None)
+
+
+class Goal(Base):
+    __tablename__ = "goals"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    text: Mapped[str]
+    target_value: Mapped[float | None] = mapped_column(nullable=True, default=None)
+    target_date: Mapped[date_ | None] = mapped_column(nullable=True, default=None)
+    done: Mapped[bool] = mapped_column(default=False)

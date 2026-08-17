@@ -5,7 +5,17 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.db import SessionLocal, init_db
-from app.routers import exercises, health, routines, schedule, today, workouts
+from app.routers import (
+    analytics,
+    body_metrics,
+    exercises,
+    goals,
+    health,
+    routines,
+    schedule,
+    today,
+    workouts,
+)
 from app.seed import seed_if_empty
 
 
@@ -36,3 +46,6 @@ app.include_router(routines.router)
 app.include_router(schedule.router)
 app.include_router(today.router)
 app.include_router(workouts.router)
+app.include_router(body_metrics.router)
+app.include_router(goals.router)
+app.include_router(analytics.router)
