@@ -66,7 +66,7 @@ Backend production (Docker, run from `backend/`): see `backend/README.md` → "R
 
 Personal physical-progress tracking app — a side project built for the developer's own use, not a commercial product, so scope should stay tight rather than feature-complete.
 
-Full MVP spec (data model, endpoints, screens, phased test criteria) lives in [`docs/MVP.md`](docs/MVP.md). Post-MVP ideas, deliberately deferred, live in [`docs/ROADMAP.md`](docs/ROADMAP.md) — do not implement anything from there unless the human explicitly pulls it forward. Both are written in Spanish, same as the subagent instructions.
+Full MVP spec (data model, endpoints, screens, phased test criteria) lives in [`docs/MVP.md`](docs/MVP.md). Post-MVP ideas, deliberately deferred, live in [`docs/ROADMAP.md`](docs/ROADMAP.md) — do not implement anything from there unless the human explicitly pulls it forward. Roadmap items already delivered move to [`docs/CHANGELOG.md`](docs/CHANGELOG.md). All three are written in Spanish, same as the subagent instructions.
 
 One-line summary: predefined routines assigned to weekdays, log the day's workout in a few taps, see progress over weeks. Explicitly out of scope for the MVP: HealthKit, notifications, multi-user/auth, cloud sync, RPE/RIR, shareable templates, edit-history on past workouts. If mid-task you find yourself designing any of these, stop and go back to `docs/MVP.md`.
 
