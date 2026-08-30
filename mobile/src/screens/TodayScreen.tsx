@@ -219,6 +219,10 @@ export default function TodayScreen() {
   // resumida mientras se rellena el siguiente. Se reinicia cuando cambia el
   // día (ver el useEffect de más abajo).
   const [savedSummaries, setSavedSummaries] = useState<SavedSummary[]>([]);
+  // Tras guardar, las tarjetas nacen colapsadas. Las keys de este Set son las
+  // que el usuario ha reexpandido (tap). Vacío = todo colapsado. Mientras
+  // submitted es false se ignora y las tarjetas se muestran abiertas.
+  const [expandedAfterSave, setExpandedAfterSave] = useState<Set<string>>(new Set());
 
   // Picker de dos pasos para "Loguear otro entreno": "target" (elegir otra
   // rutina o "entreno libre") y "exercises" (solo para entreno libre, elegir
@@ -273,6 +277,37 @@ export default function TodayScreen() {
   const nextSetIdRef = useRef(1);
   function nextSetId(): number {
     return nextSetIdRef.current++;
+  }
+
+  function isCollapsedAfterSave(key: string): boolean {
+    return submitted && !expandedAfterSave.has(key);
+  }
+
+  function toggleAfterSave(key: string) {
+    if (!submitted) {
+      return;
+    }
+    setExpandedAfterSave((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  }
+
+  function appendCreatedExercise(exercise: Exercise) {
+    setState((prev) => {
+      if (prev.status !== "ready") {
+        return prev;
+      }
+      if (prev.exercises.some((e) => e.id === exercise.id)) {
+        return prev;
+      }
+      return { ...prev, exercises: [...prev.exercises, exercise] };
+    });
   }
 
   const load = useCallback(() => {
@@ -627,6 +662,7 @@ export default function TodayScreen() {
     setFormRows(snapshot.formRows);
     setFormError(null);
     setSubmitted(true);
+    setExpandedAfterSave(new Set());
   }
 
   function handleSave() {
@@ -710,6 +746,7 @@ export default function TodayScreen() {
         }`;
         setSavedSummaries((prev) => [...prev, { workoutId: workout.id, label }]);
         setSubmitted(true);
+        setExpandedAfterSave(new Set());
         lastSubmittedSnapshotRef.current = { formTarget, formRows };
       })
       .catch((error: Error) => {
@@ -788,7 +825,23 @@ export default function TodayScreen() {
                     // banca pesado + press banca ligero), así que exercise_id
                     // solo no es una key única -- se combina con la posición.
                     <View key={`${row.exercise.exercise_id}-${exerciseIndex}`} style={styles.card}>
-                      <Text style={styles.exerciseName}>{row.exercise.exercise_name}</Text>
+                      <Pressable
+                        onPress={() =>
+                          toggleAfterSave(`ex-${row.exercise.exercise_id}-${exerciseIndex}`)
+                        }
+                        disabled={!submitted}
+                      >
+                        <Text style={styles.exerciseName}>
+                          {row.exercise.exercise_name}
+                          {submitted
+                            ? isCollapsedAfterSave(`ex-${row.exercise.exercise_id}-${exerciseIndex}`)
+                              ? " ▸"
+                              : " ▾"
+                            : ""}
+                        </Text>
+                      </Pressable>
+                      {!isCollapsedAfterSave(`ex-${row.exercise.exercise_id}-${exerciseIndex}`) && (
+                        <>
                       {/* En entreno libre no hay rutina que fije target_sets --
                           se le pone 1 de relleno (ver freeExercisesToDraftExercises)
                           pero no significa nada real, así que no tiene sentido
@@ -854,6 +907,8 @@ export default function TodayScreen() {
                           />
                         </View>
                       )}
+                        </>
+                      )}
                     </View>
                   );
                 }
@@ -878,6 +933,10 @@ export default function TodayScreen() {
                     onAddRound={() => addRoundToGroup(indices)}
                     onRemoveRound={(roundIndex) => removeRoundFromGroup(indices, roundIndex)}
                     bestWeights={state.bestWeights}
+                    collapsed={isCollapsedAfterSave(`group-${entry.groupId}`)}
+                    onToggleCollapse={
+                      submitted ? () => toggleAfterSave(`group-${entry.groupId}`) : undefined
+                    }
                   />
                 );
               })}
@@ -996,6 +1055,7 @@ export default function TodayScreen() {
                         exercises={state.exercises}
                         query={freeExerciseQuery}
                         onQueryChange={setFreeExerciseQuery}
+                        onCreated={appendCreatedExercise}
                         renderItem={(exercise) => {
                           const selected = freeSelection.includes(exercise.id);
                           // Solo indicativo (no afecta la selección): si este
@@ -1061,6 +1121,7 @@ export default function TodayScreen() {
                         exercises={state.exercises}
                         query={freeSupersetQuery}
                         onQueryChange={setFreeSupersetQuery}
+                        onCreated={appendCreatedExercise}
                         renderItem={(exercise) => {
                           const selected = freeSupersetSelection.includes(exercise.id);
                           // Un ejercicio que ya pertenece a un bloque anterior

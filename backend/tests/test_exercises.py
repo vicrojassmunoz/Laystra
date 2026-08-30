@@ -105,6 +105,20 @@ def test_create_exercise_without_muscle_group_primary_is_422(client: TestClient)
     assert response.status_code == 422
 
 
+def test_create_exercise_blank_name_is_422(client: TestClient) -> None:
+    response = client.post(
+        "/exercises",
+        json={
+            "name": "   ",
+            "unit": "kg",
+            "muscle_group_primary": "Bíceps",
+            "muscle_group_secondary": [],
+        },
+    )
+
+    assert response.status_code == 422
+
+
 def test_progress_for_unknown_exercise_is_404(client: TestClient) -> None:
     response = client.get("/exercises/9999/progress")
 

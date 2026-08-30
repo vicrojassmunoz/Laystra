@@ -16,7 +16,7 @@ Tipos **duplicados a mano** (sin codegen). Cualquier cambio de schema exige toca
 | `/routines` | `schemas/routine.py` | `api/routines.ts` | `types/routine.ts` | Routines, Today, Historial, Schedule |
 | `/schedule` | `schemas/schedule.py` | `api/schedule.ts` | `types/schedule.ts` | Schedule, Home |
 | `/today` | `schemas/today.py` | `api/today.ts` | *(tipos en `api/today.ts`)* | Today, Home, User |
-| `/workouts` | `schemas/workout.py` | `api/workouts.ts` | `types/workout.ts` | Today, Historial, Home |
+| `/workouts` | `schemas/workout.py` | `api/workouts.ts` | `types/workout.ts` | Today, Historial, Home. `GET /workouts/export` es CSV (no JSON) — ver ARCHITECTURE |
 | `/body-metrics` | `schemas/body_metric.py` | `api/bodyMetrics.ts` | `types/bodyMetric.ts` | User |
 | `/goals` | `schemas/goal.py` | `api/goals.ts` | `types/goal.ts` | Objetivos |
 | `/analytics` | `schemas/analytics.py` | `api/analytics.ts` | `types/analytics.ts` | Analisis |

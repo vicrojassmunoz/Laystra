@@ -1,4 +1,14 @@
+import csv
+import io
+
 from fastapi.testclient import TestClient
+
+_EXPORT_HEADER = ["date", "exercise", "weight", "reps", "set_order", "unit", "superset_group"]
+
+
+def _parse_export_csv(content: bytes) -> list[list[str]]:
+    text = content.decode("utf-8-sig")
+    return list(csv.reader(io.StringIO(text)))
 
 
 def test_list_workouts_empty_initially(client: TestClient) -> None:
@@ -272,3 +282,107 @@ def test_progress_reflects_logged_workout(client: TestClient) -> None:
     points = response.json()["points"]
     assert len(points) == 1
     assert points[0]["best_weight"] == 60
+
+
+def test_export_starts_with_bom_and_exact_header(client: TestClient) -> None:
+    response = client.get("/workouts/export")
+
+    assert response.status_code == 200
+    assert response.content.startswith("\ufeff".encode("utf-8"))
+    assert response.content.decode("utf-8").startswith("\ufeff" + ",".join(_EXPORT_HEADER))
+    assert response.headers["content-type"].startswith("text/csv")
+    assert response.headers["content-disposition"] == 'attachment; filename="laystra-workouts.csv"'
+
+
+def test_export_one_workout_two_sets_distinct_exercises(client: TestClient) -> None:
+    exercises = client.get("/exercises").json()[:2]
+
+    create = client.post(
+        "/workouts",
+        json={
+            "date": "2026-08-09",
+            "sets": [
+                {"exercise_id": exercises[0]["id"], "weight": 60, "reps": 8, "order": 0},
+                {"exercise_id": exercises[1]["id"], "weight": 80, "reps": 5, "order": 1},
+            ],
+        },
+    )
+    assert create.status_code == 201
+
+    response = client.get("/workouts/export")
+    rows = _parse_export_csv(response.content)
+
+    assert rows[0] == _EXPORT_HEADER
+    assert len(rows) == 3
+    assert rows[1] == [
+        "2026-08-09",
+        exercises[0]["name"],
+        "60.0",
+        "8",
+        "0",
+        exercises[0]["unit"],
+        "",
+    ]
+    assert rows[2] == [
+        "2026-08-09",
+        exercises[1]["name"],
+        "80.0",
+        "5",
+        "1",
+        exercises[1]["unit"],
+        "",
+    ]
+
+
+def test_export_empty_history_is_bom_and_header_only(client: TestClient) -> None:
+    response = client.get("/workouts/export")
+
+    assert response.content.startswith("\ufeff".encode("utf-8"))
+    assert _parse_export_csv(response.content) == [_EXPORT_HEADER]
+
+
+def test_export_superset_group_null_empty_and_int_as_string(client: TestClient) -> None:
+    exercise_ids = [e["id"] for e in client.get("/exercises").json()[:2]]
+
+    create = client.post(
+        "/workouts",
+        json={
+            "date": "2026-08-09",
+            "sets": [
+                {"exercise_id": exercise_ids[0], "weight": 60, "reps": 8, "order": 0},
+                {"exercise_id": exercise_ids[0], "weight": 40, "reps": 10, "order": 1, "superset_group": 3},
+                {"exercise_id": exercise_ids[1], "weight": 20, "reps": 12, "order": 2, "superset_group": 3},
+            ],
+        },
+    )
+    assert create.status_code == 201
+
+    rows = _parse_export_csv(client.get("/workouts/export").content)
+    assert rows[1][6] == ""
+    assert rows[2][6] == "3"
+    assert rows[3][6] == "3"
+
+
+def test_export_orders_newest_workout_first(client: TestClient) -> None:
+    exercise_id = client.get("/exercises").json()[0]["id"]
+
+    older = client.post(
+        "/workouts",
+        json={
+            "date": "2026-08-09",
+            "sets": [{"exercise_id": exercise_id, "weight": 60, "reps": 8, "order": 0}],
+        },
+    )
+    newer = client.post(
+        "/workouts",
+        json={
+            "date": "2026-08-15",
+            "sets": [{"exercise_id": exercise_id, "weight": 70, "reps": 5, "order": 0}],
+        },
+    )
+    assert older.status_code == 201
+    assert newer.status_code == 201
+
+    rows = _parse_export_csv(client.get("/workouts/export").content)
+    assert [row[0] for row in rows[1:]] == ["2026-08-15", "2026-08-09"]
+    assert [row[2] for row in rows[1:]] == ["70.0", "60.0"]

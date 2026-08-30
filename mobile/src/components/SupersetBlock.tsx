@@ -1,4 +1,4 @@
-import { Button, StyleSheet, Text, TextInput, View } from "react-native";
+import { Button, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
 import PrBadge from "./PrBadge";
 import { parseDecimalInput } from "../utils/number";
@@ -37,6 +37,11 @@ type Props = {
   // bloque de super-serie; HistorialScreen no tiene concepto de PR y
   // simplemente no lo pasa (undefined), con lo que nunca se pinta el badge.
   bestWeights?: Map<number, number>;
+  // Tras guardar en Hoy: el bloque nace colapsado (solo nombres). Tocar el
+  // header reexpande. Historial no pasa estas props y el bloque queda siempre
+  // abierto, igual que antes.
+  collapsed?: boolean;
+  onToggleCollapse?: () => void;
 };
 
 // Renderiza un bloque de super-serie como "rondas intercaladas": una ronda
@@ -60,13 +65,23 @@ export default function SupersetBlock({
   onAddRound,
   onRemoveRound,
   bestWeights,
+  collapsed = false,
+  onToggleCollapse,
 }: Props) {
   const roundCount = members.reduce((max, m) => Math.max(max, m.sets.length), 0);
+  const names = members.map((m) => m.name).join(" + ");
 
   return (
     <View style={styles.container}>
-      <Text style={styles.label}>Super-serie</Text>
-
+      <Pressable onPress={onToggleCollapse} disabled={!onToggleCollapse}>
+        <Text style={styles.label}>
+          Super-serie
+          {onToggleCollapse ? (collapsed ? " ▸" : " ▾") : ""}
+        </Text>
+        {collapsed && <Text style={styles.collapsedNames}>{names}</Text>}
+      </Pressable>
+      {!collapsed && (
+        <>
       {Array.from({ length: roundCount }, (_, roundIndex) => {
         // Key estable por ronda: combina los ids (estables, de SetDraft) de
         // las filas presentes en esta ronda en vez del índice posicional --
@@ -141,6 +156,8 @@ export default function SupersetBlock({
           <Button title="+ añadir ronda" onPress={onAddRound} />
         </View>
       )}
+        </>
+      )}
     </View>
   );
 }
@@ -160,6 +177,12 @@ const styles = StyleSheet.create({
     color: "#3b5bdb",
     marginBottom: 8,
     textTransform: "uppercase",
+  },
+  collapsedNames: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#333",
+    marginBottom: 2,
   },
   round: {
     marginBottom: 10,

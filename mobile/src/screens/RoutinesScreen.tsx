@@ -108,6 +108,18 @@ export default function RoutinesScreen() {
     }, [load])
   );
 
+  function appendCreatedExercise(exercise: Exercise) {
+    setState((prev) => {
+      if (prev.status !== "ready") {
+        return prev;
+      }
+      if (prev.exercises.some((e) => e.id === exercise.id)) {
+        return prev;
+      }
+      return { ...prev, exercises: [...prev.exercises, exercise] };
+    });
+  }
+
   function updateRow(id: number, patch: Partial<DraftRow>) {
     setRows((prev) => prev.map((row) => (row.id === id ? { ...row, ...patch } : row)));
   }
@@ -495,6 +507,7 @@ export default function RoutinesScreen() {
                 exercises={exercises}
                 query={pickerQuery}
                 onQueryChange={setPickerQuery}
+                onCreated={appendCreatedExercise}
                 renderItem={(exercise) => {
                   const hint = secondaryHint(exercise);
                   return (
@@ -535,6 +548,7 @@ export default function RoutinesScreen() {
                 exercises={exercises}
                 query={supersetPickerQuery}
                 onQueryChange={setSupersetPickerQuery}
+                onCreated={appendCreatedExercise}
                 renderItem={(exercise) => {
                   const selected = supersetSelection.includes(exercise.id);
                   const hint = secondaryHint(exercise);

@@ -196,6 +196,17 @@ export default function ProgressScreen() {
                   exercises={exercisesState.exercises}
                   query={pickerQuery}
                   onQueryChange={setPickerQuery}
+                  onCreated={(exercise) => {
+                    setExercisesState((prev) => {
+                      if (prev.status !== "ready") {
+                        return prev;
+                      }
+                      if (prev.exercises.some((e) => e.id === exercise.id)) {
+                        return prev;
+                      }
+                      return { ...prev, exercises: [...prev.exercises, exercise] };
+                    });
+                  }}
                   renderItem={(exercise) => {
                     const hint = secondaryHint(exercise);
                     return (

@@ -4,6 +4,20 @@ Historial de ítems que empezaron en [ROADMAP.md](ROADMAP.md) y ya están hechos
 
 ---
 
+## 2026-08-30 — v2: Backup, Hoy colapsable, ejercicios, CSV
+
+Tanda completa según [V2.md](V2.md). Cierra los ítems de roadmap **#0, #2, #3, #4, #5**.
+
+**Infra:** `backend/scripts/backup_db.ps1` (hot backup SQLite del volumen Docker → OneDrive, retención 14 días) + `restore_db.ps1`. Task Scheduler es un registro one-shot (`-RegisterTask`).
+
+**Backend:** `GET /workouts/export` (CSV UTF-8 con BOM). `POST /exercises` rechaza nombre en blanco.
+
+**Mobile:** Hoy colapsa tarjetas tras guardar; `ExercisePickerList` crea ejercicios (`POST /exercises`); Historial puede añadir un ejercicio al editar y exportar CSV (`expo-file-system` + `expo-sharing`, Expo Go).
+
+**Pendiente en tu máquina:** registrar el task de backup y, si usas el build EAS `preview` (no Expo Go), reconstruirlo para los módulos nativos del CSV.
+
+---
+
 ## 2026-08-16 — v1: Perfil, Análisis, Objetivos (+ PR peso, picker Progreso)
 
 Tanda completa según [V1.md](V1.md). Cierra los antiguos ítems de roadmap **#2, #3, #4, #11** y la parte de **#1** referida a badge de PR por peso máximo.

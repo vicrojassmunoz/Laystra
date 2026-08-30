@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 MuscleGroup = Literal[
     "Pecho",
@@ -15,9 +15,17 @@ MuscleGroup = Literal[
 
 
 class ExerciseBase(BaseModel):
-    name: str
+    name: str = Field(min_length=1)
     unit: Literal["kg", "lb"] = "kg"
     muscle_group_secondary: list[MuscleGroup] = []
+
+    @field_validator("name")
+    @classmethod
+    def name_not_blank(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("name must not be blank")
+        return stripped
 
 
 class ExerciseCreate(ExerciseBase):

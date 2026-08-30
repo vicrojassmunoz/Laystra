@@ -12,3 +12,10 @@ export type Exercise = {
   muscle_group_primary?: string | null;
   muscle_group_secondary?: string[] | null;
 };
+
+export type ExerciseCreate = {
+  name: string;
+  unit: "kg" | "lb";
+  muscle_group_primary: string;
+  muscle_group_secondary: string[];
+};

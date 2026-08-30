@@ -51,3 +51,13 @@ export async function deleteWorkout(id: number): Promise<void> {
 
   // 204 No Content: no hay body que parsear.
 }
+
+export async function exportWorkoutsCsv(): Promise<string> {
+  const response = await fetch(`${API_BASE_URL}/workouts/export`);
+
+  if (!response.ok) {
+    throw new Error(await buildErrorMessage(response));
+  }
+
+  return response.text();
+}

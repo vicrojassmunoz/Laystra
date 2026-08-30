@@ -1,28 +1,34 @@
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { useFocusEffect } from "@react-navigation/native";
+import { File, Paths } from "expo-file-system";
+import * as Sharing from "expo-sharing";
 import { useCallback, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
   Button,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
+  TouchableOpacity,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { fetchExercises } from "../api/exercises";
 import { fetchRoutines } from "../api/routines";
-import { deleteWorkout, fetchWorkouts, updateWorkout } from "../api/workouts";
+import { deleteWorkout, exportWorkoutsCsv, fetchWorkouts, updateWorkout } from "../api/workouts";
+import ExercisePickerList from "../components/ExercisePickerList";
 import SupersetBlock, { SetDraft } from "../components/SupersetBlock";
 import { Exercise } from "../types/exercise";
 import { Routine } from "../types/routine";
 import { Workout, WorkoutSet, WorkoutSetCreate } from "../types/workout";
 import { parseDecimalInput } from "../utils/number";
+import { secondaryHint } from "../utils/exercisePicker";
 import { groupBySuperset, validSupersetGroups } from "../utils/superset";
 
 type State =
@@ -77,9 +83,8 @@ type EditExerciseGroup = {
 
 // Variante de groupSetsByExercise para el modo edición: en vez de texto ya
 // formateado, devuelve filas editables (weight/reps como string, igual que
-// SetDraft en TodayScreen) agrupadas por ejercicio. No se permite añadir un
-// ejercicio nuevo al workout aquí -- solo editar/añadir/quitar series de los
-// que ya tenía, así que no hace falta guardar más que el exerciseId por grupo.
+// SetDraft en TodayScreen) agrupadas por ejercicio. Se puede añadir un
+// ejercicio que el workout no tenía (picker + create, ver addExerciseToEdit).
 // Sigue agrupando por tramos contiguos de mismo exercise_id (un workout con
 // una super-serie A-B-A genera dos grupos de A, no uno) -- lo nuevo es que
 // cada grupo también recuerda su superset_group, para poder re-agruparlos
@@ -122,6 +127,9 @@ export default function HistorialScreen() {
   const [actionError, setActionError] = useState<string | null>(null);
   // Evita doble-tap mientras la petición de borrado está en curso.
   const [deletingWorkoutId, setDeletingWorkoutId] = useState<number | null>(null);
+  const [addExercisePickerVisible, setAddExercisePickerVisible] = useState(false);
+  const [addExerciseQuery, setAddExerciseQuery] = useState("");
+  const [exporting, setExporting] = useState(false);
   // Contador compartido para ids de fila de serie en el formulario de edición,
   // igual que nextSetIdRef en TodayScreen -- da a cada fila una key estable.
   const nextEditIdRef = useRef(1);
@@ -161,12 +169,68 @@ export default function HistorialScreen() {
     setEditingWorkoutId(workout.id);
     setEditRows(buildEditGroups(workout.sets, nextEditId));
     setEditError(null);
+    setAddExercisePickerVisible(false);
   }
 
   function cancelEdit() {
     setEditingWorkoutId(null);
     setEditRows([]);
     setEditError(null);
+    setAddExercisePickerVisible(false);
+  }
+
+  function appendCreatedExercise(exercise: Exercise) {
+    setState((prev) => {
+      if (prev.status !== "ready") {
+        return prev;
+      }
+      if (prev.exercises.some((e) => e.id === exercise.id)) {
+        return prev;
+      }
+      return { ...prev, exercises: [...prev.exercises, exercise] };
+    });
+  }
+
+  function addExerciseToEdit(exercise: Exercise) {
+    appendCreatedExercise(exercise);
+    setEditRows((prev) => [
+      ...prev,
+      {
+        exerciseId: exercise.id,
+        supersetGroup: null,
+        sets: [{ id: nextEditId(), weight: "", reps: "" }],
+      },
+    ]);
+    setAddExercisePickerVisible(false);
+    setAddExerciseQuery("");
+  }
+
+  async function handleExportCsv() {
+    setExporting(true);
+    setActionError(null);
+    try {
+      const available = await Sharing.isAvailableAsync();
+      if (!available) {
+        throw new Error("Compartir no está disponible en este dispositivo.");
+      }
+      const csv = await exportWorkoutsCsv();
+      const withBom = csv.startsWith("\ufeff") ? csv : `\ufeff${csv}`;
+      // File/Paths es la API de expo-file-system 19 (SDK 54). writeAsStringAsync
+      // del import principal está deprecado y lanza en runtime; hay que usar
+      // esta forma o importar de expo-file-system/legacy.
+      const file = new File(Paths.cache, "laystra-workouts.csv");
+      file.create({ overwrite: true });
+      file.write(withBom);
+      await Sharing.shareAsync(file.uri, {
+        mimeType: "text/csv",
+        UTI: "public.comma-separated-values-text",
+        dialogTitle: "Exportar entrenos",
+      });
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "No se pudo exportar el CSV.");
+    } finally {
+      setExporting(false);
+    }
   }
 
   function confirmDelete(workout: Workout, routineName: string) {
@@ -376,6 +440,14 @@ export default function HistorialScreen() {
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
           <Text style={styles.title}>Historial</Text>
 
+          <View style={styles.exportButton}>
+            <Button
+              title={exporting ? "Exportando..." : "Exportar CSV"}
+              onPress={handleExportCsv}
+              disabled={exporting}
+            />
+          </View>
+
           {workouts.length === 0 && (
             <Text style={styles.emptyText}>Aún no has logueado ningún entreno.</Text>
           )}
@@ -495,6 +567,17 @@ export default function HistorialScreen() {
 
                     {editError && <Text style={styles.errorDetail}>{editError}</Text>}
 
+                    <View style={styles.addExerciseButton}>
+                      <Button
+                        title="Añadir ejercicio"
+                        onPress={() => {
+                          setAddExerciseQuery("");
+                          setAddExercisePickerVisible(true);
+                        }}
+                        disabled={editSaving}
+                      />
+                    </View>
+
                     <View style={styles.cardActions}>
                       <Button title="Cancelar" color="#666" onPress={cancelEdit} disabled={editSaving} />
                       <Button
@@ -532,6 +615,46 @@ export default function HistorialScreen() {
           })}
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <Modal visible={addExercisePickerVisible} transparent animationType="slide">
+        <View style={styles.modalBackdrop}>
+          <KeyboardAvoidingView
+            style={styles.avoider}
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+            keyboardVerticalOffset={0}
+          >
+            <View style={styles.modalCard}>
+              <Text style={styles.modalTitle}>Añadir ejercicio</Text>
+              {state.status === "ready" && (
+                <ExercisePickerList
+                  exercises={state.exercises}
+                  query={addExerciseQuery}
+                  onQueryChange={setAddExerciseQuery}
+                  onCreated={appendCreatedExercise}
+                  renderItem={(exercise) => {
+                    const hint = secondaryHint(exercise);
+                    return (
+                      <TouchableOpacity
+                        style={styles.option}
+                        onPress={() => addExerciseToEdit(exercise)}
+                      >
+                        <Text style={styles.optionText}>{exercise.name}</Text>
+                        {hint && <Text style={styles.optionHint}>{hint}</Text>}
+                      </TouchableOpacity>
+                    );
+                  }}
+                />
+              )}
+              <TouchableOpacity
+                style={styles.cancelButton}
+                onPress={() => setAddExercisePickerVisible(false)}
+              >
+                <Text style={styles.cancelText}>Cancelar</Text>
+              </TouchableOpacity>
+            </View>
+          </KeyboardAvoidingView>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -549,6 +672,12 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: "600",
     marginBottom: 16,
+  },
+  exportButton: {
+    marginBottom: 16,
+  },
+  addExerciseButton: {
+    marginTop: 8,
   },
   emptyText: {
     fontSize: 16,
@@ -630,5 +759,51 @@ const styles = StyleSheet.create({
     color: "#b00020",
     marginTop: 8,
     textAlign: "center",
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.4)",
+    justifyContent: "flex-end",
+  },
+  avoider: {
+    maxHeight: "70%",
+  },
+  modalCard: {
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    padding: 20,
+    flexShrink: 1,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: "600",
+    marginBottom: 16,
+    textAlign: "center",
+  },
+  option: {
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: "#eee",
+  },
+  optionText: {
+    fontSize: 16,
+    textAlign: "center",
+  },
+  optionHint: {
+    fontSize: 12,
+    color: "#999",
+    textAlign: "center",
+    marginTop: 2,
+  },
+  cancelButton: {
+    paddingVertical: 14,
+    marginTop: 8,
+  },
+  cancelText: {
+    fontSize: 16,
+    textAlign: "center",
+    color: "#b00020",
+    fontWeight: "600",
   },
 });
