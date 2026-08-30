@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "hooks": {
+    "subagentStop": [
+      {
+        "command": "python .cursor/hooks/backend_docs_notify.py",
+        "matcher": "backend-coder",
+        "loop_limit": 1
+      }
+    ]
+  }
+}

@@ -1,0 +1,47 @@
+---
+description: Laystra product scope, architecture, and development context
+alwaysApply: true
+---
+
+# Laystra — contexto del proyecto
+
+App personal de seguimiento de progreso físico (side project, no producto comercial). Resumen: rutinas predefinidas asignadas a días de la semana, loguear el entreno del día en pocos toques, ver progreso en semanas.
+
+## Spec y alcance
+
+- MVP: [`docs/MVP.md`](docs/MVP.md)
+- Ideas post-MVP (no implementar salvo petición explícita): [`docs/ROADMAP.md`](docs/ROADMAP.md)
+- Entregado: [`docs/CHANGELOG.md`](docs/CHANGELOG.md)
+
+Fuera de alcance MVP: HealthKit, notificaciones, multi-usuario/auth, cloud sync, RPE/RIR, plantillas compartibles, historial de ediciones en workouts pasados.
+
+## Arquitectura
+
+- **`backend/`** — FastAPI, SQLite, Pydantic. `app/routers/`, `app/schemas/`, `app/services/`. REST con códigos de estado explícitos y `HTTPException`. pytest para lógica no trivial.
+- **`mobile/`** — Expo (React Native), TypeScript. Patrones estándar de Expo/RN; `useState`/Context mientras el proyecto sea pequeño.
+- iOS vía **EAS Build/Submit**, no Xcode local.
+
+El backend define el contrato API; el móvil consume lo que devuelve. Cambios de contrato son cross-cutting.
+
+## Desarrollo local
+
+El móvil corre en iPhone físico vía Expo Go. `localhost`/`127.0.0.1` **no** alcanza el backend en tu PC — usa la IP LAN (ej. `192.168.x.x:8000`) y misma Wi-Fi.
+
+## Contexto del desarrollador
+
+Senior en backend/Python/FastAPI, sin experiencia previa en React Native/Expo. Explicar patrones RN brevemente; no sobre-explicar Python/FastAPI. Sin Mac — toda guía iOS pasa por EAS.
+
+## Subagentes (`.cursor/agents/`)
+
+| Agente | Rol |
+|---|---|
+| `explorer` | Recon solo lectura. Invocar al empezar features nuevas. |
+| `backend-coder` | Backend FastAPI. Declarar shape JSON exacto; avisar breaking changes. |
+| `frontend-coder` | Frontend Expo/RN. Avisar antes si hay que salir de Expo Go. |
+| `eas-agent` | `eas.json`, perfiles de build, EAS secrets. |
+| `reviewer` | Revisión solo lectura post-cambio. Hallazgos `[bloqueante]`/`[sugerencia]`. |
+| `backend-docs` | Solo `backend/docs/ARCHITECTURE.md`. Auto tras `backend-coder` (hook). |
+
+Flujo típico: `explorer` → `backend-coder` y/o `frontend-coder` (+ `eas-agent` si build nativo) → `reviewer`. Instrucciones de subagentes en español.
+
+Invocar subagentes con el Task tool (`subagent_type: "nombre"`). Tras reiniciar sesión si un subagente nuevo no aparece.

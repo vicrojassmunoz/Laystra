@@ -1,0 +1,15 @@
+---
+description: Laystra implementation status by phase (MVP through v1)
+alwaysApply: true
+---
+
+# Estado del proyecto
+
+Todas las fases MVP están hechas y verificadas en dispositivo físico salvo donde se indique.
+
+- **Fase 0–4**: esqueleto, rutinas/calendario, logging "Hoy", progreso, despliegue (backend en `https://laystra.vicrojas.com` vía Docker + Cloudflare Tunnel; build EAS `preview` en iPhone).
+- **v1 — Menú Home** (2026-08-16): 6 tabs (Home/Hoy/Rutinas/Semana/Historial/Progreso), strip de 7 días, tiles, stack navigator para Objetivos/Perfil/Análisis.
+
+Detalle completo de cada fase en `CLAUDE.md` (histórico). Backend desplegado con `restart: unless-stopped`; túnel evita CGNAT del ISP.
+
+No diseñar nada de `docs/ROADMAP.md` (grupos musculares, splits, análisis IA, etc.) salvo petición explícita del humano.

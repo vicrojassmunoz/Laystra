@@ -1,0 +1,23 @@
+---
+description: Git commits and branch strategy for Laystra
+alwaysApply: true
+---
+
+# Git y ramas
+
+## Commits
+
+Nunca añadir a la IA como co-autor ni incluir trailers tipo `Co-Authored-By: Claude` o "Generated with Claude Code". La autoría de cada commit es solo del desarrollador.
+
+## Estrategia de ramas
+
+`main` solo contiene código de trabajo — sin tooling de IA. `dev` es donde ocurre el desarrollo y la única rama que lleva `.cursor/`, `.claude/` y `CLAUDE.md`.
+
+- Trabajo diario en `dev`. Subagentes y reglas solo existen aquí.
+- Al promover algo de `dev` a `main`, **no** hacer `git merge dev` — arrastraría el tooling de IA. Desde `main`, checkout selectivo:
+  ```
+  git checkout main
+  git checkout dev -- backend mobile .gitignore
+  git commit -m "..."
+  ```
+- Si se añade un directorio de trabajo nuevo, incluirlo explícitamente en el checkout — no viene solo.

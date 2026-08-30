@@ -8,7 +8,7 @@ Never add Claude as a co-author or include any "Generated with Claude Code" / `C
 
 ## Branch strategy
 
-`main` holds only working code — no AI-tooling clutter. `dev` is where actual development happens and is the only branch that carries `.claude/` and this `CLAUDE.md`.
+`main` holds only working code — no AI-tooling clutter. `dev` is where actual development happens and is the only branch that carries `.cursor/`, `.claude/`, `AGENTS.md`, and this `CLAUDE.md`.
 
 - Do all day-to-day work on `dev`. This file and the subagents only exist here.
 - When something on `dev` is ready to promote to `main`, do **not** `git merge dev` into `main` — that would drag `.claude/` and `CLAUDE.md` along with it. Instead, from `main`, selectively check out just the working directories:
@@ -95,6 +95,10 @@ The backend defines the API contract; the mobile app consumes whatever shape the
 ## Local development
 
 The mobile app runs on a physical iPhone via Expo Go, not a simulator. `localhost`/`127.0.0.1` in the mobile app will NOT reach a backend running on the developer's machine — use the machine's LAN IP (e.g. `192.168.x.x:8000`) as the API base URL, and keep phone and machine on the same Wi-Fi network.
+
+## Cursor (`.cursor/`)
+
+This repo also runs in **Cursor** with a parallel setup: subagents in `.cursor/agents/`, rules in `.cursor/rules/`, and a `subagentStop` hook in `.cursor/hooks.json` that chains `backend-docs` after `backend-coder`. See [`AGENTS.md`](AGENTS.md) for the Cursor entry point. Cursor takes precedence over `.claude/agents/` when both define the same subagent name.
 
 ## Custom subagents (`.claude/agents/`)
 

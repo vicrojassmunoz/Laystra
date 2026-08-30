@@ -1,0 +1,34 @@
+---
+description: Laystra commands for backend, mobile, and Docker
+alwaysApply: true
+---
+
+# Comandos
+
+## Backend (desde `backend/`, `uv` + `pyproject.toml`)
+
+```
+uv sync
+uv run uvicorn app.main:app --reload --host 0.0.0.0
+uv run pytest
+uv add <package>
+```
+
+`--host 0.0.0.0` es obligatorio: el móvil alcanza el backend por LAN, no por localhost.
+
+## Mobile (desde `mobile/`)
+
+```
+npm install
+cp .env.example .env   # EXPO_PUBLIC_API_URL = IP LAN de tu máquina
+npx expo start
+npx tsc --noEmit
+eas build --platform ios --profile preview
+eas submit --platform ios   # solo si quieres TestFlight
+```
+
+No hay Mac — builds iOS vía EAS/Expo Go, nunca Xcode local.
+
+## Producción (Docker, desde `backend/`)
+
+Ver `backend/README.md` → "Run in Docker (production)".
