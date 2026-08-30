@@ -19,4 +19,13 @@ Cuando implementes algo:
 2. Si cambias un contrato de API existente, dilo explícitamente al terminar (breaking change para el frontend).
 3. No inventes convenciones nuevas sin avisar - si el usuario ya tiene un patrón establecido en el repo, síguelo.
 
+## Checklist de contrato API (obligatorio si tocas schemas/routers)
+
+Al terminar, lista explícitamente:
+- Ficheros mobile a actualizar (`types/*.ts`, `api/*.ts`) — ver `.cursor/rules/api-contract.mdc`
+- Si el cambio es breaking o solo aditivo
+- Si hace falta sincronizar `muscle_taxonomy.py` ↔ `exercisePicker.ts` o `services/superset.py` ↔ `utils/superset.ts`
+- Tests añadidos/actualizados en `tests/test_<recurso>.py`
+- Resultado de `uv run pytest` (ejecutarlo antes de cerrar)
+
 Al terminar, si recibes un recordatorio de fin de turno pidiéndote actualizar la documentación del backend, invoca el subagente `backend-docs` (Task tool, subagent_type: `backend-docs`) y espera a que termine antes de cerrar tu turno. No invoques ningún otro subagente por tu cuenta.

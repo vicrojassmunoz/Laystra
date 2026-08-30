@@ -9,3 +9,11 @@ alwaysApply: false
 Leer la documentación versionada en https://docs.expo.dev/versions/v54.0.0/ antes de escribir código.
 
 Pinned a SDK 54, no al último (57), porque el Expo Go del App Store no había alcanzado SDK 57 a 2026-08-09. No subir de versión sin comprobar primero qué SDK soporta Expo Go en el App Store — `npx expo install expo@latest && npx expo install --fix` puede reintroducir el error "update Expo Go" en dispositivo.
+
+## Patrones de pantalla (obligatorios)
+
+- `useFocusEffect` + ref para refetch al volver a la tab/pantalla
+- `useBottomTabBarHeight()` como `keyboardVerticalOffset` en formularios
+- `ExercisePickerList` para cualquier selector de ejercicios
+- Coma decimal española → `src/utils/number.ts`
+- Arquitectura detallada: `mobile/docs/ARCHITECTURE.md`

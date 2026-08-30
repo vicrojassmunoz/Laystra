@@ -10,8 +10,10 @@ App personal de seguimiento de progreso físico (side project, no producto comer
 ## Spec y alcance
 
 - MVP: [`docs/MVP.md`](docs/MVP.md)
-- Ideas post-MVP (no implementar salvo petición explícita): [`docs/ROADMAP.md`](docs/ROADMAP.md)
+- v1 (entregado): [`docs/V1.md`](docs/V1.md)
+- Ideas futuras (no implementar salvo petición explícita): [`docs/ROADMAP.md`](docs/ROADMAP.md)
 - Entregado: [`docs/CHANGELOG.md`](docs/CHANGELOG.md)
+- Contrato API: regla `api-contract` en `.cursor/rules/`
 
 Fuera de alcance MVP: HealthKit, notificaciones, multi-usuario/auth, cloud sync, RPE/RIR, plantillas compartibles, historial de ediciones en workouts pasados.
 
@@ -40,8 +42,10 @@ Senior en backend/Python/FastAPI, sin experiencia previa en React Native/Expo. E
 | `frontend-coder` | Frontend Expo/RN. Avisar antes si hay que salir de Expo Go. |
 | `eas-agent` | `eas.json`, perfiles de build, EAS secrets. |
 | `reviewer` | Revisión solo lectura post-cambio. Hallazgos `[bloqueante]`/`[sugerencia]`. |
+| `verifier` | Ejecuta `pytest` y/o `npm run typecheck` según lo tocado. Antes de `reviewer`. |
 | `backend-docs` | Solo `backend/docs/ARCHITECTURE.md`. Auto tras `backend-coder` (hook). |
+| `frontend-docs` | Solo `mobile/docs/ARCHITECTURE.md`. Auto tras `frontend-coder` (hook). |
 
-Flujo típico: `explorer` → `backend-coder` y/o `frontend-coder` (+ `eas-agent` si build nativo) → `reviewer`. Instrucciones de subagentes en español.
+Flujo típico: `explorer` → implementación → `verifier` → `reviewer`. Ver regla `workflow`. Instrucciones de subagentes en español.
 
 Invocar subagentes con el Task tool (`subagent_type: "nombre"`). Tras reiniciar sesión si un subagente nuevo no aparece.

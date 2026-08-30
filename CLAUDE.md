@@ -98,7 +98,7 @@ The mobile app runs on a physical iPhone via Expo Go, not a simulator. `localhos
 
 ## Cursor (`.cursor/`)
 
-This repo also runs in **Cursor** with a parallel setup: subagents in `.cursor/agents/`, rules in `.cursor/rules/`, and a `subagentStop` hook in `.cursor/hooks.json` that chains `backend-docs` after `backend-coder`. See [`AGENTS.md`](AGENTS.md) for the Cursor entry point. Cursor takes precedence over `.claude/agents/` when both define the same subagent name.
+This repo also runs in **Cursor** with subagents in `.cursor/agents/`, rules in `.cursor/rules/`, and hooks in `.cursor/hooks.json`. See [`AGENTS.md`](AGENTS.md) for the full workflow (`explorer` → implement → `verifier` → `reviewer`). Cursor takes precedence over `.claude/agents/` when both define the same subagent name.
 
 ## Custom subagents (`.claude/agents/`)
 

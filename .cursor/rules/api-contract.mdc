@@ -1,0 +1,37 @@
+---
+description: Backend↔mobile API contract map — use when changing endpoints, schemas, or types
+globs: backend/app/**/*.py,mobile/src/**/*.ts,mobile/src/**/*.tsx
+alwaysApply: false
+---
+
+# Contrato API backend ↔ mobile
+
+Tipos **duplicados a mano** (sin codegen). Cualquier cambio de schema exige tocar ambos lados.
+
+## Mapa recurso → ficheros
+
+| Router | Schema backend | API mobile | Types mobile | Pantallas principales |
+|--------|----------------|------------|--------------|----------------------|
+| `/exercises` | `schemas/exercise.py`, `schemas/progress.py` | `api/exercises.ts`, `api/progress.ts` | `types/exercise.ts`, `types/progress.ts` | Routines, Today, Historial, Progress |
+| `/routines` | `schemas/routine.py` | `api/routines.ts` | `types/routine.ts` | Routines, Today, Historial, Schedule |
+| `/schedule` | `schemas/schedule.py` | `api/schedule.ts` | `types/schedule.ts` | Schedule, Home |
+| `/today` | `schemas/today.py` | `api/today.ts` | *(tipos en `api/today.ts`)* | Today, Home, User |
+| `/workouts` | `schemas/workout.py` | `api/workouts.ts` | `types/workout.ts` | Today, Historial, Home |
+| `/body-metrics` | `schemas/body_metric.py` | `api/bodyMetrics.ts` | `types/bodyMetric.ts` | User |
+| `/goals` | `schemas/goal.py` | `api/goals.ts` | `types/goal.ts` | Objetivos |
+| `/analytics` | `schemas/analytics.py` | `api/analytics.ts` | `types/analytics.ts` | Analisis |
+| `/health` | `schemas/health.py` | — | — | — |
+
+## Catálogos sincronizados manualmente
+
+- **Grupos musculares (8):** `backend/app/muscle_taxonomy.py` ↔ `mobile/src/utils/exercisePicker.ts` (`MUSCLE_GROUP_ORDER`)
+- **Validación superseries:** `backend/app/services/superset.py` ↔ `mobile/src/utils/superset.ts`
+
+## Convenciones al cambiar contrato
+
+1. Backend: schema Pydantic → router → test en `tests/test_<recurso>.py`
+2. Mobile: `types/*.ts` (o `api/today.ts` para Today) → `api/*.ts` → pantalla
+3. Campos nuevos opcionales en mobile: usar `| null | undefined` si el backend puede no enviarlos durante ventana de deploy
+4. `date` backend → `string` ISO en mobile; `float` → `number`
+5. Tras cambios mobile: `npm run typecheck` desde `mobile/`
+6. Tras cambios backend: `uv run pytest` desde `backend/`

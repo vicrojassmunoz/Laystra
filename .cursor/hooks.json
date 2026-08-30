@@ -6,6 +6,11 @@
         "command": "python .cursor/hooks/backend_docs_notify.py",
         "matcher": "backend-coder",
         "loop_limit": 1
+      },
+      {
+        "command": "python .cursor/hooks/frontend_docs_notify.py",
+        "matcher": "frontend-coder",
+        "loop_limit": 1
       }
     ]
   }

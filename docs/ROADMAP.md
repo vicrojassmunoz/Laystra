@@ -1,14 +1,23 @@
 # Roadmap de ideas futuras — App de progreso físico
 
-No tocan el MVP actual (rutinas + calendario + log + progreso, ver [MVP.md](MVP.md)). No implementar nada de aquí a menos que se pida explícitamente. Features ya entregadas: [CHANGELOG.md](CHANGELOG.md).
+No tocan el MVP actual (rutinas + calendario + log + progreso, ver [MVP.md](MVP.md)). **No implementar nada de aquí a menos que se pida explícitamente.**
+
+Entregado: [CHANGELOG.md](CHANGELOG.md). Spec de la última tanda cerrada: [V1.md](V1.md).
+
+**Leyenda de columnas:** *Capa* = backend / mobile / ambos. *Expo Go* = si funciona sin development build.
 
 ---
 
-## ⚠️ Antes de nada: backup de datos
+## Próxima tanda sugerida (v2)
 
-`laystra.db` vive en un único volumen Docker (`laystra-db`, ver `backend/docker-compose.yml`), sin ninguna copia fuera de ese PC. Un disco muerto, una reinstalación de Windows o un `docker volume prune` accidental se llevan por delante todo el histórico real.
+Bloque cohesionado, todo Expo Go salvo el backup (infra). Orden recomendado:
 
-**Solución barata:** job programado (sidecar con cron, o Task Scheduler) que corra `sqlite3 laystra.db ".backup /ruta/copia.db"` (o `VACUUM INTO`, consistente aunque el backend esté escribiendo) y suba el resultado fuera del PC — cloud storage barato o una carpeta OneDrive/Drive ya sincronizada. Frecuencia diaria sobra para una app personal.
+1. **#0** — Backup de `laystra.db` (bloqueante; sin esto el resto es riesgo)
+2. **#2** — Colapsar ejercicios en Hoy tras guardar
+3. **#3 + #4** — Crear ejercicios desde la app + añadirlos al editar Historial
+4. **#5** — Exportar entrenos a CSV (complementa el backup)
+
+Cuando se decida implementar, escribir un `V2.md` con el mismo formato que `V1.md` (alcance, fuera de alcance, endpoints, pantallas, tests de avance).
 
 ---
 
@@ -16,36 +25,39 @@ No tocan el MVP actual (rutinas + calendario + log + progreso, ver [MVP.md](MVP.
 
 ### Ahora — coste barato
 
-| # | Ítem | Depende de | Descripción |
-|---|------|------------|--------------|
-| 1 | PRs (récords personales) por ejercicio | — | Query de agregación sobre `WorkoutSet`: peso máximo y mejor serie por volumen (peso×reps) por ejercicio. Payoff en un badge inline en "Hoy" al batir un récord, no solo enterrado en Progreso. |
-| 2 | `BodyMetric`: peso corporal / % grasa | — | Entidad nueva (fecha, peso, %grasa opcional) + una pantalla + un endpoint. |
-| 3 | Contenido real para la pantalla `Análisis` | — | Tonelaje semanal (Σ peso×reps) y volumen por grupo muscular (usa `muscle_group_primary`, ya en el modelo), sobre datos existentes. |
-| 4 | "Llevas X días sin entrenar [grupo muscular]" | — | Query sobre `WorkoutSet` + `Workout.date` agrupando por músculo (`Exercise.muscle_group_primary`, ya en el modelo). Sin tabla `Muscle` nueva. Candidata para `Análisis` o badge en `Home`. |
-| 5 | Colapsar/expandir ejercicios en "Hoy" tras guardar | — | Cada tarjeta guardada se colapsa a solo el nombre (tocar para reexpandir). Puramente UI, estado local. |
-| 6 | Crear ejercicios nuevos desde la app, con selector kg/lb | — | `POST /exercises` ya soporta `unit`; falta un "+ Nuevo ejercicio" en el picker modal de `RoutinesScreen.tsx`. |
-| 7 | Añadir un ejercicio nuevo al editar un Entreno pasado | — | Hoy la edición de un `Workout` solo permite tocar ejercicios que ya tenía. Reutiliza el picker modal de `RoutinesScreen.tsx`. |
-| 8 | Exportar el registro de entrenos a CSV | — | Endpoint que recorra `Workout`/`WorkoutSet` y devuelva CSV. En móvil: `expo-sharing` + `expo-file-system` (ya en Expo Go). |
-| 9 | Sensaciones en el registro | — | Campo `notes` (texto libre) en `WorkoutSet` o `Workout`. Que una IA las lea depende del ítem 17. |
-| 10 | Asistencia en directo durante la sesión (sin notificaciones) | — | Timer de sesión + info del siguiente ejercicio + tips rotando (texto estático) + log rápido en el descanso. Todo en Expo Go. |
-| 11 | Buscador/agrupación por músculo en el picker de `ProgressScreen` | — | Mismo tratamiento que ya tienen los pickers de `RoutinesScreen.tsx`/`TodayScreen.tsx` — `ExercisePickerList.tsx` ya es compartido, extensión trivial. |
+| # | Ítem | Capa | Expo Go | Depende de | Hecho cuando | Descripción |
+|---|------|------|---------|------------|--------------|-------------|
+| 0 | **Backup de `laystra.db`** | infra | — | — | Copia diaria fuera del PC; restauración probada una vez | `laystra.db` vive en un único volumen Docker (`laystra-db`, ver `backend/docker-compose.yml`). Job con cron/Task Scheduler: `sqlite3 laystra.db ".backup /ruta/copia.db"` (o `VACUUM INTO`) + subida a cloud/OneDrive. **Prioridad bloqueante** — un `docker volume prune` o disco muerto borra todo el histórico. |
+| 1 | PR por **volumen** (peso×reps) | ambos | sí | — | Badge o indicador en Hoy al batir mejor serie por volumen, no solo por peso | El badge de PR por **peso máximo** ya está en v1 (ver CHANGELOG). Falta la segunda mitad del ítem original: mejor serie por volumen por ejercicio. |
+| 2 | Colapsar/expandir ejercicios en "Hoy" tras guardar | mobile | sí | — | Tarjeta guardada muestra solo nombre; tocar reexpande | Puramente UI, estado local. |
+| 3 | Crear ejercicios nuevos desde la app (kg/lb) | mobile | sí | — | "+ Nuevo ejercicio" en el picker; persiste vía `POST /exercises` | `POST /exercises` ya soporta `unit`. Afecta todos los pickers (`ExercisePickerList`), no solo Rutinas. |
+| 4 | Añadir ejercicio al editar un entreno pasado | mobile | sí | #3 | Desde Historial se puede añadir un ejercicio que el workout no tenía | Hoy la edición solo permite tocar ejercicios ya presentes. Reutiliza picker + flujo de #3. |
+| 5 | Exportar entrenos a CSV | ambos | sí | — | Descarga/compartir CSV con fecha, ejercicio, peso, reps | Endpoint que recorra `Workout`/`WorkoutSet`. Móvil: `expo-sharing` + `expo-file-system`. |
+| 6 | Sensaciones en el registro (`notes`) | ambos | sí | — | Campo texto libre en workout o set; persiste y se muestra en Historial | Que una IA las lea es ítem #15; esto es solo captura. |
+| 7 | Asistencia en sesión (sin notificaciones) | mobile | sí | — | Timer de sesión + siguiente ejercicio + tips estáticos + log en descanso | Todo en Expo Go. Base para ítem #13. |
 
 ### Después — coste medio
 
-| # | Ítem | Depende de | Descripción |
-|---|------|------------|--------------|
-| 12 | Temporizador de descanso con alarma real | — | Notificaciones locales fiables con la app en background requieren salir de Expo Go a un **development build** (`eas-agent`). Primer salto de la app a build nativo — todo lo anterior sigue funcionando en Expo Go. |
-| 13 | Home con silueta de cuerpo tapeable por grupo muscular | — | Viable con `react-native-svg`. Falta un asset SVG con regiones delimitadas y mapear cada región a una de las 8 categorías de `muscle_group_primary`/secundario ya existentes. |
-| 14 | Quitar la bottom tab bar, `Home` como hub de navegación | — | Con 6 tabs (Home/Hoy/Rutinas/Semana/Historial/Progreso) la barra inferior está sobrecargada. Idea: `Home` pasa a ser la única pantalla de entrada real, y el resto se navega empujando pantallas desde ahí vía `Stack.Navigator` — mismo patrón que ya usan `Objetivos`/`Perfil`/`Análisis`, sin tab bar permanente. **Pendiente de resolver antes de implementar:** `Hoy` es la pantalla que se abre a diario (prioridad #2 explícita del MVP); perder el acceso de un toque ahí es una fricción real, distinta a la de pantallas que se visitan poco — decidir si `Hoy` se queda con acceso directo (¿tab única superviviente? ¿accesible también desde fuera de Home?) antes de quitar la barra entera. |
+| # | Ítem | Capa | Expo Go | Depende de | Hecho cuando | Descripción |
+|---|------|------|---------|------------|--------------|-------------|
+| 8 | Temporizador de descanso con alarma real | mobile | **no** (EAS) | — | Alarma suena con app en background | Primer salto fuera de Expo Go (`eas-agent`). Notificaciones locales fiables. |
+| 9 | Home con silueta de cuerpo tapeable | mobile | sí | — | Tocar región del SVG filtra/navega por grupo muscular | `react-native-svg` + asset con regiones mapeadas a las 8 categorías de `muscle_group_primary`. |
+| 10 | Quitar bottom tab bar; `Home` como hub | mobile | sí | **decisión** | Navegación usable con acceso diario a Hoy resuelto | 6 tabs sobrecargan la barra. **Decisión pendiente antes de implementar:** ¿Hoy como única tab superviviente? ¿FAB? ¿Tile en Home + atajo? Sin decisión, no codificar. |
 
 ### Algún día — coste grande
 
-| # | Ítem | Depende de | Descripción |
-|---|------|------------|--------------|
-| 15 | Generalizar el modelo a `Goal`/`Session` con tipos (fuerza/cardio/otro) | — | **Decisión vigente: no generalizar todavía.** Meter running como objetivo real exige un `session_type` propio por tipo (fuerza: sets/reps/peso; cardio: distancia/tiempo/ritmo) — mejor decidido antes que migrado después de 50 entrenos logueados. Se retoma solo si cardio pasa a ser un plan real, no "por si acaso". |
-| 16 | Modo "split"/balance de entrenamiento, desacoplado del calendario | Ítem 4 | El usuario define un split propio (categorías + frecuencia objetivo) y la app prioriza según desfase real ("llevas 9 días sin entrenar legs") en vez del día de la semana. Meter categorías no-fuerza reengancha con el ítem 15. |
-| 17 | Análisis en directo durante la sesión | Ítems 10, 12 | Lógica reactiva mientras se loguea cada set, no post-sesión. Dejar para cuando el resto del flujo de sesión ya esté sólido y usado de verdad. |
-| 18 | Modos visuales seleccionables (fitness / videojuego / minimalista) | Ítems 15 o 16 (piel "videojuego") | Tres pieles, preferencia local, sin backend. Toca cada pantalla (theming/context). Pulido, no razón de ser de la app. |
-| 19 | IA para analizar el registro y ajustar/planificar | Resto del backlog | Endpoint que pasa el histórico a un LLM (la API de Claude encaja) y devuelve sugerencias. La dificultad real es tener histórico suficiente para que el análisis diga algo útil. |
-| 20 | Integración con Strava | — | OAuth, guardar tokens, job de sync (webhook o polling) — infraestructura real. |
-| 21 | Integración con Salud (Apple Health / HealthKit) | Ítem 12 | Requiere config plugin + development build sí o sí, no accesible desde Expo Go. |
+| # | Ítem | Capa | Expo Go | Depende de | Hecho cuando | Descripción |
+|---|------|------|---------|------------|--------------|-------------|
+| 11 | Tipos de sesión (fuerza / cardio / otro) | ambos | — | — | Modelo que soporte cardio (distancia/tiempo) sin romper fuerza | **`Goal` manual ya existe (v1)** — esto es otra cosa: generalizar `Workout`/`Session` con `session_type` y campos por tipo. **Decisión vigente: no hacerlo** hasta que cardio sea un plan real, no "por si acaso". |
+| 12 | Split/balance desacoplado del calendario | ambos | sí | — | Usuario define split propio; app prioriza por desfase muscular | Usa datos de "días sin entrenar" (ya en Análisis, v1). Reengancha con #11 si hay categorías no-fuerza. |
+| 13 | Análisis en directo durante la sesión | mobile | sí* | #7, #8 | Sugerencias reactivas al loguear cada set | Lógica en tiempo real, no post-sesión. *Alarma en background requiere #8 (EAS). Solo cuando #7+#8 estén maduros en uso real. |
+| 14 | Modos visuales (fitness / videojuego / minimalista) | mobile | sí | #11 o #12 | Tres pieles, preferencia local | Theming en cada pantalla. Pulido, no core. |
+| 15 | IA para analizar registro y planificar | ambos | — | histórico + #6 | Endpoint LLM con sugerencias útiles | Dificultad real = tener datos suficientes. `notes` (#6) alimentan esto. |
+| 16 | Integración Strava | ambos | — | — | OAuth + sync de actividades | Infraestructura OAuth, tokens, jobs. |
+| 17 | Apple Health / HealthKit | mobile | **no** (EAS) | #8 | Lectura/escritura de métricas acordadas | Config plugin + development build. |
+
+---
+
+## Ítems retirados del backlog (entregados en v1)
+
+Los antiguos ítems 2, 3, 4 y 11, y la mitad de peso del antiguo ítem 1, están en [CHANGELOG.md](CHANGELOG.md) → entrada **2026-08-16 — v1**.

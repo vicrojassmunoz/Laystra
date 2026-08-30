@@ -1,0 +1,36 @@
+---
+description: Standard feature development workflow for Laystra agents
+alwaysApply: true
+---
+
+# Flujo de trabajo para features
+
+## Antes de implementar
+
+1. Confirmar que el ítem está **pedido explícitamente** o es bugfix — no sacar cosas de `docs/ROADMAP.md` por iniciativa propia.
+2. Invocar `explorer` para mapear ficheros y dependencias cruzadas.
+3. Si el ítem está en ROADMAP, leer la fila, la sección "Próxima tanda sugerida" y `docs/CHANGELOG.md` por si ya se entregó.
+4. Para una tanda nueva (varios ítems), crear un spec `docs/VX.md` siguiendo el formato de `docs/V1.md`.
+
+## Implementación
+
+| Tipo de cambio | Subagente(s) |
+|----------------|--------------|
+| Solo backend | `backend-coder` → `backend-docs` (auto) |
+| Solo mobile | `frontend-coder` → `frontend-docs` (auto) |
+| Contrato API | `backend-coder` primero, luego `frontend-coder` con el JSON exacto |
+| Sale de Expo Go | `frontend-coder` + `eas-agent` |
+| Build/EAS | `eas-agent` |
+
+## Antes de cerrar
+
+1. `verifier` — ejecuta tests/typecheck según lo tocado.
+2. `reviewer` — informe `[bloqueante]`/`[sugerencia]`.
+3. Resolver bloqueantes antes de dar la tarea por hecha.
+
+## Criterio de "hecho"
+
+- Tests backend verdes si se tocó `backend/`
+- `npm run typecheck` limpio si se tocó `mobile/`
+- Sin credenciales ni URLs de producción hardcodeadas
+- Si cambió API: ambos lados actualizados (ver regla `api-contract`)

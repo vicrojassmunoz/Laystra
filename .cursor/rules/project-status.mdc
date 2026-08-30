@@ -5,11 +5,13 @@ alwaysApply: true
 
 # Estado del proyecto
 
-Todas las fases MVP están hechas y verificadas en dispositivo físico salvo donde se indique.
+Todas las fases MVP están hechas y verificadas en dispositivo físico.
 
-- **Fase 0–4**: esqueleto, rutinas/calendario, logging "Hoy", progreso, despliegue (backend en `https://laystra.vicrojas.com` vía Docker + Cloudflare Tunnel; build EAS `preview` en iPhone).
-- **v1 — Menú Home** (2026-08-16): 6 tabs (Home/Hoy/Rutinas/Semana/Historial/Progreso), strip de 7 días, tiles, stack navigator para Objetivos/Perfil/Análisis.
+- **Fase 0–4**: esqueleto, rutinas/calendario, logging "Hoy", progreso, despliegue (`https://laystra.vicrojas.com`, EAS `preview` en iPhone).
+- **v1 — Menú Home + Perfil/Análisis/Objetivos** (2026-08-16): 6 tabs, strip semanal, `BodyMetric`, `Goal`, `GET /analytics/summary`, badge PR en Hoy, taxonomía muscular (8 grupos), superseries. Spec: [`docs/V1.md`](docs/V1.md).
 
-Detalle completo de cada fase en `CLAUDE.md` (histórico). Backend desplegado con `restart: unless-stopped`; túnel evita CGNAT del ISP.
+**Ya entregado (no es ROADMAP futuro):** grupos musculares, analytics, body metrics, goals, supersets.
 
-No diseñar nada de `docs/ROADMAP.md` (grupos musculares, splits, análisis IA, etc.) salvo petición explícita del humano.
+**Pendiente en ROADMAP** (no implementar salvo petición): ver [`docs/ROADMAP.md`](docs/ROADMAP.md). Próxima tanda sugerida (v2): backup DB → colapsar Hoy → crear ejercicios → CSV.
+
+Detalle histórico de fases en `CLAUDE.md`. Arquitectura backend: `backend/docs/ARCHITECTURE.md`. Arquitectura mobile: `mobile/docs/ARCHITECTURE.md`.

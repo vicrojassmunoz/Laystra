@@ -22,7 +22,7 @@ uv add <package>
 npm install
 cp .env.example .env   # EXPO_PUBLIC_API_URL = IP LAN de tu máquina
 npx expo start
-npx tsc --noEmit
+npm run typecheck      # alias de tsc --noEmit
 eas build --platform ios --profile preview
 eas submit --platform ios   # solo si quieres TestFlight
 ```
