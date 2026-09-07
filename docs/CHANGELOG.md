@@ -4,6 +4,16 @@ Historial de ítems que empezaron en [ROADMAP.md](ROADMAP.md) y ya están hechos
 
 ---
 
+## 2026-09-07 — Home hub (sin bottom tab bar)
+
+Cierra el ítem de roadmap **#10**. Decisión: app arranca en Home; tile grande **Hoy**; resto de pantallas empujadas en el stack nativo (back).
+
+**Mobile:** se elimina `Tab.Navigator` y `@react-navigation/bottom-tabs`. `RootStackParamList` plano (`Home` + Hoy/Rutinas/Semana/Historial/Progreso/Objetivos/User/Analisis). `keyboardVerticalOffset={0}` donde antes se usaba la altura de la tab bar. Semana sigue accesible desde el strip semanal.
+
+**Nota:** al salir de Hoy con back, la pantalla se desmonta — un borrador sin guardar no sobrevive (antes las tabs mantenían el mount).
+
+---
+
 ## 2026-08-30 — v2: Backup, Hoy colapsable, ejercicios, CSV
 
 Tanda completa según [V2.md](V2.md). Cierra los ítems de roadmap **#0, #2, #3, #4, #5**.

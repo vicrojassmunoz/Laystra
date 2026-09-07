@@ -1,4 +1,3 @@
-import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { useFocusEffect } from "@react-navigation/native";
 import { File, Paths } from "expo-file-system";
 import * as Sharing from "expo-sharing";
@@ -112,7 +111,6 @@ function buildEditGroups(sets: WorkoutSet[], nextId: () => number): EditExercise
 }
 
 export default function HistorialScreen() {
-  const tabBarHeight = useBottomTabBarHeight();
   const [state, setState] = useState<State>({ status: "loading" });
   const hasDataRef = useRef(false);
 
@@ -435,7 +433,7 @@ export default function HistorialScreen() {
       <KeyboardAvoidingView
         style={styles.container}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
-        keyboardVerticalOffset={tabBarHeight}
+        keyboardVerticalOffset={0}
       >
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
           <Text style={styles.title}>Historial</Text>

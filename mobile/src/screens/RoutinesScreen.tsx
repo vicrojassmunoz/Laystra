@@ -1,4 +1,3 @@
-import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { useFocusEffect } from "@react-navigation/native";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -46,7 +45,6 @@ function makeEmptyRow(id: number): DraftRow {
 }
 
 export default function RoutinesScreen() {
-  const tabBarHeight = useBottomTabBarHeight();
   const [state, setState] = useState<State>({ status: "loading" });
   const hasDataRef = useRef(false);
 
@@ -377,7 +375,7 @@ export default function RoutinesScreen() {
       <KeyboardAvoidingView
         style={styles.container}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
-        keyboardVerticalOffset={tabBarHeight}
+        keyboardVerticalOffset={0}
       >
         <ScrollView
           ref={scrollRef}

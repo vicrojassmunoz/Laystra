@@ -12,8 +12,9 @@ Pinned a **SDK 57** (Expo Go del iPhone del desarrollador, 2026-09-07). No subir
 
 ## Patrones de pantalla (obligatorios)
 
-- `useFocusEffect` + ref para refetch al volver a la tab/pantalla
-- `useBottomTabBarHeight()` como `keyboardVerticalOffset` en formularios
+- `useFocusEffect` + ref para refetch al volver a la pantalla
+- `KeyboardAvoidingView` con `keyboardVerticalOffset={0}` (sin tab bar)
 - `ExercisePickerList` para cualquier selector de ejercicios
 - Coma decimal española → `src/utils/number.ts`
 - Arquitectura detallada: `mobile/docs/ARCHITECTURE.md`
+- Navegación: stack con Home como hub (sin bottom tabs)

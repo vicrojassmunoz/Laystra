@@ -5,20 +5,21 @@ App Expo (React Native) + TypeScript, SDK 57. Consume la API REST del backend Fa
 ## Navegación
 
 ```
-Stack.Navigator (root)
-├── Tabs (6 tabs)
-│   ├── Home
-│   ├── Hoy (Today)
-│   ├── Rutinas
-│   ├── Semana (Schedule)
-│   ├── Historial
-│   └── Progreso (Progress)
+Stack.Navigator (root, initialRouteName: Home)
+├── Home          (hub; header oculto)
+├── Hoy
+├── Rutinas
+├── Semana
+├── Historial
+├── Progreso
 ├── Objetivos
 ├── Perfil (User)
 └── Análisis
 ```
 
-Tipos: `src/types/navigation.ts` (`TabParamList`, `RootStackParamList`).
+Sin bottom tab bar (ROADMAP #10). Home es el hub: strip semanal → Semana; tile grande **Hoy**; resto vía tiles. Back nativo del stack para volver.
+
+Tipos: `src/types/navigation.ts` (`RootStackParamList` únicamente).
 
 ## Pantallas → API
 
@@ -46,7 +47,7 @@ Tipos: `src/types/navigation.ts` (`TabParamList`, `RootStackParamList`).
 ## Convenciones obligatorias
 
 1. **Refetch al foco:** `useFocusEffect` + `useRef` para callbacks actuales (evitar stale closures).
-2. **Teclado + tab bar:** `KeyboardAvoidingView` con `keyboardVerticalOffset={useBottomTabBarHeight()}`.
+2. **Teclado:** `KeyboardAvoidingView` con `keyboardVerticalOffset={0}` (ya no hay tab bar que compensar). Los modales usan el mismo criterio.
 3. **Fecha Today:** helper ISO del repo para `GET /today?date=`.
 4. **Números:** normalizar coma decimal con `utils/number.ts`.
 5. **Picker ejercicios:** siempre `ExercisePickerList` (buscador + agrupación + "+ Nuevo ejercicio"). Usado en Rutinas (2 pickers), Hoy (entreno libre + superserie), Progreso, Historial. Tras `POST /exercises` (`createExercise` en `api/exercises.ts`) el padre mete el ítem en su lista vía `onCreated`. Formulario: nombre, unidad kg/lb, grupo principal obligatorio (chips de `MUSCLE_GROUP_ORDER`), secundarios opcionales.
@@ -56,7 +57,7 @@ Tipos: `src/types/navigation.ts` (`TabParamList`, `RootStackParamList`).
 
 ## Hoy e Historial
 
-**Hoy:** tras guardar (`submitted`), las tarjetas sueltas y `SupersetBlock` nacen colapsadas (solo nombre; tap reexpande). Estado local `expandedAfterSave` (Set de keys; vacío = todo colapsado). Mientras se edita, abiertas como antes.
+**Hoy:** tras guardar (`submitted`), las tarjetas sueltas y `SupersetBlock` nacen colapsadas (solo nombre; tap reexpande). Estado local `expandedAfterSave` (Set de keys; vacío = todo colapsado). Mientras se edita, abiertas como antes. Al hacer back a Home la pantalla se desmonta (stack) — un borrador sin guardar no sobrevive (antes las tabs mantenían el mount).
 
 **Historial:** en edición, "Añadir ejercicio" abre el mismo picker (puede crear uno). `PUT /workouts/{id}` ya aceptaba sets extra. Botón "Exportar CSV" arriba: `exportWorkoutsCsv()` → `new File(Paths.cache, "laystra-workouts.csv")` + `Sharing.shareAsync`.
 

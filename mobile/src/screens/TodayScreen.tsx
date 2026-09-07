@@ -1,4 +1,3 @@
-import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { useFocusEffect } from "@react-navigation/native";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -197,7 +196,6 @@ function headerRoutineName(formTarget: FormTarget | null, data: TodayResponse): 
 }
 
 export default function TodayScreen() {
-  const tabBarHeight = useBottomTabBarHeight();
   const [state, setState] = useState<State>({ status: "loading" });
   // Recuerda si ya tenemos datos en pantalla para no tapar la vista con un
   // spinner cada vez que el usuario vuelve a esta pestaña.
@@ -772,7 +770,7 @@ export default function TodayScreen() {
         <KeyboardAvoidingView
           style={styles.container}
           behavior={Platform.OS === "ios" ? "padding" : undefined}
-          keyboardVerticalOffset={tabBarHeight}
+          keyboardVerticalOffset={0}
         >
           <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
             <Text style={styles.title}>Hoy</Text>

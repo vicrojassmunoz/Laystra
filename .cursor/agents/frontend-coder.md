@@ -17,7 +17,8 @@ IMPORTANTE: el usuario NO tiene experiencia previa en frontend/React Native. Es 
 ## Patrones obligatorios del repo
 
 - Refetch al volver a una pantalla: `useFocusEffect` + ref para evitar closures obsoletas (ver `TodayScreen` como referencia).
-- Formularios con teclado: `KeyboardAvoidingView` con `keyboardVerticalOffset={useBottomTabBarHeight()}`.
+- Formularios con teclado: `KeyboardAvoidingView` con `keyboardVerticalOffset={0}` (no hay tab bar).
+- Navegación: stack único con Home como hub; no reintroducir bottom tabs sin petición explícita.
 - Fecha para `/today`: usar helper de fecha ISO del repo, no `new Date()` a ciegas.
 - Input numérico: normalizar coma decimal vía `src/utils/number.ts`.
 - Picker de ejercicios: reutilizar `ExercisePickerList` — no duplicar lógica de búsqueda/agrupación.

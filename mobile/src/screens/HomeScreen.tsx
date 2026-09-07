@@ -104,12 +104,12 @@ export default function HomeScreen() {
   );
 
   function goToWeek() {
-    navigation.navigate("Tabs", { screen: "Semana" });
+    navigation.navigate("Semana");
   }
 
   if (state.status === "loading") {
     return (
-      <SafeAreaView style={styles.container} edges={["bottom"]}>
+      <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
         <ActivityIndicator size="large" />
       </SafeAreaView>
     );
@@ -117,7 +117,7 @@ export default function HomeScreen() {
 
   if (state.status === "error") {
     return (
-      <SafeAreaView style={styles.container} edges={["bottom"]}>
+      <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
         <Text style={styles.title}>No se pudo conectar con el backend</Text>
         <Text style={styles.errorDetail}>{state.message}</Text>
       </SafeAreaView>
@@ -127,7 +127,7 @@ export default function HomeScreen() {
   const { days } = state;
 
   return (
-    <SafeAreaView style={styles.container} edges={["bottom"]}>
+    <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
       <ScrollView contentContainerStyle={styles.content}>
         <Text style={styles.title}>Laystra</Text>
 
@@ -152,11 +152,35 @@ export default function HomeScreen() {
         </TouchableOpacity>
 
         <View style={styles.menuGrid}>
-          <MenuTile
-            label="Objetivos"
-            variant="fullWidth"
-            onPress={() => navigation.navigate("Objetivos")}
-          />
+          {/* Acceso diario principal: sin tab bar, Hoy se abre desde aquí
+              (ROADMAP #10 — decisión: tile grande, app arranca en Home). */}
+          <MenuTile label="Hoy" variant="fullWidth" onPress={() => navigation.navigate("Hoy")} />
+
+          <View style={styles.menuRow}>
+            <MenuTile
+              label="Rutinas"
+              variant="half"
+              onPress={() => navigation.navigate("Rutinas")}
+            />
+            <MenuTile
+              label="Historial"
+              variant="half"
+              onPress={() => navigation.navigate("Historial")}
+            />
+          </View>
+
+          <View style={styles.menuRow}>
+            <MenuTile
+              label="Progreso"
+              variant="half"
+              onPress={() => navigation.navigate("Progreso")}
+            />
+            <MenuTile
+              label="Objetivos"
+              variant="half"
+              onPress={() => navigation.navigate("Objetivos")}
+            />
+          </View>
 
           <View style={styles.menuRow}>
             <MenuTile label="Perfil" variant="half" onPress={() => navigation.navigate("User")} />
@@ -164,19 +188,6 @@ export default function HomeScreen() {
               label="Análisis"
               variant="half"
               onPress={() => navigation.navigate("Analisis")}
-            />
-          </View>
-
-          <View style={styles.menuRow}>
-            <MenuTile
-              label="Rutinas"
-              variant="half"
-              onPress={() => navigation.navigate("Tabs", { screen: "Rutinas" })}
-            />
-            <MenuTile
-              label="Historial"
-              variant="half"
-              onPress={() => navigation.navigate("Tabs", { screen: "Historial" })}
             />
           </View>
         </View>

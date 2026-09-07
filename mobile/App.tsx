@@ -1,5 +1,4 @@
 import { NavigationContainer } from "@react-navigation/native";
-import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -13,36 +12,33 @@ import RoutinesScreen from "./src/screens/RoutinesScreen";
 import ScheduleScreen from "./src/screens/ScheduleScreen";
 import TodayScreen from "./src/screens/TodayScreen";
 import UserScreen from "./src/screens/UserScreen";
-import { RootStackParamList, TabParamList } from "./src/types/navigation";
+import { RootStackParamList } from "./src/types/navigation";
 
-const Tab = createBottomTabNavigator<TabParamList>();
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
-// Tab.Navigator de siempre (Hoy/Rutinas/Semana/Historial/Progreso), con Home
-// como pestaña nueva en primera posición.
-function Tabs() {
-  return (
-    <Tab.Navigator>
-      <Tab.Screen name="Home" component={HomeScreen} />
-      <Tab.Screen name="Hoy" component={TodayScreen} />
-      <Tab.Screen name="Rutinas" component={RoutinesScreen} />
-      <Tab.Screen name="Semana" component={ScheduleScreen} />
-      <Tab.Screen name="Historial" component={HistorialScreen} />
-      <Tab.Screen name="Progreso" component={ProgressScreen} />
-    </Tab.Navigator>
-  );
-}
-
-// Stack raíz: "Tabs" es la app de siempre; Objetivos/User/Analisis son
-// pantallas empujadas por encima desde los accesos directos de Home, fuera
-// de la tab bar (por eso no son Tab.Screen).
+// Home es la única pantalla raíz (hub). Hoy/Rutinas/Semana/Historial/Progreso
+// y Objetivos/User/Analisis se empujan encima con el back nativo del stack —
+// sin bottom tab bar (ROADMAP #10; decisión: tile grande "Hoy" en Home).
 export default function App() {
   return (
     <SafeAreaProvider>
       <NavigationContainer>
         <StatusBar style="auto" />
-        <Stack.Navigator>
-          <Stack.Screen name="Tabs" component={Tabs} options={{ headerShown: false }} />
+        <Stack.Navigator initialRouteName="Home">
+          <Stack.Screen name="Home" component={HomeScreen} options={{ headerShown: false }} />
+          <Stack.Screen name="Hoy" component={TodayScreen} options={{ title: "Hoy" }} />
+          <Stack.Screen name="Rutinas" component={RoutinesScreen} options={{ title: "Rutinas" }} />
+          <Stack.Screen name="Semana" component={ScheduleScreen} options={{ title: "Semana" }} />
+          <Stack.Screen
+            name="Historial"
+            component={HistorialScreen}
+            options={{ title: "Historial" }}
+          />
+          <Stack.Screen
+            name="Progreso"
+            component={ProgressScreen}
+            options={{ title: "Progreso" }}
+          />
           <Stack.Screen
             name="Objetivos"
             component={ObjetivosScreen}

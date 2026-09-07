@@ -10,7 +10,7 @@ Entregado: [CHANGELOG.md](CHANGELOG.md). Spec de la última tanda cerrada: [V2.m
 
 ## Próxima tanda sugerida
 
-No hay tanda cohesiva fijada. Lo más barato que queda en "Ahora": PR por volumen (#1), `notes` (#6), asistencia en sesión (#7).
+No hay tanda cohesiva fijada. Lo más barato que queda en "Ahora": PR por volumen (#1), `notes` (#6), asistencia en sesión (#7). Unidades de peso por ejercicio (#10) encaja bien junto a Análisis / PR cuando se quiera meter.
 
 ---
 
@@ -30,7 +30,7 @@ No hay tanda cohesiva fijada. Lo más barato que queda en "Ahora": PR por volume
 |---|------|------|---------|------------|--------------|-------------|
 | 8 | Temporizador de descanso con alarma real | mobile | **no** (EAS) | — | Alarma suena con app en background | Primer salto fuera de Expo Go (`eas-agent`). Notificaciones locales fiables. |
 | 9 | Home con silueta de cuerpo tapeable | mobile | sí | — | Tocar región del SVG filtra/navega por grupo muscular | `react-native-svg` + asset con regiones mapeadas a las 8 categorías de `muscle_group_primary`. |
-| 10 | Quitar bottom tab bar; `Home` como hub | mobile | sí | **decisión** | Navegación usable con acceso diario a Hoy resuelto | 6 tabs sobrecargan la barra. **Decisión pendiente antes de implementar:** ¿Hoy como única tab superviviente? ¿FAB? ¿Tile en Home + atajo? Sin decisión, no codificar. |
+| 10 | **Unidades de peso por ejercicio** (kg / lb / peso corporal) | ambos | sí | — | Cada ejercicio tiene unidad editable; Hoy/Historial/Progreso la respetan; Análisis/tonelaje no mezcla kg y lb a ciegas | Hoy `Exercise.unit` solo admite `kg`\|`lb` al crear, sin `bw` (bodyweight) y **sin edición** después. Falta: (1) ampliar el catálogo de unidades (p.ej. `bw` = peso corporal, series en % o en kg derivados de `BodyMetric`); (2) poder cambiar la unidad de un ejercicio existente desde la app; (3) mostrar/editar el peso en Hoy e Historial con esa unidad; (4) en **Análisis** (y PR/volumen) decidir conversión o series separadas — si no, un curl en lb y un press en kg inflan o rompen el tonelaje. Decidir en implementación si `bw` guarda el % del peso corporal o el kg resuelto al loguear. |
 
 ### Algún día — coste grande
 
@@ -47,6 +47,8 @@ No hay tanda cohesiva fijada. Lo más barato que queda en "Ahora": PR por volume
 ---
 
 ## Ítems retirados del backlog
+
+Los de Home-as-hub (**#10**) están en [CHANGELOG.md](CHANGELOG.md) → entrada **2026-09-07 — Home hub**.
 
 Los de v2 (**#0, #2, #3, #4, #5**) están en [CHANGELOG.md](CHANGELOG.md) → entrada **2026-08-30 — v2**.
 
