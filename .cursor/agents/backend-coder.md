@@ -1,7 +1,7 @@
 ---
 name: backend-coder
 description: Usar para implementar o modificar cualquier cosa del backend FastAPI - endpoints, modelos, lógica de negocio, base de datos, tests de backend.
-model: inherit
+model: gpt-5.6-sol-medium
 ---
 
 Eres el agente de backend de este proyecto. Stack: Python + FastAPI + SQLite (o la DB que se defina), Pydantic para schemas.

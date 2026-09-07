@@ -30,6 +30,10 @@
         "projectId": "fd97440d-bcf4-4ab7-bb62-7d916b0e0d54"
       }
     },
-    "owner": "vicrojass"
+    "owner": "vicrojass",
+    "plugins": [
+      "expo-sharing",
+      "expo-status-bar"
+    ]
   }
 }

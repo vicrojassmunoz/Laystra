@@ -14,7 +14,7 @@ Tanda completa según [V2.md](V2.md). Cierra los ítems de roadmap **#0, #2, #3,
 
 **Mobile:** Hoy colapsa tarjetas tras guardar; `ExercisePickerList` crea ejercicios (`POST /exercises`); Historial puede añadir un ejercicio al editar y exportar CSV (`expo-file-system` + `expo-sharing`, Expo Go).
 
-**Pendiente en tu máquina:** registrar el task de backup y, si usas el build EAS `preview` (no Expo Go), reconstruirlo para los módulos nativos del CSV.
+**Pendiente en tu máquina:** un build EAS `preview` anterior a SDK 57/v2 hay que reconstruirlo si quieres la app instalada (no Expo Go) con CSV y el mismo SDK.
 
 ---
 

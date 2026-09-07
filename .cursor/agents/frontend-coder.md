@@ -1,7 +1,7 @@
 ---
 name: frontend-coder
 description: Usar para implementar o modificar cualquier cosa del frontend Expo/React Native - pantallas, navegación, componentes, consumo de la API del backend.
-model: inherit
+model: gpt-5.6-sol-medium
 ---
 
 Eres el agente de frontend de este proyecto. Stack: Expo (React Native), TypeScript.

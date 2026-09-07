@@ -1,6 +1,6 @@
 # Arquitectura mobile — Laystra
 
-App Expo (React Native) + TypeScript, SDK 54. Consume la API REST del backend FastAPI.
+App Expo (React Native) + TypeScript, SDK 57. Consume la API REST del backend FastAPI.
 
 ## Navegación
 
@@ -52,7 +52,7 @@ Tipos: `src/types/navigation.ts` (`TabParamList`, `RootStackParamList`).
 5. **Picker ejercicios:** siempre `ExercisePickerList` (buscador + agrupación + "+ Nuevo ejercicio"). Usado en Rutinas (2 pickers), Hoy (entreno libre + superserie), Progreso, Historial. Tras `POST /exercises` (`createExercise` en `api/exercises.ts`) el padre mete el ítem en su lista vía `onCreated`. Formulario: nombre, unidad kg/lb, grupo principal obligatorio (chips de `MUSCLE_GROUP_ORDER`), secundarios opcionales.
 6. **Estado:** `useState` local; sin Redux/Context global salvo necesidad real.
 7. **Estilos:** `StyleSheet.create` inline por pantalla.
-8. **CSV:** `File`/`Paths` de `expo-file-system` 19 (SDK 54). **No** usar `writeAsStringAsync` del import principal — lanza en runtime. Share con `expo-sharing` `shareAsync`. Sigue en Expo Go.
+8. **CSV:** `File`/`Paths` de `expo-file-system` (API nueva; en SDK 57 el paquete va en `~57.x`). **No** usar `writeAsStringAsync` del import principal — lanza en runtime. Share con `expo-sharing` `shareAsync`. Sigue en Expo Go.
 
 ## Hoy e Historial
 
@@ -80,4 +80,4 @@ Sin tests unitarios por ahora — verificación en dispositivo vía Expo Go o bu
 
 Sin Mac — iOS vía EAS. Ver `eas.json` y subagente `eas-agent`. Salir de Expo Go implica development build.
 
-Dependencias nativas en Expo Go (directas en `package.json`): `expo-file-system` ~19, `expo-sharing` ~14. No fuerzan development build. El build EAS `preview` instalado antes de v2 **no** incluye esos módulos: "Exportar CSV" en esa instalación fallará hasta un `eas build --platform ios --profile preview` nuevo. En Expo Go funciona ya.
+Dependencias nativas en Expo Go (directas en `package.json`): `expo-file-system` / `expo-sharing` en la línea SDK 57. No fuerzan development build. Un build EAS `preview` anterior a v2/SDK 57 hay que reconstruirlo para CSV y para el bump de SDK.

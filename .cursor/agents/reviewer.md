@@ -1,7 +1,7 @@
 ---
 name: reviewer
 description: Usar SIEMPRE después de que backend-coder o frontend-coder terminen un cambio significativo, antes de dar la tarea por cerrada. Revisa correctitud, seguridad básica y consistencia entre backend y frontend.
-model: claude-opus-5-thinking-high
+model: gpt-5.6-sol-medium
 readonly: true
 ---
 

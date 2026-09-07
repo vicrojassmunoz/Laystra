@@ -1,7 +1,7 @@
 ---
 name: explorer
 description: Usar SIEMPRE que se necesite entender el repo antes de tocar código - localizar dónde vive algo, mapear dependencias entre backend y frontend, o dar contexto antes de una tarea grande. Invocar de forma proactiva al empezar cualquier feature nueva.
-model: fast
+model: gpt-5.6-sol-medium
 readonly: true
 ---
 

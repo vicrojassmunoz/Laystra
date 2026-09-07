@@ -1,14 +1,14 @@
 ---
-description: Expo SDK 54 constraints for the mobile app
+description: Expo SDK 57 constraints for the mobile app
 globs: mobile/**
 alwaysApply: false
 ---
 
 # Expo — mobile/
 
-Leer la documentación versionada en https://docs.expo.dev/versions/v54.0.0/ antes de escribir código.
+Leer la documentación versionada en https://docs.expo.dev/versions/v57.0.0/ antes de escribir código.
 
-Pinned a SDK 54, no al último (57), porque el Expo Go del App Store no había alcanzado SDK 57 a 2026-08-09. No subir de versión sin comprobar primero qué SDK soporta Expo Go en el App Store — `npx expo install expo@latest && npx expo install --fix` puede reintroducir el error "update Expo Go" en dispositivo.
+Pinned a **SDK 57** (Expo Go del iPhone del desarrollador, 2026-09-07). No subir de versión sin comprobar primero qué SDK soporta Expo Go en el dispositivo — un desajuste da el error "project uses SDK X / Expo Go is SDK Y".
 
 ## Patrones de pantalla (obligatorios)
 

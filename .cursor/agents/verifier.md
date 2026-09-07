@@ -1,7 +1,7 @@
 ---
 name: verifier
 description: Ejecutar verificación automatizada tras cambios de código. Usar SIEMPRE después de backend-coder o frontend-coder y antes de reviewer. Corre pytest y/o typecheck según lo que se haya tocado.
-model: fast
+model: gpt-5.6-sol-medium
 readonly: true
 ---
 
