@@ -3,6 +3,7 @@ export type ProgressPoint = {
   workout_id: number;
   best_weight: number;
   total_reps: number;
+  unit?: string | null;
 };
 
 export type ProgressResponse = {

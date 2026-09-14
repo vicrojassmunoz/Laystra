@@ -4,6 +4,18 @@ Historial de ítems que empezaron en [ROADMAP.md](ROADMAP.md) y ya están hechos
 
 ---
 
+## 2026-09-14 — Unidades de peso por ejercicio (kg / lb / PC)
+
+Cierra el ítem de roadmap **#10** (unidades; el Home hub de 2026-09-07 fue el #10 anterior, ya retirado).
+
+**Decisión `bw`:** el número logueado es kg ya resuelto al guardar (peso corporal ± lastre), no un porcentaje. `BodyMetric` se puede borrar; recalcular histórico sería inestable.
+
+**Backend:** `Exercise.unit` acepta `kg`\|`lb`\|`bw`. `PUT /exercises/{id}` (mismo body que `POST`) edita nombre/unidad/grupos; si cambia la unidad, convierte los `WorkoutSet.weight` de ese ejercicio (`kg↔lb`; `kg↔bw` sin cambio numérico; `lb↔bw` vía kg). `GET /analytics/summary` expresa `week_tonnage` y volumen muscular siempre en kg (`lb` convertido; `bw` = kg). Seed en DB vacía: Dominadas, Flexiones, Fondos, Plancha (abdomen) nacen en `bw`.
+
+**Mobile:** chip PC al crear/editar en el picker; botón Editar por ejercicio (`PUT`). Hoy/Historial/Progreso muestran `PC` en vez de `bw`. Hoy prefija ejercicios `bw` con el último peso de Perfil.
+
+---
+
 ## 2026-09-07 — Home hub (sin bottom tab bar)
 
 Cierra el ítem de roadmap **#10**. Decisión: app arranca en Home; tile grande **Hoy**; resto de pantallas empujadas en el stack nativo (back).

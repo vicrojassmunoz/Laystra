@@ -8,6 +8,7 @@ class ProgressPoint(BaseModel):
     workout_id: int
     best_weight: float
     total_reps: int
+    unit: str
 
 
 class ProgressResponse(BaseModel):

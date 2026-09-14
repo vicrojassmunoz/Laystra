@@ -2,6 +2,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.units import WeightUnit
+
 MuscleGroup = Literal[
     "Pecho",
     "Espalda",
@@ -16,7 +18,7 @@ MuscleGroup = Literal[
 
 class ExerciseBase(BaseModel):
     name: str = Field(min_length=1)
-    unit: Literal["kg", "lb"] = "kg"
+    unit: WeightUnit = "kg"
     muscle_group_secondary: list[MuscleGroup] = []
 
     @field_validator("name")

@@ -31,7 +31,7 @@ def seed_if_empty(db: Session) -> None:
     bench = _exercise("Press banca")
     squat = _exercise("Sentadilla")
     deadlift = _exercise("Peso muerto")
-    pullup = _exercise("Dominadas")
+    pullup = _exercise("Dominadas", unit="bw")
     row = _exercise("Remo con barra")
     db.add_all([bench, squat, deadlift, pullup, row])
 
@@ -40,12 +40,12 @@ def seed_if_empty(db: Session) -> None:
     db.add_all(
         [
             _exercise("Remo mancuerna unilateral"),
-            _exercise("Flexiones"),
+            _exercise("Flexiones", unit="bw"),
             _exercise("Pullover"),
             _exercise("Curl martillo"),
             _exercise("Remo con goma cerrado unilateral"),
             _exercise("Facepull"),
-            _exercise("Fondos"),
+            _exercise("Fondos", unit="bw"),
             _exercise("Press inclinado unilateral"),
             _exercise("Elevaciones laterales"),
             _exercise("Curl con goma"),
@@ -56,7 +56,7 @@ def seed_if_empty(db: Session) -> None:
             _exercise("Goblet squat"),
             _exercise("Peso muerto rumano"),
             _exercise("Gemelo de pie"),
-            _exercise("Plancha (abdomen)"),
+            _exercise("Plancha (abdomen)", unit="bw"),
             _exercise("Swings con kettlebell"),
         ]
     )

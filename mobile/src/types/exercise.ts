@@ -5,17 +5,21 @@
 // el cliente nuevo puede hablar con un backend viejo que todavía no manda
 // estos campos, y el tipo de TS por sí solo no protege de eso en tiempo de
 // ejecución.
+export type WeightUnit = "kg" | "lb" | "bw";
+
 export type Exercise = {
   id: number;
   name: string;
-  unit: "kg" | "lb";
+  unit: WeightUnit;
   muscle_group_primary?: string | null;
   muscle_group_secondary?: string[] | null;
 };
 
 export type ExerciseCreate = {
   name: string;
-  unit: "kg" | "lb";
+  unit: WeightUnit;
   muscle_group_primary: string;
   muscle_group_secondary: string[];
 };
+
+export type ExerciseUpdate = ExerciseCreate;

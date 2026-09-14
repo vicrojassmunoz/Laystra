@@ -25,3 +25,20 @@ export async function createExercise(payload: ExerciseCreate): Promise<Exercise>
 
   return response.json();
 }
+
+export async function updateExercise(
+  id: number,
+  payload: ExerciseCreate
+): Promise<Exercise> {
+  const response = await fetch(`${API_BASE_URL}/exercises/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    throw new Error(await buildErrorMessage(response));
+  }
+
+  return response.json();
+}

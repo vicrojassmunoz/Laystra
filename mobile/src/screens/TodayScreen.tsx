@@ -16,6 +16,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { fetchBodyMetrics } from "../api/bodyMetrics";
 import { fetchExercises } from "../api/exercises";
 import { fetchProgress } from "../api/progress";
 import { fetchRoutines } from "../api/routines";
@@ -24,12 +25,14 @@ import { fetchToday, TodayExercise, TodayResponse } from "../api/today";
 import ExercisePickerList from "../components/ExercisePickerList";
 import PrBadge from "../components/PrBadge";
 import SupersetBlock, { SetDraft } from "../components/SupersetBlock";
-import { Exercise } from "../types/exercise";
+import { LockedBodyweightLabel, WeightUnitChips } from "../components/WeightUnitChips";
+import { Exercise, WeightUnit } from "../types/exercise";
 import { Routine } from "../types/routine";
 import { WorkoutSetCreate } from "../types/workout";
 import { secondaryHint } from "../utils/exercisePicker";
 import { parseDecimalInput } from "../utils/number";
 import { equalizeSupersetRounds, groupBySuperset, validSupersetGroups } from "../utils/superset";
+import { convertWeight, toKg } from "../utils/weightUnit";
 
 type State =
   | { status: "loading" }
@@ -39,10 +42,11 @@ type State =
       data: TodayResponse;
       routines: Routine[];
       exercises: Exercise[];
+      latestBodyWeight: number | null;
       // Mejor peso histórico por ejercicio (exercise_id -> peso), precargado
       // solo para los ejercicios del día -- ver comentario en load() sobre
       // por qué no cubre destinos elegidos luego vía "Loguear otro entreno".
-      bestWeights: Map<number, number>;
+      bestWeights: Map<number, { weight: number; unit: string }>;
     };
 
 // SetDraft (id + weight/reps como string) viene de SupersetBlock -- es la
@@ -76,7 +80,11 @@ type SavedSummary = {
 // Da a cada fila de serie un id estable para usar como key en vez del índice
 // -- así, al quitar una fila del medio, React no reutiliza por error el
 // TextInput enfocado para otra serie distinta.
-function buildDraft(exercises: TodayExercise[], nextId: () => number): ExerciseDraft[] {
+function buildDraft(
+  exercises: TodayExercise[],
+  nextId: () => number,
+  bwKg: number | null = null
+): ExerciseDraft[] {
   const drafts = exercises.map((exercise) => ({
     exercise,
     // Pre-rellena con `target_sets` filas vacías (el número de series objetivo
@@ -268,6 +276,9 @@ export default function TodayScreen() {
   // cada focus -- si no, volver de "Historial" a "Hoy" borraría lo ya escrito (o,
   // peor, invitaría a re-guardar un entreno ya guardado como si fuera nuevo).
   const draftKeyRef = useRef<string | null>(null);
+  // Invalida /progress en vuelo: un PUT de unidad no debe dejar que un load()
+  // anterior pise bestWeights ya convertidos.
+  const progressEpochRef = useRef(0);
   // Contador compartido para los ids de fila de serie (ver comentario en
   // buildDraft). Empieza en 1 y nunca se resetea entre reconstrucciones del
   // draft -- no hace falta, solo importa que cada id sea único dentro de la
@@ -308,6 +319,19 @@ export default function TodayScreen() {
     });
   }
 
+  function replaceUpdatedExercise(exercise: Exercise) {
+    setState((prev) =>
+      prev.status === "ready"
+        ? {
+            ...prev,
+            exercises: prev.exercises.map((item) =>
+              item.id === exercise.id ? exercise : item
+            ),
+          }
+        : prev
+    );
+  }
+
   const load = useCallback(() => {
     if (!hasDataRef.current) {
       setState({ status: "loading" });
@@ -316,10 +340,16 @@ export default function TodayScreen() {
     // Se piden rutinas y ejercicios junto con /today -- no solo para el
     // formulario de hoy, sino porque "Loguear otro entreno" necesita elegir
     // entre todas las rutinas (no solo la de hoy) o ejercicios sueltos.
-    Promise.all([fetchToday(), fetchRoutines(), fetchExercises()])
-      .then(([data, routines, exercises]) => {
+    Promise.all([
+      fetchToday(),
+      fetchRoutines(),
+      fetchExercises(),
+      // Prefill de ejercicios bw; si falla, Hoy sigue usable con el peso vacío.
+      fetchBodyMetrics().catch(() => []),
+    ])
+      .then(([data, routines, exercises, bodyMetrics]) => {
         hasDataRef.current = true;
-        // La pantalla pasa a "ready" en cuanto estas tres llamadas resuelven,
+        // La pantalla pasa a "ready" en cuanto today/routines/exercises resuelven,
         // con bestWeights vacío -- el spinner ya no depende de precargar los
         // PR (ver más abajo). Antes, /today+/routines+/exercises resueltas no
         // bastaban: la pantalla seguía en "loading" hasta que TODAS las
@@ -327,25 +357,44 @@ export default function TodayScreen() {
         // de este setState) también resolvían, y fetch no tiene timeout -- una
         // sola colgada dejaba la pantalla principal cargando indefinidamente
         // aunque /today ya hubiera respondido.
-        setState({ status: "ready", data, routines, exercises, bestWeights: new Map() });
+        setState({
+          status: "ready",
+          data,
+          routines,
+          exercises,
+          latestBodyWeight: bodyMetrics[0]?.weight ?? null,
+          bestWeights: new Map(),
+        });
 
         // Precarga el mejor peso histórico de cada ejercicio del día (para el
         // badge de PR al loguear una serie) llamando a /progress una vez por
         // ejercicio, en paralelo y SIN bloquear el setState de arriba. Si
         // alguna llamada falla, no tira abajo la pantalla -- ese ejercicio
         // simplemente se queda sin badge de PR.
+        const progressEpoch = ++progressEpochRef.current;
         Promise.all(
           data.exercises.map((exercise) =>
             fetchProgress(exercise.exercise_id).catch(() => null)
           )
         ).then((progresses) => {
-          const bestWeights = new Map<number, number>();
+          if (progressEpoch !== progressEpochRef.current) {
+            return;
+          }
+          const bestWeights = new Map<number, { weight: number; unit: string }>();
           for (const progress of progresses) {
             if (!progress || progress.points.length === 0) {
               continue;
             }
-            const best = Math.max(...progress.points.map((p) => p.best_weight));
-            bestWeights.set(progress.exercise_id, best);
+            const best = progress.points.reduce((winner, point) =>
+              toKg(point.best_weight, point.unit ?? "kg") >
+              toKg(winner.best_weight, winner.unit ?? "kg")
+                ? point
+                : winner
+            );
+            bestWeights.set(progress.exercise_id, {
+              weight: best.best_weight,
+              unit: best.unit ?? "kg",
+            });
           }
 
           // Segundo setState, solo para bestWeights, aplicado sobre el estado
@@ -425,7 +474,7 @@ export default function TodayScreen() {
       routineName: state.data.routine_name,
       exercises: state.data.exercises,
     });
-    setFormRows(buildDraft(state.data.exercises, nextSetId));
+    setFormRows(buildDraft(state.data.exercises, nextSetId, state.latestBodyWeight));
     setFormError(null);
     setSubmitted(false);
     setSkipped(false);
@@ -487,6 +536,44 @@ export default function TodayScreen() {
     );
   }
 
+  function changeRowUnit(exerciseIndex: number, nextUnit: WeightUnit) {
+    const bodyKg = state.status === "ready" ? state.latestBodyWeight : null;
+    setFormRows((prev) =>
+      prev.map((row, i) => {
+        if (i !== exerciseIndex) {
+          return row;
+        }
+        const fromUnit = row.exercise.unit;
+        if (fromUnit === nextUnit) {
+          return row;
+        }
+        return {
+          ...row,
+          exercise: { ...row.exercise, unit: nextUnit },
+          sets:
+            nextUnit === "bw"
+              ? row.sets
+              : row.sets.map((set) => {
+                  if (fromUnit === "bw") {
+                    return {
+                      ...set,
+                      weight: bodyKg != null ? String(bodyKg) : "",
+                    };
+                  }
+                  const parsed = parseDecimalInput(set.weight);
+                  if (parsed === null) {
+                    return set;
+                  }
+                  return {
+                    ...set,
+                    weight: String(convertWeight(parsed, fromUnit, nextUnit)),
+                  };
+                }),
+        };
+      })
+    );
+  }
+
   // Variantes de addSet/removeSet para un bloque de super-serie: en vez de
   // tocar un solo ejercicio, añaden/quitan la misma "ronda" (posición de
   // serie) en TODOS los ejercicios del bloque a la vez -- exerciseIndices son
@@ -524,7 +611,7 @@ export default function TodayScreen() {
     const exercises = routineToExercises(routine, exerciseById);
 
     setFormTarget({ routineId: routine.id, routineName: routine.name, exercises });
-    setFormRows(buildDraft(exercises, nextSetId));
+    setFormRows(buildDraft(exercises, nextSetId, state.latestBodyWeight));
     setFormError(null);
     setSubmitted(false);
     setSkipped(false);
@@ -629,7 +716,7 @@ export default function TodayScreen() {
     const exercises = freeExercisesToDraftExercises(selected, groupByExerciseId);
 
     setFormTarget({ routineId: null, routineName: null, exercises });
-    setFormRows(buildDraft(exercises, nextSetId));
+    setFormRows(buildDraft(exercises, nextSetId, state.latestBodyWeight));
     setFormError(null);
     setSubmitted(false);
     setSkipped(false);
@@ -697,10 +784,14 @@ export default function TodayScreen() {
 
       for (let i = 0; i < row.sets.length; i++) {
         const draft = row.sets[i];
-        const weight = parseDecimalInput(draft.weight);
+        const unit = row.exercise.unit;
+        const weight =
+          unit === "bw"
+            ? (state.latestBodyWeight ?? 0)
+            : parseDecimalInput(draft.weight);
         const reps = Number(draft.reps);
 
-        if (weight === null) {
+        if (unit !== "bw" && weight === null) {
           setFormError(
             `Peso inválido en "${row.exercise.exercise_name}", serie ${i + 1}.`
           );
@@ -718,9 +809,10 @@ export default function TodayScreen() {
 
         sets.push({
           exercise_id: row.exercise.exercise_id,
-          weight,
+          weight: weight ?? 0,
           reps,
           order: order++,
+          unit,
           superset_group: group != null && validGroups.has(group) ? group : null,
         });
       }
@@ -851,30 +943,41 @@ export default function TodayScreen() {
                         </Text>
                       )}
 
+                      <WeightUnitChips
+                        value={row.exercise.unit}
+                        onChange={(unit) => changeRowUnit(exerciseIndex, unit)}
+                        disabled={submitted || saving}
+                      />
+
                       {row.sets.map((setDraft, setIndex) => {
-                        // Badge de PR: compara solo contra el mejor peso
-                        // histórico precargado en load() (bestWeights), no
-                        // contra otras series sin guardar de esta misma
-                        // sesión -- suficiente para v1, ver comentario junto
-                        // a bestWeights en el tipo State.
-                        const typedWeight = parseDecimalInput(setDraft.weight);
-                        const bestWeight = state.bestWeights.get(row.exercise.exercise_id);
+                        const typedWeight =
+                          row.exercise.unit === "bw"
+                            ? state.latestBodyWeight
+                            : parseDecimalInput(setDraft.weight);
+                        const best = state.bestWeights.get(row.exercise.exercise_id);
                         const isPr =
-                          typedWeight !== null && bestWeight !== undefined && typedWeight > bestWeight;
+                          typedWeight !== null &&
+                          best !== undefined &&
+                          toKg(typedWeight, row.exercise.unit) >
+                            toKg(best.weight, best.unit);
 
                         return (
                           <View key={setDraft.id} style={styles.setRow}>
                             <Text style={styles.setLabel}>Serie {setIndex + 1}</Text>
-                            <TextInput
-                              style={styles.weightInput}
-                              placeholder={row.exercise.unit}
-                              keyboardType="decimal-pad"
-                              value={setDraft.weight}
-                              editable={!submitted && !saving}
-                              onChangeText={(text) =>
-                                updateSet(exerciseIndex, setIndex, { weight: text })
-                              }
-                            />
+                            {row.exercise.unit === "bw" ? (
+                              <LockedBodyweightLabel bodyWeightKg={state.latestBodyWeight} />
+                            ) : (
+                              <TextInput
+                                style={styles.weightInput}
+                                placeholder={row.exercise.unit}
+                                keyboardType="decimal-pad"
+                                value={setDraft.weight}
+                                editable={!submitted && !saving}
+                                onChangeText={(text) =>
+                                  updateSet(exerciseIndex, setIndex, { weight: text })
+                                }
+                              />
+                            )}
                             {isPr && <PrBadge />}
                             <TextInput
                               style={styles.repsInput}
@@ -925,6 +1028,10 @@ export default function TodayScreen() {
                     key={`group-${entry.groupId}`}
                     members={members}
                     disabled={submitted || saving}
+                    latestBodyWeight={state.latestBodyWeight}
+                    onChangeUnit={(memberIndex, unit) =>
+                      changeRowUnit(indices[memberIndex], unit)
+                    }
                     onChangeSet={(memberIndex, roundIndex, patch) =>
                       updateSet(indices[memberIndex], roundIndex, patch)
                     }
@@ -1054,6 +1161,7 @@ export default function TodayScreen() {
                         query={freeExerciseQuery}
                         onQueryChange={setFreeExerciseQuery}
                         onCreated={appendCreatedExercise}
+                        onUpdated={replaceUpdatedExercise}
                         renderItem={(exercise) => {
                           const selected = freeSelection.includes(exercise.id);
                           // Solo indicativo (no afecta la selección): si este
@@ -1120,6 +1228,7 @@ export default function TodayScreen() {
                         query={freeSupersetQuery}
                         onQueryChange={setFreeSupersetQuery}
                         onCreated={appendCreatedExercise}
+                        onUpdated={replaceUpdatedExercise}
                         renderItem={(exercise) => {
                           const selected = freeSupersetSelection.includes(exercise.id);
                           // Un ejercicio que ya pertenece a un bloque anterior

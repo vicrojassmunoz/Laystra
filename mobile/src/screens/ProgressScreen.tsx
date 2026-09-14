@@ -19,6 +19,7 @@ import ExercisePickerList from "../components/ExercisePickerList";
 import { Exercise } from "../types/exercise";
 import { ProgressResponse } from "../types/progress";
 import { secondaryHint } from "../utils/exercisePicker";
+import { formatWeightUnit } from "../utils/weightUnit";
 
 type ExercisesState =
   | { status: "loading" }
@@ -40,6 +41,7 @@ export default function ProgressScreen() {
   const [progressState, setProgressState] = useState<ProgressState>({ status: "idle" });
   const [pickerVisible, setPickerVisible] = useState(false);
   const [pickerQuery, setPickerQuery] = useState("");
+  const progressRequestRef = useRef(0);
 
   const loadExercises = useCallback(() => {
     if (!hasExercisesRef.current) {
@@ -59,16 +61,23 @@ export default function ProgressScreen() {
   }, []);
 
   const loadProgress = useCallback((exerciseId: number) => {
+    const requestId = ++progressRequestRef.current;
     setProgressState({ status: "loading" });
     fetchProgress(exerciseId)
       .then((data) => {
-        // Descarta la respuesta si mientras tanto se seleccionó otro ejercicio
-        // (dos selecciones seguidas o una coincidiendo con el refetch de foco).
+        // Descarta respuestas viejas: otro ejercicio, otro refetch de foco, o
+        // un PUT de unidad que disparó un loadProgress más nuevo.
+        if (requestId !== progressRequestRef.current) {
+          return;
+        }
         if (selectedExerciseRef.current?.id === data.exercise_id) {
           setProgressState({ status: "ready", data });
         }
       })
       .catch((error: Error) => {
+        if (requestId !== progressRequestRef.current) {
+          return;
+        }
         if (selectedExerciseRef.current?.id === exerciseId) {
           setProgressState({ status: "error", message: error.message });
         }
@@ -98,6 +107,26 @@ export default function ProgressScreen() {
   function openPicker() {
     setPickerQuery("");
     setPickerVisible(true);
+  }
+
+  function replaceUpdatedExercise(exercise: Exercise) {
+    setExercisesState((prev) =>
+      prev.status === "ready"
+        ? {
+            ...prev,
+            exercises: prev.exercises.map((item) =>
+              item.id === exercise.id ? exercise : item
+            ),
+          }
+        : prev
+    );
+    if (selectedExerciseRef.current?.id === exercise.id) {
+      selectedExerciseRef.current = exercise;
+      setSelectedExercise(exercise);
+      // El PUT puede haber convertido WorkoutSet.weight; los puntos cacheados
+      // seguirían en la unidad vieja junto a la etiqueta nueva.
+      loadProgress(exercise.id);
+    }
   }
 
   return (
@@ -166,7 +195,7 @@ export default function ProgressScreen() {
                     <Text style={styles.date}>{point.date}</Text>
                     <Text style={styles.pointLine}>
                       Mejor peso: {point.best_weight}
-                      {selectedExercise.unit}
+                      {formatWeightUnit(point.unit ?? selectedExercise.unit)}
                     </Text>
                     <Text style={styles.pointLine}>Reps totales: {point.total_reps}</Text>
                   </View>
@@ -207,6 +236,7 @@ export default function ProgressScreen() {
                       return { ...prev, exercises: [...prev.exercises, exercise] };
                     });
                   }}
+                  onUpdated={replaceUpdatedExercise}
                   renderItem={(exercise) => {
                     const hint = secondaryHint(exercise);
                     return (

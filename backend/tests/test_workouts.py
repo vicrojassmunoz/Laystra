@@ -282,6 +282,7 @@ def test_progress_reflects_logged_workout(client: TestClient) -> None:
     points = response.json()["points"]
     assert len(points) == 1
     assert points[0]["best_weight"] == 60
+    assert points[0]["unit"] == client.get("/exercises").json()[0]["unit"]
 
 
 def test_export_starts_with_bom_and_exact_header(client: TestClient) -> None:

@@ -1,5 +1,6 @@
 from datetime import date, timedelta
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app import models
@@ -10,6 +11,26 @@ from tests.conftest import TestingSessionLocal
 def _exercise_id_by_name(client: TestClient, name: str) -> int:
     exercises = client.get("/exercises").json()
     return next(e["id"] for e in exercises if e["name"] == name)
+
+
+def _create_exercise(
+    client: TestClient,
+    *,
+    name: str,
+    unit: str,
+    muscle_group_primary: str,
+) -> int:
+    response = client.post(
+        "/exercises",
+        json={
+            "name": name,
+            "unit": unit,
+            "muscle_group_primary": muscle_group_primary,
+            "muscle_group_secondary": [],
+        },
+    )
+    assert response.status_code == 201
+    return response.json()["id"]
 
 
 def test_analytics_summary_empty_when_no_workouts(client: TestClient) -> None:
@@ -182,3 +203,104 @@ def test_analytics_summary_future_workout_is_ignored(client: TestClient) -> None
     assert tonnage_by_group["Pecho"] == 0.0
     gaps_by_group = {g["muscle_group"]: g["days_since_trained"] for g in body["days_since_trained"]}
     assert gaps_by_group["Pecho"] is None
+
+
+def test_analytics_summary_converts_lb_tonnage_to_kg(client: TestClient) -> None:
+    exercise_id = _create_exercise(
+        client,
+        name="Press libras",
+        unit="lb",
+        muscle_group_primary="Pecho",
+    )
+    client.post(
+        "/workouts",
+        json={
+            "date": date.today().isoformat(),
+            "sets": [{"exercise_id": exercise_id, "weight": 100, "reps": 5, "order": 0}],
+        },
+    )
+
+    body = client.get("/analytics/summary").json()
+
+    assert body["week_tonnage"] == pytest.approx(226.796185)
+
+
+def test_analytics_summary_mixes_units_only_after_conversion_to_kg(
+    client: TestClient,
+) -> None:
+    press_id = _create_exercise(
+        client,
+        name="Press kilogramos",
+        unit="kg",
+        muscle_group_primary="Pecho",
+    )
+    curl_id = _create_exercise(
+        client,
+        name="Curl libras",
+        unit="lb",
+        muscle_group_primary="Bíceps",
+    )
+    client.post(
+        "/workouts",
+        json={
+            "date": date.today().isoformat(),
+            "sets": [
+                {"exercise_id": press_id, "weight": 100, "reps": 1, "order": 0},
+                {"exercise_id": curl_id, "weight": 100, "reps": 1, "order": 1},
+            ],
+        },
+    )
+
+    body = client.get("/analytics/summary").json()
+    tonnage_by_group = {item["muscle_group"]: item["tonnage"] for item in body["volume_by_muscle"]}
+
+    assert body["week_tonnage"] == pytest.approx(145.359237)
+    assert tonnage_by_group["Bíceps"] == pytest.approx(45.359237)
+
+
+def test_analytics_summary_treats_bodyweight_as_resolved_kg(client: TestClient) -> None:
+    exercise_id = _create_exercise(
+        client,
+        name="Dominada lastrada",
+        unit="bw",
+        muscle_group_primary="Espalda",
+    )
+    client.post(
+        "/workouts",
+        json={
+            "date": date.today().isoformat(),
+            "sets": [{"exercise_id": exercise_id, "weight": 80, "reps": 10, "order": 0}],
+        },
+    )
+
+    body = client.get("/analytics/summary").json()
+
+    assert body["week_tonnage"] == 800.0
+
+
+def test_analytics_summary_uses_set_unit_not_exercise_default(client: TestClient) -> None:
+    exercise_id = _create_exercise(
+        client,
+        name="Remo un día en libras",
+        unit="kg",
+        muscle_group_primary="Espalda",
+    )
+    client.post(
+        "/workouts",
+        json={
+            "date": date.today().isoformat(),
+            "sets": [
+                {
+                    "exercise_id": exercise_id,
+                    "weight": 100,
+                    "reps": 1,
+                    "order": 0,
+                    "unit": "lb",
+                }
+            ],
+        },
+    )
+
+    body = client.get("/analytics/summary").json()
+
+    assert body["week_tonnage"] == pytest.approx(45.359237)

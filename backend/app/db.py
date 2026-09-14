@@ -32,6 +32,7 @@ def init_db() -> None:
     Base.metadata.create_all(bind=engine)
     _add_missing_columns()
     _backfill_muscle_groups()
+    _backfill_workout_set_units()
 
 
 # Ligero mecanismo de migración ad-hoc: este proyecto no usa Alembic, y
@@ -45,7 +46,7 @@ def init_db() -> None:
 # en una DB antigua que aún no la tiene.
 _COLUMNS_TO_ADD: dict[str, list[tuple[str, str]]] = {
     "routine_exercises": [("superset_group", "INTEGER")],
-    "workout_sets": [("superset_group", "INTEGER")],
+    "workout_sets": [("superset_group", "INTEGER"), ("unit", "TEXT")],
     "exercises": [("muscle_group_primary", "TEXT")],
 }
 
@@ -114,6 +115,34 @@ def _backfill_muscle_groups(target_engine: Engine | None = None) -> None:
                     ),
                     {"exercise_id": exercise_id, "muscle_group": muscle},
                 )
+        conn.commit()
+
+
+def _backfill_workout_set_units(target_engine: Engine | None = None) -> None:
+    """Copia Exercise.unit a WorkoutSet.unit para filas anteriores a la columna.
+    Idempotente: solo toca unit IS NULL."""
+    with (target_engine or engine).connect() as conn:
+        ws_columns = {row[1] for row in conn.execute(text("PRAGMA table_info(workout_sets)"))}
+        if "unit" not in ws_columns or "exercise_id" not in ws_columns:
+            return
+        tables = {
+            row[0]
+            for row in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'"))
+        }
+        if "exercises" not in tables:
+            return
+        conn.execute(
+            text(
+                """
+                UPDATE workout_sets
+                SET unit = COALESCE(
+                    (SELECT unit FROM exercises WHERE exercises.id = workout_sets.exercise_id),
+                    'kg'
+                )
+                WHERE unit IS NULL
+                """
+            )
+        )
         conn.commit()
 
 

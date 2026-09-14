@@ -7,6 +7,7 @@ from app import models
 from app.db import get_db
 from app.muscle_taxonomy import MUSCLE_GROUPS
 from app.schemas.analytics import AnalyticsSummary, MuscleGroupGap, MuscleGroupVolume
+from app.units import to_kg
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 
@@ -35,7 +36,10 @@ def get_analytics_summary(db: Session = Depends(get_db)) -> AnalyticsSummary:
         for workout_set in workout.sets:
             exercise = exercises_by_id.get(workout_set.exercise_id)
             group = exercise.muscle_group_primary if exercise is not None else None
-            tonnage = workout_set.weight * workout_set.reps
+            unit = workout_set.unit or (exercise.unit if exercise is not None else "kg")
+            # El tonelaje semanal y por grupo siempre se expresa en kg:
+            # lb se convierte; kg y bw (kg resueltos al loguear) se usan tal cual.
+            tonnage = to_kg(workout_set.weight, unit) * workout_set.reps
 
             if in_week:
                 week_tonnage += tonnage

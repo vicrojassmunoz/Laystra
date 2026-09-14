@@ -9,8 +9,8 @@ import {
   View,
 } from "react-native";
 
-import { createExercise } from "../api/exercises";
-import { Exercise } from "../types/exercise";
+import { createExercise, updateExercise } from "../api/exercises";
+import { Exercise, WeightUnit } from "../types/exercise";
 import { MUSCLE_GROUP_ORDER, filterExercises, groupExercisesByMuscle } from "../utils/exercisePicker";
 
 type Props = {
@@ -26,14 +26,24 @@ type Props = {
   // Tras un POST /exercises 201. El padre mete el ejercicio en su lista para
   // que el otro picker de la misma pantalla (si hay dos) también lo vea.
   onCreated?: (exercise: Exercise) => void;
+  onUpdated?: (exercise: Exercise) => void;
 };
 
 function emptyCreateForm() {
   return {
     name: "",
-    unit: "kg" as "kg" | "lb",
+    unit: "kg" as WeightUnit,
     primary: "" as string,
     secondary: [] as string[],
+  };
+}
+
+function formFromExercise(exercise: Exercise) {
+  return {
+    name: exercise.name,
+    unit: exercise.unit,
+    primary: exercise.muscle_group_primary ?? "",
+    secondary: exercise.muscle_group_secondary ?? [],
   };
 }
 
@@ -46,8 +56,10 @@ export default function ExercisePickerList({
   onQueryChange,
   renderItem,
   onCreated,
+  onUpdated,
 }: Props) {
   const [creating, setCreating] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState(emptyCreateForm);
   const [saving, setSaving] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
@@ -64,7 +76,14 @@ export default function ExercisePickerList({
     }));
   }
 
-  function handleCreate() {
+  function cancelForm() {
+    setCreating(false);
+    setEditingId(null);
+    setCreateError(null);
+    setForm(emptyCreateForm());
+  }
+
+  function handleSave() {
     const name = form.name.trim();
     if (!name) {
       setCreateError("Ponle un nombre al ejercicio.");
@@ -77,17 +96,26 @@ export default function ExercisePickerList({
 
     setSaving(true);
     setCreateError(null);
-    createExercise({
+    const payload = {
       name,
       unit: form.unit,
       muscle_group_primary: form.primary,
       muscle_group_secondary: form.secondary.filter((g) => g !== form.primary),
-    })
+    };
+    const request =
+      editingId === null ? createExercise(payload) : updateExercise(editingId, payload);
+
+    request
       .then((exercise) => {
         setCreating(false);
+        setEditingId(null);
         setForm(emptyCreateForm());
         onQueryChange("");
-        onCreated?.(exercise);
+        if (editingId === null) {
+          onCreated?.(exercise);
+        } else {
+          onUpdated?.(exercise);
+        }
       })
       .catch((error: Error) => {
         setCreateError(error.message);
@@ -108,12 +136,13 @@ export default function ExercisePickerList({
         autoCorrect={false}
       />
 
-      {!creating && (
+      {!creating && editingId === null && (
         <TouchableOpacity
           style={styles.newButton}
           onPress={() => {
             setCreateError(null);
             setForm(emptyCreateForm());
+            setEditingId(null);
             setCreating(true);
           }}
         >
@@ -122,7 +151,7 @@ export default function ExercisePickerList({
       )}
 
       <ScrollView style={styles.list} keyboardShouldPersistTaps="handled">
-        {creating && (
+        {(creating || editingId !== null) && (
           <View style={styles.createForm}>
             <TextInput
               style={styles.searchInput}
@@ -134,20 +163,24 @@ export default function ExercisePickerList({
             />
 
             <View style={styles.unitRow}>
-              <TouchableOpacity
-                style={[styles.chip, form.unit === "kg" && styles.chipSelected]}
-                onPress={() => setForm((prev) => ({ ...prev, unit: "kg" }))}
-                disabled={saving}
-              >
-                <Text style={form.unit === "kg" ? styles.chipTextSelected : styles.chipText}>kg</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.chip, form.unit === "lb" && styles.chipSelected]}
-                onPress={() => setForm((prev) => ({ ...prev, unit: "lb" }))}
-                disabled={saving}
-              >
-                <Text style={form.unit === "lb" ? styles.chipTextSelected : styles.chipText}>lb</Text>
-              </TouchableOpacity>
+              {(
+                [
+                  ["kg", "kg"],
+                  ["lb", "lb"],
+                  ["bw", "PC"],
+                ] as const
+              ).map(([value, label]) => (
+                <TouchableOpacity
+                  key={value}
+                  style={[styles.chip, form.unit === value && styles.chipSelected]}
+                  onPress={() => setForm((prev) => ({ ...prev, unit: value }))}
+                  disabled={saving}
+                >
+                  <Text style={form.unit === value ? styles.chipTextSelected : styles.chipText}>
+                    {label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
             </View>
 
             <Text style={styles.fieldLabel}>Grupo principal</Text>
@@ -198,15 +231,11 @@ export default function ExercisePickerList({
               ) : (
                 <>
                   <TouchableOpacity
-                    onPress={() => {
-                      setCreating(false);
-                      setCreateError(null);
-                      setForm(emptyCreateForm());
-                    }}
+                    onPress={cancelForm}
                   >
                     <Text style={styles.cancelCreate}>Cancelar</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity onPress={handleCreate}>
+                  <TouchableOpacity onPress={handleSave}>
                     <Text style={styles.saveCreate}>Guardar</Text>
                   </TouchableOpacity>
                 </>
@@ -215,13 +244,29 @@ export default function ExercisePickerList({
           </View>
         )}
 
-        {groups.length === 0 && !creating && <Text style={styles.emptyText}>Sin resultados.</Text>}
+        {groups.length === 0 && !creating && editingId === null && (
+          <Text style={styles.emptyText}>Sin resultados.</Text>
+        )}
 
         {groups.map((group) => (
           <View key={group.label}>
             <Text style={styles.sectionHeader}>{group.label}</Text>
             {group.exercises.map((exercise) => (
-              <View key={exercise.id}>{renderItem(exercise)}</View>
+              <View key={exercise.id} style={styles.exerciseRow}>
+                <View style={styles.exerciseSelection}>{renderItem(exercise)}</View>
+                <TouchableOpacity
+                  style={styles.editButton}
+                  hitSlop={{ top: 12, right: 12, bottom: 12, left: 12 }}
+                  onPress={() => {
+                    setCreating(false);
+                    setCreateError(null);
+                    setForm(formFromExercise(exercise));
+                    setEditingId(exercise.id);
+                  }}
+                >
+                  <Text style={styles.editButtonText}>Editar</Text>
+                </TouchableOpacity>
+              </View>
             ))}
           </View>
         ))}
@@ -256,6 +301,22 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     marginTop: 10,
     marginBottom: 2,
+  },
+  exerciseRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  exerciseSelection: {
+    flex: 1,
+  },
+  editButton: {
+    paddingHorizontal: 8,
+    paddingVertical: 10,
+  },
+  editButtonText: {
+    fontSize: 13,
+    color: "#3b5bdb",
+    fontWeight: "600",
   },
   emptyText: {
     fontSize: 15,

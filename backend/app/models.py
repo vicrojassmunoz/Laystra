@@ -112,6 +112,11 @@ class WorkoutSet(Base):
     weight: Mapped[float]
     reps: Mapped[int]
     order: Mapped[int]
+    # Instantánea de la unidad al loguear (kg/lb/bw). Independiente de
+    # Exercise.unit, que solo es el default para sesiones nuevas. Nullable en
+    # DB por el ALTER TABLE sobre filas ya existentes; se backfillea desde el
+    # ejercicio. Ver app/db.py.
+    unit: Mapped[str | None] = mapped_column(nullable=True, default=None)
     # Agrupa sets en un bloque de super-serie dentro de este workout ya logueado
     # (real o libre). Independiente de RoutineExercise.superset_group: un workout
     # libre no tiene RoutineExercise detrás, así que lo realmente ejecutado se

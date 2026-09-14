@@ -6,13 +6,25 @@ from sqlalchemy.orm import Session, selectinload
 
 from app import models
 from app.db import get_db
-from app.schemas.workout import Workout, WorkoutCreate
+from app.schemas.workout import Workout, WorkoutCreate, WorkoutSetCreate
 from app.services.superset import validate_superset_groups
 
 router = APIRouter(prefix="/workouts", tags=["workouts"])
 
 _EXPORT_HEADER = ["date", "exercise", "weight", "reps", "set_order", "unit", "superset_group"]
 _EXPORT_FILENAME = "laystra-workouts.csv"
+
+
+def _sets_from_payload(items: list[WorkoutSetCreate], db: Session) -> list[models.WorkoutSet]:
+    sets: list[models.WorkoutSet] = []
+    for item in items:
+        exercise = db.get(models.Exercise, item.exercise_id)
+        if exercise is None:
+            raise HTTPException(status_code=404, detail=f"Exercise {item.exercise_id} not found")
+        data = item.model_dump()
+        data["unit"] = item.unit or exercise.unit
+        sets.append(models.WorkoutSet(**data))
+    return sets
 
 
 @router.get("", response_model=list[Workout])
@@ -24,15 +36,12 @@ def list_workouts(db: Session = Depends(get_db)) -> list[models.Workout]:
 def create_workout(payload: WorkoutCreate, db: Session = Depends(get_db)) -> models.Workout:
     if payload.routine_id is not None and db.get(models.Routine, payload.routine_id) is None:
         raise HTTPException(status_code=404, detail="Routine not found")
-    for item in payload.sets:
-        if db.get(models.Exercise, item.exercise_id) is None:
-            raise HTTPException(status_code=404, detail=f"Exercise {item.exercise_id} not found")
     validate_superset_groups(payload.sets)
 
     workout = models.Workout(
         date=payload.date,
         routine_id=payload.routine_id,
-        sets=[models.WorkoutSet(**item.model_dump()) for item in payload.sets],
+        sets=_sets_from_payload(payload.sets, db),
     )
     db.add(workout)
     db.commit()
@@ -59,7 +68,7 @@ def export_workouts(db: Session = Depends(get_db)) -> Response:
         for workout_set in workout.sets:
             exercise = exercises_by_id.get(workout_set.exercise_id)
             name = exercise.name if exercise is not None else f"Ejercicio #{workout_set.exercise_id}"
-            unit = exercise.unit if exercise is not None else "kg"
+            unit = workout_set.unit or (exercise.unit if exercise is not None else "kg")
             superset = "" if workout_set.superset_group is None else str(workout_set.superset_group)
             writer.writerow(
                 [
@@ -99,14 +108,11 @@ def update_workout(
 
     if payload.routine_id is not None and db.get(models.Routine, payload.routine_id) is None:
         raise HTTPException(status_code=404, detail="Routine not found")
-    for item in payload.sets:
-        if db.get(models.Exercise, item.exercise_id) is None:
-            raise HTTPException(status_code=404, detail=f"Exercise {item.exercise_id} not found")
     validate_superset_groups(payload.sets)
 
     workout.date = payload.date
     workout.routine_id = payload.routine_id
-    workout.sets = [models.WorkoutSet(**item.model_dump()) for item in payload.sets]
+    workout.sets = _sets_from_payload(payload.sets, db)
     db.commit()
     db.refresh(workout)
     return workout

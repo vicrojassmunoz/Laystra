@@ -23,12 +23,14 @@ import { fetchRoutines } from "../api/routines";
 import { deleteWorkout, exportWorkoutsCsv, fetchWorkouts, updateWorkout } from "../api/workouts";
 import ExercisePickerList from "../components/ExercisePickerList";
 import SupersetBlock, { SetDraft } from "../components/SupersetBlock";
-import { Exercise } from "../types/exercise";
+import { LockedBodyweightLabel, WeightUnitChips, formatSetLine } from "../components/WeightUnitChips";
+import { Exercise, WeightUnit } from "../types/exercise";
 import { Routine } from "../types/routine";
 import { Workout, WorkoutSet, WorkoutSetCreate } from "../types/workout";
 import { parseDecimalInput } from "../utils/number";
 import { secondaryHint } from "../utils/exercisePicker";
 import { groupBySuperset, validSupersetGroups } from "../utils/superset";
+import { convertWeight } from "../utils/weightUnit";
 
 type State =
   | { status: "loading" }
@@ -53,8 +55,8 @@ function groupSetsByExercise(
   for (const set of sets) {
     const exercise = exerciseById.get(set.exercise_id);
     const name = exercise?.name ?? `Ejercicio #${set.exercise_id}`;
-    const unit = exercise?.unit ?? "";
-    const entry = `${set.weight}${unit} x ${set.reps}`;
+    const unit = set.unit ?? exercise?.unit ?? "kg";
+    const entry = formatSetLine(set.weight, unit, set.reps);
 
     const last = groups[groups.length - 1];
     if (last && last.exerciseId === set.exercise_id) {
@@ -77,6 +79,7 @@ type EditSetDraft = SetDraft;
 type EditExerciseGroup = {
   exerciseId: number;
   supersetGroup: number | null;
+  unit: WeightUnit;
   sets: EditSetDraft[];
 };
 
@@ -89,7 +92,11 @@ type EditExerciseGroup = {
 // cada grupo también recuerda su superset_group, para poder re-agruparlos
 // visualmente en bloques de rondas intercaladas (ver groupBySuperset en el
 // render).
-function buildEditGroups(sets: WorkoutSet[], nextId: () => number): EditExerciseGroup[] {
+function buildEditGroups(
+  sets: WorkoutSet[],
+  nextId: () => number,
+  exerciseById: Map<number, Exercise>
+): EditExerciseGroup[] {
   const groups: EditExerciseGroup[] = [];
 
   for (const set of sets) {
@@ -98,12 +105,18 @@ function buildEditGroups(sets: WorkoutSet[], nextId: () => number): EditExercise
       weight: String(set.weight),
       reps: String(set.reps),
     };
+    const unit = (set.unit ?? exerciseById.get(set.exercise_id)?.unit ?? "kg") as WeightUnit;
 
     const last = groups[groups.length - 1];
     if (last && last.exerciseId === set.exercise_id && last.supersetGroup === set.superset_group) {
       last.sets.push(draft);
     } else {
-      groups.push({ exerciseId: set.exercise_id, supersetGroup: set.superset_group, sets: [draft] });
+      groups.push({
+        exerciseId: set.exercise_id,
+        supersetGroup: set.superset_group,
+        unit,
+        sets: [draft],
+      });
     }
   }
 
@@ -164,8 +177,12 @@ export default function HistorialScreen() {
   );
 
   function startEdit(workout: Workout) {
+    const exerciseById =
+      state.status === "ready"
+        ? new Map(state.exercises.map((exercise) => [exercise.id, exercise]))
+        : new Map<number, Exercise>();
     setEditingWorkoutId(workout.id);
-    setEditRows(buildEditGroups(workout.sets, nextEditId));
+    setEditRows(buildEditGroups(workout.sets, nextEditId, exerciseById));
     setEditError(null);
     setAddExercisePickerVisible(false);
   }
@@ -189,6 +206,29 @@ export default function HistorialScreen() {
     });
   }
 
+  function replaceUpdatedExercise(exercise: Exercise) {
+    setState((prev) =>
+      prev.status === "ready"
+        ? {
+            ...prev,
+            exercises: prev.exercises.map((item) =>
+              item.id === exercise.id ? exercise : item
+            ),
+          }
+        : prev
+    );
+
+    fetchWorkouts()
+      .then((workouts) => {
+        setState((prev) =>
+          prev.status === "ready" ? { ...prev, workouts } : prev
+        );
+      })
+      .catch((error: Error) => {
+        setActionError(error.message);
+      });
+  }
+
   function addExerciseToEdit(exercise: Exercise) {
     appendCreatedExercise(exercise);
     setEditRows((prev) => [
@@ -196,6 +236,7 @@ export default function HistorialScreen() {
       {
         exerciseId: exercise.id,
         supersetGroup: null,
+        unit: exercise.unit,
         sets: [{ id: nextEditId(), weight: "", reps: "" }],
       },
     ]);
@@ -300,6 +341,37 @@ export default function HistorialScreen() {
     );
   }
 
+  function changeEditUnit(groupIndex: number, nextUnit: WeightUnit) {
+    setEditRows((prev) =>
+      prev.map((group, i) => {
+        if (i !== groupIndex) {
+          return group;
+        }
+        const fromUnit = group.unit;
+        if (fromUnit === nextUnit) {
+          return group;
+        }
+        return {
+          ...group,
+          unit: nextUnit,
+          sets:
+            nextUnit === "bw" || fromUnit === "bw"
+              ? group.sets
+              : group.sets.map((set) => {
+                  const parsed = parseDecimalInput(set.weight);
+                  if (parsed === null) {
+                    return set;
+                  }
+                  return {
+                    ...set,
+                    weight: String(convertWeight(parsed, fromUnit, nextUnit)),
+                  };
+                }),
+        };
+      })
+    );
+  }
+
   function removeEditSet(groupIndex: number, setIndex: number) {
     setEditRows((prev) =>
       prev.map((group, i) =>
@@ -361,10 +433,11 @@ export default function HistorialScreen() {
 
       for (let i = 0; i < group.sets.length; i++) {
         const draft = group.sets[i];
-        const weight = parseDecimalInput(draft.weight);
+        const parsed = parseDecimalInput(draft.weight);
+        const weight = group.unit === "bw" ? (parsed ?? 0) : parsed;
         const reps = Number(draft.reps);
 
-        if (weight === null) {
+        if (group.unit !== "bw" && weight === null) {
           setEditError(`Peso inválido en "${exerciseName}", serie ${i + 1}.`);
           return;
         }
@@ -378,9 +451,10 @@ export default function HistorialScreen() {
 
         sets.push({
           exercise_id: group.exerciseId,
-          weight,
+          weight: weight ?? 0,
           reps,
           order: order++,
+          unit: group.unit,
           superset_group:
             supersetGroup != null && validGroups.has(supersetGroup) ? supersetGroup : null,
         });
@@ -487,20 +561,31 @@ export default function HistorialScreen() {
                           // sea única.
                           <View key={`${group.exerciseId}-${groupIndex}`} style={styles.editGroup}>
                             <Text style={styles.exerciseName}>{name}</Text>
+                            <WeightUnitChips
+                              value={group.unit}
+                              onChange={(unit) => changeEditUnit(groupIndex, unit)}
+                              disabled={editSaving}
+                            />
 
                             {group.sets.map((setDraft, setIndex) => (
                               <View key={setDraft.id} style={styles.setRow}>
                                 <Text style={styles.setLabel}>Serie {setIndex + 1}</Text>
-                                <TextInput
-                                  style={styles.weightInput}
-                                  placeholder={exercise?.unit}
-                                  keyboardType="decimal-pad"
-                                  value={setDraft.weight}
-                                  editable={!editSaving}
-                                  onChangeText={(text) =>
-                                    updateEditSet(groupIndex, setIndex, { weight: text })
-                                  }
-                                />
+                                {group.unit === "bw" ? (
+                                  <LockedBodyweightLabel
+                                    bodyWeightKg={parseDecimalInput(setDraft.weight)}
+                                  />
+                                ) : (
+                                  <TextInput
+                                    style={styles.weightInput}
+                                    placeholder={group.unit}
+                                    keyboardType="decimal-pad"
+                                    value={setDraft.weight}
+                                    editable={!editSaving}
+                                    onChangeText={(text) =>
+                                      updateEditSet(groupIndex, setIndex, { weight: text })
+                                    }
+                                  />
+                                )}
                                 <TextInput
                                   style={styles.repsInput}
                                   placeholder="reps"
@@ -538,20 +623,19 @@ export default function HistorialScreen() {
                           key: `${it.group.exerciseId}-${it.index}`,
                           exerciseId: it.group.exerciseId,
                           name: exercise?.name ?? `Ejercicio #${it.group.exerciseId}`,
-                          unit: exercise?.unit ?? "",
+                          unit: it.group.unit,
                           sets: it.group.sets,
                         };
                       });
 
                       return (
-                        // Sin bestWeights: HistorialScreen no tiene concepto
-                        // de PR (ver comentario en SupersetBlockMember), así
-                        // que la prop queda undefined y el badge nunca se pinta
-                        // aquí.
                         <SupersetBlock
                           key={`group-${entry.groupId}`}
                           members={members}
                           disabled={editSaving}
+                          onChangeUnit={(memberIndex, unit) =>
+                            changeEditUnit(indices[memberIndex], unit)
+                          }
                           onChangeSet={(memberIndex, roundIndex, patch) =>
                             updateEditSet(indices[memberIndex], roundIndex, patch)
                           }
@@ -629,6 +713,7 @@ export default function HistorialScreen() {
                   query={addExerciseQuery}
                   onQueryChange={setAddExerciseQuery}
                   onCreated={appendCreatedExercise}
+                  onUpdated={replaceUpdatedExercise}
                   renderItem={(exercise) => {
                     const hint = secondaryHint(exercise);
                     return (

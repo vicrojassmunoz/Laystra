@@ -1,7 +1,10 @@
 import { Button, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
+import { LockedBodyweightLabel, WeightUnitChips } from "./WeightUnitChips";
 import PrBadge from "./PrBadge";
 import { parseDecimalInput } from "../utils/number";
+import { toKg } from "../utils/weightUnit";
+import { WeightUnit } from "../types/exercise";
 
 // Forma compartida de una fila de serie editable -- misma forma que
 // `SetDraft` en TodayScreen y `EditSetDraft` en HistorialScreen (que ahora
@@ -22,7 +25,7 @@ export type SupersetBlockMember = {
   // a mano al construir `members`, así que no cuesta nada exponerlo.
   exerciseId: number;
   name: string;
-  unit: string;
+  unit: WeightUnit;
   sets: SetDraft[];
 };
 
@@ -32,11 +35,9 @@ type Props = {
   onChangeSet: (memberIndex: number, roundIndex: number, patch: Partial<SetDraft>) => void;
   onAddRound: () => void;
   onRemoveRound: (roundIndex: number) => void;
-  // Mejor peso histórico por ejercicio (ver bestWeights en TodayScreen),
-  // opcional: TodayScreen lo pasa para pintar el badge de PR dentro de un
-  // bloque de super-serie; HistorialScreen no tiene concepto de PR y
-  // simplemente no lo pasa (undefined), con lo que nunca se pinta el badge.
-  bestWeights?: Map<number, number>;
+  onChangeUnit?: (memberIndex: number, unit: WeightUnit) => void;
+  latestBodyWeight?: number | null;
+  bestWeights?: Map<number, { weight: number; unit: string }>;
   // Tras guardar en Hoy: el bloque nace colapsado (solo nombres). Tocar el
   // header reexpande. Historial no pasa estas props y el bloque queda siempre
   // abierto, igual que antes.
@@ -64,6 +65,8 @@ export default function SupersetBlock({
   onChangeSet,
   onAddRound,
   onRemoveRound,
+  onChangeUnit,
+  latestBodyWeight = null,
   bestWeights,
   collapsed = false,
   onToggleCollapse,
@@ -82,6 +85,14 @@ export default function SupersetBlock({
       </Pressable>
       {!collapsed && (
         <>
+      {members.map((member, memberIndex) => (
+        <WeightUnitChips
+          key={`unit-${member.key}`}
+          value={member.unit}
+          onChange={(unit) => onChangeUnit?.(memberIndex, unit)}
+          disabled={disabled || !onChangeUnit}
+        />
+      ))}
       {Array.from({ length: roundCount }, (_, roundIndex) => {
         // Key estable por ronda: combina los ids (estables, de SetDraft) de
         // las filas presentes en esta ronda en vez del índice posicional --
@@ -117,24 +128,33 @@ export default function SupersetBlock({
               // precargado (bestWeights), no contra otras series sin guardar
               // de esta misma sesión. bestWeights es undefined en
               // HistorialScreen, así que ahí isPr siempre da false.
-              const typedWeight = parseDecimalInput(setDraft.weight);
+              const typedWeight =
+                member.unit === "bw"
+                  ? latestBodyWeight
+                  : parseDecimalInput(setDraft.weight);
               const bestWeight = bestWeights?.get(member.exerciseId);
               const isPr =
-                typedWeight !== null && bestWeight !== undefined && typedWeight > bestWeight;
+                typedWeight !== null &&
+                bestWeight !== undefined &&
+                toKg(typedWeight, member.unit) > toKg(bestWeight.weight, bestWeight.unit);
 
               return (
                 <View key={member.key} style={styles.setRow}>
                   <Text style={styles.exerciseLabel} numberOfLines={1}>
                     {member.name}
                   </Text>
-                  <TextInput
-                    style={styles.weightInput}
-                    placeholder={member.unit}
-                    keyboardType="decimal-pad"
-                    value={setDraft.weight}
-                    editable={!disabled}
-                    onChangeText={(text) => onChangeSet(memberIndex, roundIndex, { weight: text })}
-                  />
+                  {member.unit === "bw" ? (
+                    <LockedBodyweightLabel bodyWeightKg={latestBodyWeight} />
+                  ) : (
+                    <TextInput
+                      style={styles.weightInput}
+                      placeholder={member.unit}
+                      keyboardType="decimal-pad"
+                      value={setDraft.weight}
+                      editable={!disabled}
+                      onChangeText={(text) => onChangeSet(memberIndex, roundIndex, { weight: text })}
+                    />
+                  )}
                   {isPr && <PrBadge />}
                   <TextInput
                     style={styles.repsInput}

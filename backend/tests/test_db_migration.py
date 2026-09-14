@@ -62,6 +62,7 @@ def test_add_missing_columns_adds_column_without_losing_rows(old_schema_db):
         ws_columns = {row[1] for row in conn.execute(text("PRAGMA table_info(workout_sets)"))}
         assert "superset_group" in re_columns
         assert "superset_group" in ws_columns
+        assert "unit" in ws_columns
 
         re_row = conn.execute(text("SELECT id, routine_id, exercise_id, target_sets, superset_group FROM routine_exercises")).fetchone()
         assert re_row == (1, 1, 1, 3, None)
