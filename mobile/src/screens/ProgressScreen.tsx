@@ -2,7 +2,9 @@ import { useFocusEffect } from "@react-navigation/native";
 import { useCallback, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -13,8 +15,11 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { fetchExercises } from "../api/exercises";
 import { fetchProgress } from "../api/progress";
+import ExercisePickerList from "../components/ExercisePickerList";
 import { Exercise } from "../types/exercise";
 import { ProgressResponse } from "../types/progress";
+import { secondaryHint } from "../utils/exercisePicker";
+import { formatWeightUnit } from "../utils/weightUnit";
 
 type ExercisesState =
   | { status: "loading" }
@@ -35,6 +40,8 @@ export default function ProgressScreen() {
   const selectedExerciseRef = useRef<Exercise | null>(null);
   const [progressState, setProgressState] = useState<ProgressState>({ status: "idle" });
   const [pickerVisible, setPickerVisible] = useState(false);
+  const [pickerQuery, setPickerQuery] = useState("");
+  const progressRequestRef = useRef(0);
 
   const loadExercises = useCallback(() => {
     if (!hasExercisesRef.current) {
@@ -54,16 +61,23 @@ export default function ProgressScreen() {
   }, []);
 
   const loadProgress = useCallback((exerciseId: number) => {
+    const requestId = ++progressRequestRef.current;
     setProgressState({ status: "loading" });
     fetchProgress(exerciseId)
       .then((data) => {
-        // Descarta la respuesta si mientras tanto se seleccionó otro ejercicio
-        // (dos selecciones seguidas o una coincidiendo con el refetch de foco).
+        // Descarta respuestas viejas: otro ejercicio, otro refetch de foco, o
+        // un PUT de unidad que disparó un loadProgress más nuevo.
+        if (requestId !== progressRequestRef.current) {
+          return;
+        }
         if (selectedExerciseRef.current?.id === data.exercise_id) {
           setProgressState({ status: "ready", data });
         }
       })
       .catch((error: Error) => {
+        if (requestId !== progressRequestRef.current) {
+          return;
+        }
         if (selectedExerciseRef.current?.id === exerciseId) {
           setProgressState({ status: "error", message: error.message });
         }
@@ -90,6 +104,31 @@ export default function ProgressScreen() {
     loadProgress(exercise.id);
   }
 
+  function openPicker() {
+    setPickerQuery("");
+    setPickerVisible(true);
+  }
+
+  function replaceUpdatedExercise(exercise: Exercise) {
+    setExercisesState((prev) =>
+      prev.status === "ready"
+        ? {
+            ...prev,
+            exercises: prev.exercises.map((item) =>
+              item.id === exercise.id ? exercise : item
+            ),
+          }
+        : prev
+    );
+    if (selectedExerciseRef.current?.id === exercise.id) {
+      selectedExerciseRef.current = exercise;
+      setSelectedExercise(exercise);
+      // El PUT puede haber convertido WorkoutSet.weight; los puntos cacheados
+      // seguirían en la unidad vieja junto a la etiqueta nueva.
+      loadProgress(exercise.id);
+    }
+  }
+
   return (
     <SafeAreaView style={styles.container} edges={["bottom"]}>
       <ScrollView contentContainerStyle={styles.content}>
@@ -108,7 +147,7 @@ export default function ProgressScreen() {
           <>
             <TouchableOpacity
               style={styles.pickerButton}
-              onPress={() => setPickerVisible(true)}
+              onPress={openPicker}
             >
               <Text
                 style={selectedExercise ? styles.pickerButtonText : styles.pickerPlaceholderText}
@@ -156,7 +195,7 @@ export default function ProgressScreen() {
                     <Text style={styles.date}>{point.date}</Text>
                     <Text style={styles.pointLine}>
                       Mejor peso: {point.best_weight}
-                      {selectedExercise.unit}
+                      {formatWeightUnit(point.unit ?? selectedExercise.unit)}
                     </Text>
                     <Text style={styles.pointLine}>Reps totales: {point.total_reps}</Text>
                   </View>
@@ -167,26 +206,57 @@ export default function ProgressScreen() {
 
       <Modal visible={pickerVisible} transparent animationType="slide">
         <View style={styles.modalBackdrop}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Elige un ejercicio</Text>
+          {/* Igual que en RoutinesScreen: este Modal se renderiza fuera del
+              navigator de tabs, así que no necesita useBottomTabBarHeight()
+              como offset -- no hay tab bar por encima que compensar aquí. Sin
+              este KeyboardAvoidingView, el teclado tapaba la mitad inferior
+              de la tarjeta (anclada al fondo con justifyContent: "flex-end")
+              y dejaba casi sin sitio visible los resultados del buscador. */}
+          <KeyboardAvoidingView
+            style={styles.avoider}
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+            keyboardVerticalOffset={0}
+          >
+            <View style={styles.modalCard}>
+              <Text style={styles.modalTitle}>Elige un ejercicio</Text>
 
-            <ScrollView>
-              {exercisesState.status === "ready" &&
-                exercisesState.exercises.map((exercise) => (
-                  <TouchableOpacity
-                    key={exercise.id}
-                    style={styles.option}
-                    onPress={() => selectExercise(exercise)}
-                  >
-                    <Text style={styles.optionText}>{exercise.name}</Text>
-                  </TouchableOpacity>
-                ))}
-            </ScrollView>
+              {exercisesState.status === "ready" && (
+                <ExercisePickerList
+                  exercises={exercisesState.exercises}
+                  query={pickerQuery}
+                  onQueryChange={setPickerQuery}
+                  onCreated={(exercise) => {
+                    setExercisesState((prev) => {
+                      if (prev.status !== "ready") {
+                        return prev;
+                      }
+                      if (prev.exercises.some((e) => e.id === exercise.id)) {
+                        return prev;
+                      }
+                      return { ...prev, exercises: [...prev.exercises, exercise] };
+                    });
+                  }}
+                  onUpdated={replaceUpdatedExercise}
+                  renderItem={(exercise) => {
+                    const hint = secondaryHint(exercise);
+                    return (
+                      <TouchableOpacity
+                        style={styles.option}
+                        onPress={() => selectExercise(exercise)}
+                      >
+                        <Text style={styles.optionText}>{exercise.name}</Text>
+                        {hint && <Text style={styles.optionHint}>{hint}</Text>}
+                      </TouchableOpacity>
+                    );
+                  }}
+                />
+              )}
 
-            <TouchableOpacity style={styles.cancelButton} onPress={() => setPickerVisible(false)}>
-              <Text style={styles.cancelText}>Cancelar</Text>
-            </TouchableOpacity>
-          </View>
+              <TouchableOpacity style={styles.cancelButton} onPress={() => setPickerVisible(false)}>
+                <Text style={styles.cancelText}>Cancelar</Text>
+              </TouchableOpacity>
+            </View>
+          </KeyboardAvoidingView>
         </View>
       </Modal>
     </SafeAreaView>
@@ -273,12 +343,19 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.4)",
     justifyContent: "flex-end",
   },
+  // Ver comentario equivalente en RoutinesScreen.tsx: el tope de altura debe
+  // vivir en el padre con altura definida (KeyboardAvoidingView, hijo directo
+  // de modalBackdrop que sí tiene flex: 1), no en modalCard -- ahí el % nunca
+  // se resolvía y la tarjeta crecía sin límite real.
+  avoider: {
+    maxHeight: "70%",
+  },
   modalCard: {
     backgroundColor: "#fff",
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
     padding: 20,
-    maxHeight: "70%",
+    flexShrink: 1,
   },
   modalTitle: {
     fontSize: 20,
@@ -294,6 +371,12 @@ const styles = StyleSheet.create({
   optionText: {
     fontSize: 16,
     textAlign: "center",
+  },
+  optionHint: {
+    fontSize: 12,
+    color: "#999",
+    textAlign: "center",
+    marginTop: 2,
   },
   cancelButton: {
     paddingVertical: 14,

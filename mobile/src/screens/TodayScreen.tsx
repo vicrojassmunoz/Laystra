@@ -1,4 +1,3 @@
-import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { useFocusEffect } from "@react-navigation/native";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -17,20 +16,38 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { fetchBodyMetrics } from "../api/bodyMetrics";
 import { fetchExercises } from "../api/exercises";
+import { fetchProgress } from "../api/progress";
 import { fetchRoutines } from "../api/routines";
 import { createWorkout } from "../api/workouts";
 import { fetchToday, TodayExercise, TodayResponse } from "../api/today";
+import ExercisePickerList from "../components/ExercisePickerList";
+import PrBadge from "../components/PrBadge";
 import SupersetBlock, { SetDraft } from "../components/SupersetBlock";
-import { Exercise } from "../types/exercise";
+import { LockedBodyweightLabel, WeightUnitChips } from "../components/WeightUnitChips";
+import { Exercise, WeightUnit } from "../types/exercise";
 import { Routine } from "../types/routine";
 import { WorkoutSetCreate } from "../types/workout";
+import { secondaryHint } from "../utils/exercisePicker";
+import { parseDecimalInput } from "../utils/number";
 import { equalizeSupersetRounds, groupBySuperset, validSupersetGroups } from "../utils/superset";
+import { convertWeight, toKg } from "../utils/weightUnit";
 
 type State =
   | { status: "loading" }
   | { status: "error"; message: string }
-  | { status: "ready"; data: TodayResponse; routines: Routine[]; exercises: Exercise[] };
+  | {
+      status: "ready";
+      data: TodayResponse;
+      routines: Routine[];
+      exercises: Exercise[];
+      latestBodyWeight: number | null;
+      // Mejor peso histórico por ejercicio (exercise_id -> peso), precargado
+      // solo para los ejercicios del día -- ver comentario en load() sobre
+      // por qué no cubre destinos elegidos luego vía "Loguear otro entreno".
+      bestWeights: Map<number, { weight: number; unit: string }>;
+    };
 
 // SetDraft (id + weight/reps como string) viene de SupersetBlock -- es la
 // misma forma que necesita una fila de serie tanto suelta como dentro de un
@@ -63,7 +80,11 @@ type SavedSummary = {
 // Da a cada fila de serie un id estable para usar como key en vez del índice
 // -- así, al quitar una fila del medio, React no reutiliza por error el
 // TextInput enfocado para otra serie distinta.
-function buildDraft(exercises: TodayExercise[], nextId: () => number): ExerciseDraft[] {
+function buildDraft(
+  exercises: TodayExercise[],
+  nextId: () => number,
+  bwKg: number | null = null
+): ExerciseDraft[] {
   const drafts = exercises.map((exercise) => ({
     exercise,
     // Pre-rellena con `target_sets` filas vacías (el número de series objetivo
@@ -183,7 +204,6 @@ function headerRoutineName(formTarget: FormTarget | null, data: TodayResponse): 
 }
 
 export default function TodayScreen() {
-  const tabBarHeight = useBottomTabBarHeight();
   const [state, setState] = useState<State>({ status: "loading" });
   // Recuerda si ya tenemos datos en pantalla para no tapar la vista con un
   // spinner cada vez que el usuario vuelve a esta pestaña.
@@ -205,6 +225,10 @@ export default function TodayScreen() {
   // resumida mientras se rellena el siguiente. Se reinicia cuando cambia el
   // día (ver el useEffect de más abajo).
   const [savedSummaries, setSavedSummaries] = useState<SavedSummary[]>([]);
+  // Tras guardar, las tarjetas nacen colapsadas. Las keys de este Set son las
+  // que el usuario ha reexpandido (tap). Vacío = todo colapsado. Mientras
+  // submitted es false se ignora y las tarjetas se muestran abiertas.
+  const [expandedAfterSave, setExpandedAfterSave] = useState<Set<string>>(new Set());
 
   // Picker de dos pasos para "Loguear otro entreno": "target" (elegir otra
   // rutina o "entreno libre") y "exercises" (solo para entreno libre, elegir
@@ -223,6 +247,11 @@ export default function TodayScreen() {
     null
   );
   const [freeSelection, setFreeSelection] = useState<number[]>([]);
+  // Búsqueda del picker de ejercicios de entreno libre, aparte de la del
+  // picker de super-serie anidado -- cada uno se resetea al abrirse, no al
+  // cerrarse, para no perder lo escrito si el usuario cierra sin querer.
+  const [freeExerciseQuery, setFreeExerciseQuery] = useState("");
+  const [freeSupersetQuery, setFreeSupersetQuery] = useState("");
   // Bloques de super-serie armados para el entreno libre en curso -- viven
   // aparte de freeSelection porque un ejercicio puede estar "seleccionado"
   // sin pertenecer a ningún bloque (ejercicio suelto). Local a este picker,
@@ -247,6 +276,9 @@ export default function TodayScreen() {
   // cada focus -- si no, volver de "Historial" a "Hoy" borraría lo ya escrito (o,
   // peor, invitaría a re-guardar un entreno ya guardado como si fuera nuevo).
   const draftKeyRef = useRef<string | null>(null);
+  // Invalida /progress en vuelo: un PUT de unidad no debe dejar que un load()
+  // anterior pise bestWeights ya convertidos.
+  const progressEpochRef = useRef(0);
   // Contador compartido para los ids de fila de serie (ver comentario en
   // buildDraft). Empieza en 1 y nunca se resetea entre reconstrucciones del
   // draft -- no hace falta, solo importa que cada id sea único dentro de la
@@ -254,6 +286,50 @@ export default function TodayScreen() {
   const nextSetIdRef = useRef(1);
   function nextSetId(): number {
     return nextSetIdRef.current++;
+  }
+
+  function isCollapsedAfterSave(key: string): boolean {
+    return submitted && !expandedAfterSave.has(key);
+  }
+
+  function toggleAfterSave(key: string) {
+    if (!submitted) {
+      return;
+    }
+    setExpandedAfterSave((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  }
+
+  function appendCreatedExercise(exercise: Exercise) {
+    setState((prev) => {
+      if (prev.status !== "ready") {
+        return prev;
+      }
+      if (prev.exercises.some((e) => e.id === exercise.id)) {
+        return prev;
+      }
+      return { ...prev, exercises: [...prev.exercises, exercise] };
+    });
+  }
+
+  function replaceUpdatedExercise(exercise: Exercise) {
+    setState((prev) =>
+      prev.status === "ready"
+        ? {
+            ...prev,
+            exercises: prev.exercises.map((item) =>
+              item.id === exercise.id ? exercise : item
+            ),
+          }
+        : prev
+    );
   }
 
   const load = useCallback(() => {
@@ -264,10 +340,79 @@ export default function TodayScreen() {
     // Se piden rutinas y ejercicios junto con /today -- no solo para el
     // formulario de hoy, sino porque "Loguear otro entreno" necesita elegir
     // entre todas las rutinas (no solo la de hoy) o ejercicios sueltos.
-    Promise.all([fetchToday(), fetchRoutines(), fetchExercises()])
-      .then(([data, routines, exercises]) => {
+    Promise.all([
+      fetchToday(),
+      fetchRoutines(),
+      fetchExercises(),
+      // Prefill de ejercicios bw; si falla, Hoy sigue usable con el peso vacío.
+      fetchBodyMetrics().catch(() => []),
+    ])
+      .then(([data, routines, exercises, bodyMetrics]) => {
         hasDataRef.current = true;
-        setState({ status: "ready", data, routines, exercises });
+        // La pantalla pasa a "ready" en cuanto today/routines/exercises resuelven,
+        // con bestWeights vacío -- el spinner ya no depende de precargar los
+        // PR (ver más abajo). Antes, /today+/routines+/exercises resueltas no
+        // bastaban: la pantalla seguía en "loading" hasta que TODAS las
+        // llamadas a /progress (una por ejercicio del día, encadenadas antes
+        // de este setState) también resolvían, y fetch no tiene timeout -- una
+        // sola colgada dejaba la pantalla principal cargando indefinidamente
+        // aunque /today ya hubiera respondido.
+        setState({
+          status: "ready",
+          data,
+          routines,
+          exercises,
+          latestBodyWeight: bodyMetrics[0]?.weight ?? null,
+          bestWeights: new Map(),
+        });
+
+        // Precarga el mejor peso histórico de cada ejercicio del día (para el
+        // badge de PR al loguear una serie) llamando a /progress una vez por
+        // ejercicio, en paralelo y SIN bloquear el setState de arriba. Si
+        // alguna llamada falla, no tira abajo la pantalla -- ese ejercicio
+        // simplemente se queda sin badge de PR.
+        const progressEpoch = ++progressEpochRef.current;
+        Promise.all(
+          data.exercises.map((exercise) =>
+            fetchProgress(exercise.exercise_id).catch(() => null)
+          )
+        ).then((progresses) => {
+          if (progressEpoch !== progressEpochRef.current) {
+            return;
+          }
+          const bestWeights = new Map<number, { weight: number; unit: string }>();
+          for (const progress of progresses) {
+            if (!progress || progress.points.length === 0) {
+              continue;
+            }
+            const best = progress.points.reduce((winner, point) =>
+              toKg(point.best_weight, point.unit ?? "kg") >
+              toKg(winner.best_weight, winner.unit ?? "kg")
+                ? point
+                : winner
+            );
+            bestWeights.set(progress.exercise_id, {
+              weight: best.best_weight,
+              unit: best.unit ?? "kg",
+            });
+          }
+
+          // Segundo setState, solo para bestWeights, aplicado sobre el estado
+          // "ready" ya construido (updater function, no un objeto nuevo desde
+          // cero) -- si para cuando /progress termina el estado ya avanzó a
+          // otro día/rutina (p.ej. un refocus disparó otro load() de por
+          // medio), no pisa esos datos más nuevos con un bestWeights que ya
+          // no les corresponde. No toca `data`/`routines`/`exercises`, así
+          // que la firma que usa el useEffect de más abajo para decidir si
+          // reconstruir el formulario no cambia y el draft no se resetea.
+          setState((prev) =>
+            prev.status === "ready" &&
+            prev.data.date === data.date &&
+            prev.data.routine_id === data.routine_id
+              ? { ...prev, bestWeights }
+              : prev
+          );
+        });
       })
       .catch((error: Error) => {
         // Si ya había datos visibles, los dejamos y simplemente no se refrescan
@@ -329,7 +474,7 @@ export default function TodayScreen() {
       routineName: state.data.routine_name,
       exercises: state.data.exercises,
     });
-    setFormRows(buildDraft(state.data.exercises, nextSetId));
+    setFormRows(buildDraft(state.data.exercises, nextSetId, state.latestBodyWeight));
     setFormError(null);
     setSubmitted(false);
     setSkipped(false);
@@ -391,6 +536,44 @@ export default function TodayScreen() {
     );
   }
 
+  function changeRowUnit(exerciseIndex: number, nextUnit: WeightUnit) {
+    const bodyKg = state.status === "ready" ? state.latestBodyWeight : null;
+    setFormRows((prev) =>
+      prev.map((row, i) => {
+        if (i !== exerciseIndex) {
+          return row;
+        }
+        const fromUnit = row.exercise.unit;
+        if (fromUnit === nextUnit) {
+          return row;
+        }
+        return {
+          ...row,
+          exercise: { ...row.exercise, unit: nextUnit },
+          sets:
+            nextUnit === "bw"
+              ? row.sets
+              : row.sets.map((set) => {
+                  if (fromUnit === "bw") {
+                    return {
+                      ...set,
+                      weight: bodyKg != null ? String(bodyKg) : "",
+                    };
+                  }
+                  const parsed = parseDecimalInput(set.weight);
+                  if (parsed === null) {
+                    return set;
+                  }
+                  return {
+                    ...set,
+                    weight: String(convertWeight(parsed, fromUnit, nextUnit)),
+                  };
+                }),
+        };
+      })
+    );
+  }
+
   // Variantes de addSet/removeSet para un bloque de super-serie: en vez de
   // tocar un solo ejercicio, añaden/quitan la misma "ronda" (posición de
   // serie) en TODOS los ejercicios del bloque a la vez -- exerciseIndices son
@@ -428,7 +611,7 @@ export default function TodayScreen() {
     const exercises = routineToExercises(routine, exerciseById);
 
     setFormTarget({ routineId: routine.id, routineName: routine.name, exercises });
-    setFormRows(buildDraft(exercises, nextSetId));
+    setFormRows(buildDraft(exercises, nextSetId, state.latestBodyWeight));
     setFormError(null);
     setSubmitted(false);
     setSkipped(false);
@@ -438,6 +621,7 @@ export default function TodayScreen() {
   function chooseFreeForAnother() {
     setFreeSelection([]);
     setFreeSupersetBlocks([]);
+    setFreeExerciseQuery("");
     setPickerStep("exercises");
   }
 
@@ -462,6 +646,7 @@ export default function TodayScreen() {
 
   function openFreeSupersetPicker() {
     setFreeSupersetSelection([]);
+    setFreeSupersetQuery("");
     setPickerStep("free-superset");
   }
 
@@ -531,7 +716,7 @@ export default function TodayScreen() {
     const exercises = freeExercisesToDraftExercises(selected, groupByExerciseId);
 
     setFormTarget({ routineId: null, routineName: null, exercises });
-    setFormRows(buildDraft(exercises, nextSetId));
+    setFormRows(buildDraft(exercises, nextSetId, state.latestBodyWeight));
     setFormError(null);
     setSubmitted(false);
     setSkipped(false);
@@ -562,6 +747,7 @@ export default function TodayScreen() {
     setFormRows(snapshot.formRows);
     setFormError(null);
     setSubmitted(true);
+    setExpandedAfterSave(new Set());
   }
 
   function handleSave() {
@@ -598,13 +784,14 @@ export default function TodayScreen() {
 
       for (let i = 0; i < row.sets.length; i++) {
         const draft = row.sets[i];
-        // El teclado decimal-pad en un iPhone con locale español muestra coma,
-        // no punto, así que "82,5" tiene que normalizarse antes de Number(...).
-        const weightRaw = draft.weight.trim().replace(",", ".");
-        const weight = Number(weightRaw);
+        const unit = row.exercise.unit;
+        const weight =
+          unit === "bw"
+            ? (state.latestBodyWeight ?? 0)
+            : parseDecimalInput(draft.weight);
         const reps = Number(draft.reps);
 
-        if (weightRaw === "" || Number.isNaN(weight) || weight < 0) {
+        if (unit !== "bw" && weight === null) {
           setFormError(
             `Peso inválido en "${row.exercise.exercise_name}", serie ${i + 1}.`
           );
@@ -622,9 +809,10 @@ export default function TodayScreen() {
 
         sets.push({
           exercise_id: row.exercise.exercise_id,
-          weight,
+          weight: weight ?? 0,
           reps,
           order: order++,
+          unit,
           superset_group: group != null && validGroups.has(group) ? group : null,
         });
       }
@@ -648,6 +836,7 @@ export default function TodayScreen() {
         }`;
         setSavedSummaries((prev) => [...prev, { workoutId: workout.id, label }]);
         setSubmitted(true);
+        setExpandedAfterSave(new Set());
         lastSubmittedSnapshotRef.current = { formTarget, formRows };
       })
       .catch((error: Error) => {
@@ -673,7 +862,7 @@ export default function TodayScreen() {
         <KeyboardAvoidingView
           style={styles.container}
           behavior={Platform.OS === "ios" ? "padding" : undefined}
-          keyboardVerticalOffset={tabBarHeight}
+          keyboardVerticalOffset={0}
         >
           <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
             <Text style={styles.title}>Hoy</Text>
@@ -726,7 +915,23 @@ export default function TodayScreen() {
                     // banca pesado + press banca ligero), así que exercise_id
                     // solo no es una key única -- se combina con la posición.
                     <View key={`${row.exercise.exercise_id}-${exerciseIndex}`} style={styles.card}>
-                      <Text style={styles.exerciseName}>{row.exercise.exercise_name}</Text>
+                      <Pressable
+                        onPress={() =>
+                          toggleAfterSave(`ex-${row.exercise.exercise_id}-${exerciseIndex}`)
+                        }
+                        disabled={!submitted}
+                      >
+                        <Text style={styles.exerciseName}>
+                          {row.exercise.exercise_name}
+                          {submitted
+                            ? isCollapsedAfterSave(`ex-${row.exercise.exercise_id}-${exerciseIndex}`)
+                              ? " ▸"
+                              : " ▾"
+                            : ""}
+                        </Text>
+                      </Pressable>
+                      {!isCollapsedAfterSave(`ex-${row.exercise.exercise_id}-${exerciseIndex}`) && (
+                        <>
                       {/* En entreno libre no hay rutina que fije target_sets --
                           se le pone 1 de relleno (ver freeExercisesToDraftExercises)
                           pero no significa nada real, así que no tiene sentido
@@ -738,37 +943,61 @@ export default function TodayScreen() {
                         </Text>
                       )}
 
-                      {row.sets.map((setDraft, setIndex) => (
-                        <View key={setDraft.id} style={styles.setRow}>
-                          <Text style={styles.setLabel}>Serie {setIndex + 1}</Text>
-                          <TextInput
-                            style={styles.weightInput}
-                            placeholder={row.exercise.unit}
-                            keyboardType="decimal-pad"
-                            value={setDraft.weight}
-                            editable={!submitted && !saving}
-                            onChangeText={(text) =>
-                              updateSet(exerciseIndex, setIndex, { weight: text })
-                            }
-                          />
-                          <TextInput
-                            style={styles.repsInput}
-                            placeholder="reps"
-                            keyboardType="number-pad"
-                            value={setDraft.reps}
-                            editable={!submitted && !saving}
-                            onChangeText={(text) => updateSet(exerciseIndex, setIndex, { reps: text })}
-                          />
-                          {!submitted && (
-                            <Button
-                              title="Quitar"
-                              color="#b00020"
-                              onPress={() => removeSet(exerciseIndex, setIndex)}
-                              disabled={saving}
+                      <WeightUnitChips
+                        value={row.exercise.unit}
+                        onChange={(unit) => changeRowUnit(exerciseIndex, unit)}
+                        disabled={submitted || saving}
+                      />
+
+                      {row.sets.map((setDraft, setIndex) => {
+                        const typedWeight =
+                          row.exercise.unit === "bw"
+                            ? state.latestBodyWeight
+                            : parseDecimalInput(setDraft.weight);
+                        const best = state.bestWeights.get(row.exercise.exercise_id);
+                        const isPr =
+                          typedWeight !== null &&
+                          best !== undefined &&
+                          toKg(typedWeight, row.exercise.unit) >
+                            toKg(best.weight, best.unit);
+
+                        return (
+                          <View key={setDraft.id} style={styles.setRow}>
+                            <Text style={styles.setLabel}>Serie {setIndex + 1}</Text>
+                            {row.exercise.unit === "bw" ? (
+                              <LockedBodyweightLabel bodyWeightKg={state.latestBodyWeight} />
+                            ) : (
+                              <TextInput
+                                style={styles.weightInput}
+                                placeholder={row.exercise.unit}
+                                keyboardType="decimal-pad"
+                                value={setDraft.weight}
+                                editable={!submitted && !saving}
+                                onChangeText={(text) =>
+                                  updateSet(exerciseIndex, setIndex, { weight: text })
+                                }
+                              />
+                            )}
+                            {isPr && <PrBadge />}
+                            <TextInput
+                              style={styles.repsInput}
+                              placeholder="reps"
+                              keyboardType="number-pad"
+                              value={setDraft.reps}
+                              editable={!submitted && !saving}
+                              onChangeText={(text) => updateSet(exerciseIndex, setIndex, { reps: text })}
                             />
-                          )}
-                        </View>
-                      ))}
+                            {!submitted && (
+                              <Button
+                                title="Quitar"
+                                color="#b00020"
+                                onPress={() => removeSet(exerciseIndex, setIndex)}
+                                disabled={saving}
+                              />
+                            )}
+                          </View>
+                        );
+                      })}
 
                       {!submitted && (
                         <View style={styles.addSetButton}>
@@ -779,6 +1008,8 @@ export default function TodayScreen() {
                           />
                         </View>
                       )}
+                        </>
+                      )}
                     </View>
                   );
                 }
@@ -786,6 +1017,7 @@ export default function TodayScreen() {
                 const indices = entry.items.map((it) => it.index);
                 const members = entry.items.map((it) => ({
                   key: `${it.row.exercise.exercise_id}-${it.index}`,
+                  exerciseId: it.row.exercise.exercise_id,
                   name: it.row.exercise.exercise_name,
                   unit: it.row.exercise.unit,
                   sets: it.row.sets,
@@ -796,11 +1028,20 @@ export default function TodayScreen() {
                     key={`group-${entry.groupId}`}
                     members={members}
                     disabled={submitted || saving}
+                    latestBodyWeight={state.latestBodyWeight}
+                    onChangeUnit={(memberIndex, unit) =>
+                      changeRowUnit(indices[memberIndex], unit)
+                    }
                     onChangeSet={(memberIndex, roundIndex, patch) =>
                       updateSet(indices[memberIndex], roundIndex, patch)
                     }
                     onAddRound={() => addRoundToGroup(indices)}
                     onRemoveRound={(roundIndex) => removeRoundFromGroup(indices, roundIndex)}
+                    bestWeights={state.bestWeights}
+                    collapsed={isCollapsedAfterSave(`group-${entry.groupId}`)}
+                    onToggleCollapse={
+                      submitted ? () => toggleAfterSave(`group-${entry.groupId}`) : undefined
+                    }
                   />
                 );
               })}
@@ -870,160 +1111,184 @@ export default function TodayScreen() {
             onRequestClose={() => setPickerStep(null)}
           >
             <Pressable style={styles.modalBackdrop} onPress={() => setPickerStep(null)}>
-              <Pressable style={styles.modalCard} onPress={() => {}}>
-                {pickerStep === "target" && (
-                  <>
-                    <Text style={styles.modalTitle}>¿Qué quieres loguear?</Text>
+              {/* Este Modal se renderiza fuera del navigator de tabs (por eso
+                  el KeyboardAvoidingView de más abajo, el que envuelve toda
+                  la pantalla, no llega hasta aquí dentro) -- así que no usa
+                  useBottomTabBarHeight() como offset, eso solo aplica al de
+                  la pantalla normal. Aquí no hay nada por encima de la
+                  tarjeta que compensar, offset 0 le basta. */}
+              <KeyboardAvoidingView
+                style={styles.avoider}
+                behavior={Platform.OS === "ios" ? "padding" : undefined}
+                keyboardVerticalOffset={0}
+              >
+                <Pressable style={styles.modalCard} onPress={() => {}}>
+                  {pickerStep === "target" && (
+                    <>
+                      <Text style={styles.modalTitle}>¿Qué quieres loguear?</Text>
 
-                    <ScrollView>
-                      <TouchableOpacity style={styles.freeOption} onPress={chooseFreeForAnother}>
-                        <Text style={styles.freeOptionText}>Entreno libre (ejercicios sueltos)</Text>
-                      </TouchableOpacity>
-
-                      {state.routines.map((routine) => (
-                        <TouchableOpacity
-                          key={routine.id}
-                          style={styles.option}
-                          onPress={() => chooseRoutineForAnother(routine)}
-                        >
-                          <Text style={styles.optionText}>{routine.name}</Text>
+                      <ScrollView style={styles.list}>
+                        <TouchableOpacity style={styles.freeOption} onPress={chooseFreeForAnother}>
+                          <Text style={styles.freeOptionText}>Entreno libre (ejercicios sueltos)</Text>
                         </TouchableOpacity>
-                      ))}
-                    </ScrollView>
 
-                    <TouchableOpacity
-                      style={styles.cancelButton}
-                      onPress={() => setPickerStep(null)}
-                    >
-                      <Text style={styles.cancelText}>Cancelar</Text>
-                    </TouchableOpacity>
-                  </>
-                )}
-
-                {pickerStep === "exercises" && (
-                  <>
-                    <Text style={styles.modalTitle}>Elige ejercicios</Text>
-
-                    <ScrollView>
-                      {state.exercises.map((exercise) => {
-                        const selected = freeSelection.includes(exercise.id);
-                        // Solo indicativo (no afecta la selección): si este
-                        // ejercicio ya forma parte de un bloque de
-                        // super-serie armado con "+ Super-serie" más abajo.
-                        const inBlock = freeSupersetBlocks.some((b) =>
-                          b.exerciseIds.includes(exercise.id)
-                        );
-                        return (
+                        {state.routines.map((routine) => (
                           <TouchableOpacity
-                            key={exercise.id}
+                            key={routine.id}
                             style={styles.option}
-                            onPress={() => toggleFreeExercise(exercise.id)}
+                            onPress={() => chooseRoutineForAnother(routine)}
                           >
-                            <Text style={selected ? styles.optionTextSelected : styles.optionText}>
-                              {selected ? "✓ " : ""}
-                              {exercise.name}
-                              {inBlock ? " · Super-serie" : ""}
-                            </Text>
+                            <Text style={styles.optionText}>{routine.name}</Text>
                           </TouchableOpacity>
-                        );
-                      })}
-                    </ScrollView>
+                        ))}
+                      </ScrollView>
 
-                    <TouchableOpacity style={styles.supersetOption} onPress={openFreeSupersetPicker}>
-                      <Text style={styles.supersetOptionText}>+ Super-serie</Text>
-                    </TouchableOpacity>
-
-                    <View style={styles.modalActions}>
                       <TouchableOpacity
                         style={styles.cancelButton}
                         onPress={() => setPickerStep(null)}
                       >
                         <Text style={styles.cancelText}>Cancelar</Text>
                       </TouchableOpacity>
-                      <TouchableOpacity
-                        style={styles.doneButton}
-                        onPress={confirmFreeSelection}
-                        disabled={freeSelection.length === 0}
-                      >
-                        <Text
-                          style={
-                            freeSelection.length === 0 ? styles.doneTextDisabled : styles.doneText
-                          }
-                        >
-                          Listo ({freeSelection.length})
-                        </Text>
-                      </TouchableOpacity>
-                    </View>
-                  </>
-                )}
+                    </>
+                  )}
 
-                {/* Paso anidado dentro de "exercises": elige qué ejercicios
-                    (de todos los existentes, no solo los ya marcados) forman
-                    un bloque de super-serie para este entreno libre. Al
-                    confirmar vuelve a "exercises", no cierra el picker. */}
-                {pickerStep === "free-superset" && (
-                  <>
-                    <Text style={styles.modalTitle}>Elige ejercicios para la super-serie</Text>
+                  {pickerStep === "exercises" && (
+                    <>
+                      <Text style={styles.modalTitle}>Elige ejercicios</Text>
 
-                    <ScrollView>
-                      {state.exercises.map((exercise) => {
-                        const selected = freeSupersetSelection.includes(exercise.id);
-                        // Un ejercicio que ya pertenece a un bloque anterior
-                        // no puede elegirse para uno nuevo -- ver comentario
-                        // en alreadyGroupedFreeExerciseIds.
-                        const alreadyGrouped =
-                          !selected && alreadyGroupedFreeExerciseIds().has(exercise.id);
-                        return (
-                          <TouchableOpacity
-                            key={exercise.id}
-                            style={styles.option}
-                            onPress={() => toggleFreeSupersetExercise(exercise.id)}
-                            disabled={alreadyGrouped}
-                          >
-                            <Text
-                              style={
-                                alreadyGrouped
-                                  ? styles.optionTextDisabled
-                                  : selected
-                                  ? styles.optionTextSelected
-                                  : styles.optionText
-                              }
+                      <ExercisePickerList
+                        exercises={state.exercises}
+                        query={freeExerciseQuery}
+                        onQueryChange={setFreeExerciseQuery}
+                        onCreated={appendCreatedExercise}
+                        onUpdated={replaceUpdatedExercise}
+                        renderItem={(exercise) => {
+                          const selected = freeSelection.includes(exercise.id);
+                          // Solo indicativo (no afecta la selección): si este
+                          // ejercicio ya forma parte de un bloque de
+                          // super-serie armado con "+ Super-serie" más abajo.
+                          const inBlock = freeSupersetBlocks.some((b) =>
+                            b.exerciseIds.includes(exercise.id)
+                          );
+                          const hint = secondaryHint(exercise);
+                          return (
+                            <TouchableOpacity
+                              style={styles.option}
+                              onPress={() => toggleFreeExercise(exercise.id)}
                             >
-                              {selected ? "✓ " : ""}
-                              {exercise.name}
-                              {alreadyGrouped ? " · ya en otro bloque" : ""}
-                            </Text>
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </ScrollView>
+                              <Text style={selected ? styles.optionTextSelected : styles.optionText}>
+                                {selected ? "✓ " : ""}
+                                {exercise.name}
+                                {inBlock ? " · Super-serie" : ""}
+                              </Text>
+                              {hint && <Text style={styles.optionHint}>{hint}</Text>}
+                            </TouchableOpacity>
+                          );
+                        }}
+                      />
 
-                    <View style={styles.modalActions}>
-                      <TouchableOpacity
-                        style={styles.cancelButton}
-                        onPress={() => setPickerStep("exercises")}
-                      >
-                        <Text style={styles.cancelText}>Cancelar</Text>
+                      <TouchableOpacity style={styles.supersetOption} onPress={openFreeSupersetPicker}>
+                        <Text style={styles.supersetOptionText}>+ Super-serie</Text>
                       </TouchableOpacity>
-                      <TouchableOpacity
-                        style={styles.doneButton}
-                        onPress={confirmFreeSuperset}
-                        disabled={freeSupersetSelection.length < 2}
-                      >
-                        <Text
-                          style={
-                            freeSupersetSelection.length < 2
-                              ? styles.doneTextDisabled
-                              : styles.doneText
-                          }
+
+                      <View style={styles.modalActions}>
+                        <TouchableOpacity
+                          style={styles.cancelButton}
+                          onPress={() => setPickerStep(null)}
                         >
-                          Listo ({freeSupersetSelection.length})
-                        </Text>
-                      </TouchableOpacity>
-                    </View>
-                  </>
-                )}
-              </Pressable>
+                          <Text style={styles.cancelText}>Cancelar</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={styles.doneButton}
+                          onPress={confirmFreeSelection}
+                          disabled={freeSelection.length === 0}
+                        >
+                          <Text
+                            style={
+                              freeSelection.length === 0 ? styles.doneTextDisabled : styles.doneText
+                            }
+                          >
+                            Listo ({freeSelection.length})
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    </>
+                  )}
+
+                  {/* Paso anidado dentro de "exercises": elige qué ejercicios
+                      (de todos los existentes, no solo los ya marcados) forman
+                      un bloque de super-serie para este entreno libre. Al
+                      confirmar vuelve a "exercises", no cierra el picker. */}
+                  {pickerStep === "free-superset" && (
+                    <>
+                      <Text style={styles.modalTitle}>Elige ejercicios para la super-serie</Text>
+
+                      <ExercisePickerList
+                        exercises={state.exercises}
+                        query={freeSupersetQuery}
+                        onQueryChange={setFreeSupersetQuery}
+                        onCreated={appendCreatedExercise}
+                        onUpdated={replaceUpdatedExercise}
+                        renderItem={(exercise) => {
+                          const selected = freeSupersetSelection.includes(exercise.id);
+                          // Un ejercicio que ya pertenece a un bloque anterior
+                          // no puede elegirse para uno nuevo -- ver comentario
+                          // en alreadyGroupedFreeExerciseIds.
+                          const alreadyGrouped =
+                            !selected && alreadyGroupedFreeExerciseIds().has(exercise.id);
+                          const hint = secondaryHint(exercise);
+                          return (
+                            <TouchableOpacity
+                              style={styles.option}
+                              onPress={() => toggleFreeSupersetExercise(exercise.id)}
+                              disabled={alreadyGrouped}
+                            >
+                              <Text
+                                style={
+                                  alreadyGrouped
+                                    ? styles.optionTextDisabled
+                                    : selected
+                                    ? styles.optionTextSelected
+                                    : styles.optionText
+                                }
+                              >
+                                {selected ? "✓ " : ""}
+                                {exercise.name}
+                                {alreadyGrouped ? " · ya en otro bloque" : ""}
+                              </Text>
+                              {hint && <Text style={styles.optionHint}>{hint}</Text>}
+                            </TouchableOpacity>
+                          );
+                        }}
+                      />
+
+                      <View style={styles.modalActions}>
+                        <TouchableOpacity
+                          style={styles.cancelButton}
+                          onPress={() => setPickerStep("exercises")}
+                        >
+                          <Text style={styles.cancelText}>Cancelar</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={styles.doneButton}
+                          onPress={confirmFreeSuperset}
+                          disabled={freeSupersetSelection.length < 2}
+                        >
+                          <Text
+                            style={
+                              freeSupersetSelection.length < 2
+                                ? styles.doneTextDisabled
+                                : styles.doneText
+                            }
+                          >
+                            Listo ({freeSupersetSelection.length})
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    </>
+                  )}
+                </Pressable>
+              </KeyboardAvoidingView>
             </Pressable>
           </Modal>
         </KeyboardAvoidingView>
@@ -1144,12 +1409,22 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.4)",
     justifyContent: "flex-end",
   },
+  // Ver comentario equivalente en RoutinesScreen.tsx: el tope de altura debe
+  // vivir en el padre con altura definida (KeyboardAvoidingView, hijo directo
+  // de modalBackdrop que sí tiene flex: 1), no en modalCard -- ahí el % nunca
+  // se resolvía y la tarjeta crecía sin límite real.
+  avoider: {
+    maxHeight: "70%",
+  },
   modalCard: {
     backgroundColor: "#fff",
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
     padding: 20,
-    maxHeight: "70%",
+    flexShrink: 1,
+  },
+  list: {
+    flexShrink: 1,
   },
   modalTitle: {
     fontSize: 20,
@@ -1178,6 +1453,12 @@ const styles = StyleSheet.create({
     fontSize: 16,
     textAlign: "center",
     color: "#aaa",
+  },
+  optionHint: {
+    fontSize: 12,
+    color: "#999",
+    textAlign: "center",
+    marginTop: 2,
   },
   // "Entreno libre" es una opción especial (no una rutina), separada del resto
   // con más peso visual y un borde algo más marcado para que no se confunda

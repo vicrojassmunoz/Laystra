@@ -5,6 +5,7 @@ from app import models
 from app.db import get_db
 from app.schemas.exercise import Exercise, ExerciseCreate
 from app.schemas.progress import ProgressPoint, ProgressResponse
+from app.units import to_kg
 
 router = APIRouter(prefix="/exercises", tags=["exercises"])
 
@@ -16,8 +17,41 @@ def list_exercises(db: Session = Depends(get_db)) -> list[models.Exercise]:
 
 @router.post("", response_model=Exercise, status_code=201)
 def create_exercise(payload: ExerciseCreate, db: Session = Depends(get_db)) -> models.Exercise:
-    exercise = models.Exercise(**payload.model_dump())
+    # No se puede pasar **payload.model_dump() directo al constructor: muscle_group_secondary
+    # no es una columna real en models.Exercise, es la property de solo lectura respaldada por
+    # la relación secondary_muscles — hay que construir sus filas hijas explícitamente.
+    exercise = models.Exercise(
+        name=payload.name,
+        unit=payload.unit,
+        muscle_group_primary=payload.muscle_group_primary,
+        secondary_muscles=[
+            models.ExerciseSecondaryMuscle(muscle_group=m) for m in payload.muscle_group_secondary
+        ],
+    )
     db.add(exercise)
+    db.commit()
+    db.refresh(exercise)
+    return exercise
+
+
+@router.put("/{exercise_id}", response_model=Exercise)
+def update_exercise(
+    exercise_id: int,
+    payload: ExerciseCreate,
+    db: Session = Depends(get_db),
+) -> models.Exercise:
+    exercise = db.get(models.Exercise, exercise_id)
+    if exercise is None:
+        raise HTTPException(status_code=404, detail="Exercise not found")
+
+    exercise.name = payload.name
+    exercise.unit = payload.unit
+    exercise.muscle_group_primary = payload.muscle_group_primary
+    exercise.secondary_muscles = [
+        models.ExerciseSecondaryMuscle(muscle_group=muscle_group)
+        for muscle_group in payload.muscle_group_secondary
+    ]
+
     db.commit()
     db.refresh(exercise)
     return exercise
@@ -39,12 +73,19 @@ def get_exercise_progress(exercise_id: int, db: Session = Depends(get_db)) -> Pr
         matching_sets = [s for s in workout.sets if s.exercise_id == exercise_id]
         if not matching_sets:
             continue
+        best = max(
+            matching_sets,
+            key=lambda workout_set: to_kg(
+                workout_set.weight, workout_set.unit or exercise.unit
+            ),
+        )
         points.append(
             ProgressPoint(
                 date=workout.date,
                 workout_id=workout.id,
-                best_weight=max(s.weight for s in matching_sets),
+                best_weight=best.weight,
                 total_reps=sum(s.reps for s in matching_sets),
+                unit=best.unit or exercise.unit,
             )
         )
 

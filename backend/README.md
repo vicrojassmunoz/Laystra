@@ -39,6 +39,25 @@ docker compose up -d
 
 Brings up the backend plus `cloudflared`, which tunnels `https://laystra.vicrojas.com` to it — see `docs/ARCHITECTURE.md` → "Despliegue (Fase 4)" for the full shape and why a tunnel instead of port-forwarding. This is separate from local dev above; `uv run uvicorn ...` still works unchanged.
 
+## Backup / restore (production SQLite)
+
+`laystra.db` in Docker lives in the named volume `laystra-db`, not on the host filesystem. A naive `docker cp` of the live file can corrupt it; the scripts use SQLite's online backup API **inside** the `backend` container, then copy the snapshot out to OneDrive.
+
+From `backend/`:
+
+```
+.\scripts\backup_db.ps1                  # snapshot → %OneDrive%\Laystra-backups\laystra-YYYY-MM-DD.db
+.\scripts\backup_db.ps1 -VerifyOnly      # PRAGMA integrity_check + COUNT(workouts) on the latest copy
+.\scripts\backup_db.ps1 -RegisterTask    # one-shot: Task Scheduler daily at 03:00 (you run this once)
+.\scripts\restore_db.ps1 -BackupFile "$env:OneDrive\Laystra-backups\laystra-YYYY-MM-DD.db"
+```
+
+Retention is 14 days (older dated files in that folder are pruned). `-RegisterTask` creates a Windows task named `LaystraBackup`; confirm with `schtasks /Query /TN LaystraBackup /V /FO LIST`.
+
+First restore drill: run `-VerifyOnly` against a copy. Do **not** point `restore_db.ps1` at production until you have a verified snapshot and actually need to roll back — restore stops the backend, overwrites `/data/laystra.db`, and starts it again.
+
+On Linux later, the same Compose commands work from cron (`docker compose exec` → `docker compose cp`); only the Task Scheduler wrapper is Windows-specific.
+
 ## Structure
 
 ```

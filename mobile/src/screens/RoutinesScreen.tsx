@@ -1,4 +1,3 @@
-import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { useFocusEffect } from "@react-navigation/native";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -20,8 +19,10 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { fetchExercises } from "../api/exercises";
 import { createRoutine, deleteRoutine, fetchRoutines, updateRoutine } from "../api/routines";
+import ExercisePickerList from "../components/ExercisePickerList";
 import { Exercise } from "../types/exercise";
 import { Routine, RoutineExercise, RoutineExerciseCreate } from "../types/routine";
+import { secondaryHint } from "../utils/exercisePicker";
 import { groupBySuperset } from "../utils/superset";
 
 type State =
@@ -44,7 +45,6 @@ function makeEmptyRow(id: number): DraftRow {
 }
 
 export default function RoutinesScreen() {
-  const tabBarHeight = useBottomTabBarHeight();
   const [state, setState] = useState<State>({ status: "loading" });
   const hasDataRef = useRef(false);
 
@@ -54,6 +54,7 @@ export default function RoutinesScreen() {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [pickerRowId, setPickerRowId] = useState<number | null>(null);
+  const [pickerQuery, setPickerQuery] = useState("");
   const scrollRef = useRef<ScrollView>(null);
 
   // Contador de ids de bloque de super-serie, local a este formulario (no es
@@ -62,6 +63,7 @@ export default function RoutinesScreen() {
   const nextGroupIdRef = useRef(1);
   const [supersetPickerVisible, setSupersetPickerVisible] = useState(false);
   const [supersetSelection, setSupersetSelection] = useState<number[]>([]);
+  const [supersetPickerQuery, setSupersetPickerQuery] = useState("");
 
   // null = formulario en modo "Nueva rutina"; si tiene un id, el formulario
   // está editando esa rutina existente (PUT en vez de POST al guardar).
@@ -103,6 +105,31 @@ export default function RoutinesScreen() {
       load();
     }, [load])
   );
+
+  function appendCreatedExercise(exercise: Exercise) {
+    setState((prev) => {
+      if (prev.status !== "ready") {
+        return prev;
+      }
+      if (prev.exercises.some((e) => e.id === exercise.id)) {
+        return prev;
+      }
+      return { ...prev, exercises: [...prev.exercises, exercise] };
+    });
+  }
+
+  function replaceUpdatedExercise(exercise: Exercise) {
+    setState((prev) =>
+      prev.status === "ready"
+        ? {
+            ...prev,
+            exercises: prev.exercises.map((item) =>
+              item.id === exercise.id ? exercise : item
+            ),
+          }
+        : prev
+    );
+  }
 
   function updateRow(id: number, patch: Partial<DraftRow>) {
     setRows((prev) => prev.map((row) => (row.id === id ? { ...row, ...patch } : row)));
@@ -150,8 +177,14 @@ export default function RoutinesScreen() {
     setPickerRowId(null);
   }
 
+  function openExercisePicker(rowId: number) {
+    setPickerQuery("");
+    setPickerRowId(rowId);
+  }
+
   function openSupersetPicker() {
     setSupersetSelection([]);
+    setSupersetPickerQuery("");
     setSupersetPickerVisible(true);
   }
 
@@ -329,7 +362,7 @@ export default function RoutinesScreen() {
     const selectedExercise = exercises.find((e) => e.id === row.exerciseId);
     return (
       <View key={row.id} style={styles.row}>
-        <TouchableOpacity style={styles.pickerButton} onPress={() => setPickerRowId(row.id)}>
+        <TouchableOpacity style={styles.pickerButton} onPress={() => openExercisePicker(row.id)}>
           <Text style={selectedExercise ? styles.pickerButtonText : styles.pickerPlaceholderText}>
             {selectedExercise?.name ?? "Selecciona un ejercicio"}
           </Text>
@@ -355,7 +388,7 @@ export default function RoutinesScreen() {
       <KeyboardAvoidingView
         style={styles.container}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
-        keyboardVerticalOffset={tabBarHeight}
+        keyboardVerticalOffset={0}
       >
         <ScrollView
           ref={scrollRef}
@@ -468,25 +501,44 @@ export default function RoutinesScreen() {
 
       <Modal visible={pickerRowId !== null} transparent animationType="slide">
         <View style={styles.modalBackdrop}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Elige un ejercicio</Text>
+          {/* Este Modal se renderiza fuera del navigator de tabs, así que no
+              lleva useBottomTabBarHeight() como offset (eso es correcto para
+              el KeyboardAvoidingView de la pantalla normal más arriba, que sí
+              está montado dentro del navigator) -- aquí la tarjeta no tiene
+              nada por encima que compensar, así que offset 0 le basta. */}
+          <KeyboardAvoidingView
+            style={styles.avoider}
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+            keyboardVerticalOffset={0}
+          >
+            <View style={styles.modalCard}>
+              <Text style={styles.modalTitle}>Elige un ejercicio</Text>
 
-            <ScrollView>
-              {exercises.map((exercise) => (
-                <TouchableOpacity
-                  key={exercise.id}
-                  style={styles.option}
-                  onPress={() => pickerRowId !== null && selectExercise(pickerRowId, exercise.id)}
-                >
-                  <Text style={styles.optionText}>{exercise.name}</Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
+              <ExercisePickerList
+                exercises={exercises}
+                query={pickerQuery}
+                onQueryChange={setPickerQuery}
+                onCreated={appendCreatedExercise}
+                onUpdated={replaceUpdatedExercise}
+                renderItem={(exercise) => {
+                  const hint = secondaryHint(exercise);
+                  return (
+                    <TouchableOpacity
+                      style={styles.option}
+                      onPress={() => pickerRowId !== null && selectExercise(pickerRowId, exercise.id)}
+                    >
+                      <Text style={styles.optionText}>{exercise.name}</Text>
+                      {hint && <Text style={styles.optionHint}>{hint}</Text>}
+                    </TouchableOpacity>
+                  );
+                }}
+              />
 
-            <TouchableOpacity style={styles.cancelButton} onPress={() => setPickerRowId(null)}>
-              <Text style={styles.cancelText}>Cancelar</Text>
-            </TouchableOpacity>
-          </View>
+              <TouchableOpacity style={styles.cancelButton} onPress={() => setPickerRowId(null)}>
+                <Text style={styles.cancelText}>Cancelar</Text>
+              </TouchableOpacity>
+            </View>
+          </KeyboardAvoidingView>
         </View>
       </Modal>
 
@@ -496,47 +548,59 @@ export default function RoutinesScreen() {
           consistente con el resto de esta pantalla. */}
       <Modal visible={supersetPickerVisible} transparent animationType="slide">
         <View style={styles.modalBackdrop}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Elige ejercicios para la super-serie</Text>
+          <KeyboardAvoidingView
+            style={styles.avoider}
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+            keyboardVerticalOffset={0}
+          >
+            <View style={styles.modalCard}>
+              <Text style={styles.modalTitle}>Elige ejercicios para la super-serie</Text>
 
-            <ScrollView>
-              {exercises.map((exercise) => {
-                const selected = supersetSelection.includes(exercise.id);
-                return (
-                  <TouchableOpacity
-                    key={exercise.id}
-                    style={styles.option}
-                    onPress={() => toggleSupersetExercise(exercise.id)}
-                  >
-                    <Text style={selected ? styles.optionTextSelected : styles.optionText}>
-                      {selected ? "✓ " : ""}
-                      {exercise.name}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
+              <ExercisePickerList
+                exercises={exercises}
+                query={supersetPickerQuery}
+                onQueryChange={setSupersetPickerQuery}
+                onCreated={appendCreatedExercise}
+                onUpdated={replaceUpdatedExercise}
+                renderItem={(exercise) => {
+                  const selected = supersetSelection.includes(exercise.id);
+                  const hint = secondaryHint(exercise);
+                  return (
+                    <TouchableOpacity
+                      style={styles.option}
+                      onPress={() => toggleSupersetExercise(exercise.id)}
+                    >
+                      <Text style={selected ? styles.optionTextSelected : styles.optionText}>
+                        {selected ? "✓ " : ""}
+                        {exercise.name}
+                      </Text>
+                      {hint && <Text style={styles.optionHint}>{hint}</Text>}
+                    </TouchableOpacity>
+                  );
+                }}
+              />
 
-            <View style={styles.modalActions}>
-              <TouchableOpacity
-                style={styles.supersetCancelButton}
-                onPress={() => setSupersetPickerVisible(false)}
-              >
-                <Text style={styles.cancelText}>Cancelar</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.doneButton}
-                onPress={confirmSuperset}
-                disabled={supersetSelection.length < 2}
-              >
-                <Text
-                  style={supersetSelection.length < 2 ? styles.doneTextDisabled : styles.doneText}
+              <View style={styles.modalActions}>
+                <TouchableOpacity
+                  style={styles.supersetCancelButton}
+                  onPress={() => setSupersetPickerVisible(false)}
                 >
-                  Listo ({supersetSelection.length})
-                </Text>
-              </TouchableOpacity>
+                  <Text style={styles.cancelText}>Cancelar</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.doneButton}
+                  onPress={confirmSuperset}
+                  disabled={supersetSelection.length < 2}
+                >
+                  <Text
+                    style={supersetSelection.length < 2 ? styles.doneTextDisabled : styles.doneText}
+                  >
+                    Listo ({supersetSelection.length})
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </View>
-          </View>
+          </KeyboardAvoidingView>
         </View>
       </Modal>
     </SafeAreaView>
@@ -679,12 +743,23 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.4)",
     justifyContent: "flex-end",
   },
+  // El tope de altura vive aquí, no en modalCard: un maxHeight en % solo se
+  // resuelve si el padre tiene una altura definida, y modalBackdrop (flex: 1
+  // dentro de un Modal a pantalla completa) sí la tiene -- KeyboardAvoidingView
+  // es ese padre directo. Antes el 70% estaba en modalCard, cuyo padre
+  // (KeyboardAvoidingView sin estilo propio) no tiene altura definida, así
+  // que el límite nunca se aplicaba de verdad: la tarjeta crecía tanto como
+  // su contenido (todos los ejercicios) y lo que no cabía en pantalla
+  // quedaba cortado por el borde, no accesible con scroll.
+  avoider: {
+    maxHeight: "70%",
+  },
   modalCard: {
     backgroundColor: "#fff",
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
     padding: 20,
-    maxHeight: "70%",
+    flexShrink: 1,
   },
   modalTitle: {
     fontSize: 20,
@@ -706,6 +781,12 @@ const styles = StyleSheet.create({
     textAlign: "center",
     fontWeight: "600",
     color: "#1b8a1b",
+  },
+  optionHint: {
+    fontSize: 12,
+    color: "#999",
+    textAlign: "center",
+    marginTop: 2,
   },
   cancelButton: {
     paddingVertical: 14,

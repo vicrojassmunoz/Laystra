@@ -31,6 +31,8 @@ def init_db() -> None:
     """Create tables that don't exist yet. No migrations (Alembic) in Fase 1 — see MVP.md."""
     Base.metadata.create_all(bind=engine)
     _add_missing_columns()
+    _backfill_muscle_groups()
+    _backfill_workout_set_units()
 
 
 # Ligero mecanismo de migración ad-hoc: este proyecto no usa Alembic, y
@@ -44,7 +46,8 @@ def init_db() -> None:
 # en una DB antigua que aún no la tiene.
 _COLUMNS_TO_ADD: dict[str, list[tuple[str, str]]] = {
     "routine_exercises": [("superset_group", "INTEGER")],
-    "workout_sets": [("superset_group", "INTEGER")],
+    "workout_sets": [("superset_group", "INTEGER"), ("unit", "TEXT")],
+    "exercises": [("muscle_group_primary", "TEXT")],
 }
 
 
@@ -64,6 +67,82 @@ def _add_missing_columns(target_engine: Engine | None = None) -> None:
             for column_name, column_type in columns:
                 if column_name not in existing:
                     conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column_name} {column_type}"))
+        conn.commit()
+
+
+# Backfill de la clasificación por grupo muscular contra ejercicios que ya
+# existían antes de este campo (típicamente laystra.db en producción, con los
+# 24 ejercicios reales del usuario ya insertados). No usa el ORM (Session)
+# porque, igual que _add_missing_columns, tiene que poder correr contra un
+# schema que puede no coincidir exactamente con los modelos actuales — usa SQL
+# crudo sobre el mismo target_engine opcional para poder testearlo igual.
+#
+# Idempotencia: usa "muscle_group_primary era NULL antes de este UPDATE" como
+# señal de "este ejercicio aún no se ha backfilleado". Tras la primera pasada
+# que encuentra un match en el catálogo, la fila deja de ser NULL, así que
+# pasadas siguientes no la vuelven a tocar ni duplican sus filas hijas en
+# exercise_secondary_muscles. Un ejercicio cuyo nombre no está en el catálogo
+# (p. ej. añadido a mano fuera de este backfill) se queda en NULL para
+# siempre — comportamiento esperado, no un bug.
+def _backfill_muscle_groups(target_engine: Engine | None = None) -> None:
+    from app.muscle_taxonomy import EXERCISE_MUSCLE_GROUPS
+
+    with (target_engine or engine).connect() as conn:
+        existing = {row[1] for row in conn.execute(text("PRAGMA table_info(exercises)"))}
+        if "muscle_group_primary" not in existing:
+            # La tabla exercises no existe o _add_missing_columns todavía no ha
+            # corrido en este engine (init_db() siempre la llama antes que a esta
+            # función, pero nos protegemos igual si se invoca fuera de orden).
+            return
+
+        rows = conn.execute(
+            text("SELECT id, name FROM exercises WHERE muscle_group_primary IS NULL")
+        ).fetchall()
+        for exercise_id, name in rows:
+            match = EXERCISE_MUSCLE_GROUPS.get(name)
+            if match is None:
+                continue
+            primary, secondaries = match
+            conn.execute(
+                text("UPDATE exercises SET muscle_group_primary = :primary WHERE id = :id"),
+                {"primary": primary, "id": exercise_id},
+            )
+            for muscle in secondaries:
+                conn.execute(
+                    text(
+                        "INSERT INTO exercise_secondary_muscles (exercise_id, muscle_group) "
+                        "VALUES (:exercise_id, :muscle_group)"
+                    ),
+                    {"exercise_id": exercise_id, "muscle_group": muscle},
+                )
+        conn.commit()
+
+
+def _backfill_workout_set_units(target_engine: Engine | None = None) -> None:
+    """Copia Exercise.unit a WorkoutSet.unit para filas anteriores a la columna.
+    Idempotente: solo toca unit IS NULL."""
+    with (target_engine or engine).connect() as conn:
+        ws_columns = {row[1] for row in conn.execute(text("PRAGMA table_info(workout_sets)"))}
+        if "unit" not in ws_columns or "exercise_id" not in ws_columns:
+            return
+        tables = {
+            row[0]
+            for row in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'"))
+        }
+        if "exercises" not in tables:
+            return
+        conn.execute(
+            text(
+                """
+                UPDATE workout_sets
+                SET unit = COALESCE(
+                    (SELECT unit FROM exercises WHERE exercises.id = workout_sets.exercise_id),
+                    'kg'
+                )
+                WHERE unit IS NULL
+                """
+            )
+        )
         conn.commit()
 
 

@@ -8,7 +8,10 @@
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.vicrojasmunoz.laystra"
+      "bundleIdentifier": "com.vicrojasmunoz.laystra",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -27,6 +30,10 @@
         "projectId": "fd97440d-bcf4-4ab7-bb62-7d916b0e0d54"
       }
     },
-    "owner": "vicrojass"
+    "owner": "vicrojass",
+    "plugins": [
+      "expo-sharing",
+      "expo-status-bar"
+    ]
   }
 }

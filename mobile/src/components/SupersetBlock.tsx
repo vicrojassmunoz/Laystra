@@ -1,4 +1,10 @@
-import { Button, StyleSheet, Text, TextInput, View } from "react-native";
+import { Button, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+
+import { LockedBodyweightLabel, WeightUnitChips } from "./WeightUnitChips";
+import PrBadge from "./PrBadge";
+import { parseDecimalInput } from "../utils/number";
+import { toKg } from "../utils/weightUnit";
+import { WeightUnit } from "../types/exercise";
 
 // Forma compartida de una fila de serie editable -- misma forma que
 // `SetDraft` en TodayScreen y `EditSetDraft` en HistorialScreen (que ahora
@@ -13,8 +19,13 @@ export type SetDraft = {
 
 export type SupersetBlockMember = {
   key: string;
+  // exercise_id real del ejercicio (no la key de fila) -- necesario para
+  // buscar en bestWeights, que se indexa por exercise_id igual que en
+  // TodayScreen. Tanto TodayScreen como HistorialScreen ya tienen este dato
+  // a mano al construir `members`, así que no cuesta nada exponerlo.
+  exerciseId: number;
   name: string;
-  unit: string;
+  unit: WeightUnit;
   sets: SetDraft[];
 };
 
@@ -24,6 +35,14 @@ type Props = {
   onChangeSet: (memberIndex: number, roundIndex: number, patch: Partial<SetDraft>) => void;
   onAddRound: () => void;
   onRemoveRound: (roundIndex: number) => void;
+  onChangeUnit?: (memberIndex: number, unit: WeightUnit) => void;
+  latestBodyWeight?: number | null;
+  bestWeights?: Map<number, { weight: number; unit: string }>;
+  // Tras guardar en Hoy: el bloque nace colapsado (solo nombres). Tocar el
+  // header reexpande. Historial no pasa estas props y el bloque queda siempre
+  // abierto, igual que antes.
+  collapsed?: boolean;
+  onToggleCollapse?: () => void;
 };
 
 // Renderiza un bloque de super-serie como "rondas intercaladas": una ronda
@@ -46,13 +65,34 @@ export default function SupersetBlock({
   onChangeSet,
   onAddRound,
   onRemoveRound,
+  onChangeUnit,
+  latestBodyWeight = null,
+  bestWeights,
+  collapsed = false,
+  onToggleCollapse,
 }: Props) {
   const roundCount = members.reduce((max, m) => Math.max(max, m.sets.length), 0);
+  const names = members.map((m) => m.name).join(" + ");
 
   return (
     <View style={styles.container}>
-      <Text style={styles.label}>Super-serie</Text>
-
+      <Pressable onPress={onToggleCollapse} disabled={!onToggleCollapse}>
+        <Text style={styles.label}>
+          Super-serie
+          {onToggleCollapse ? (collapsed ? " ▸" : " ▾") : ""}
+        </Text>
+        {collapsed && <Text style={styles.collapsedNames}>{names}</Text>}
+      </Pressable>
+      {!collapsed && (
+        <>
+      {members.map((member, memberIndex) => (
+        <WeightUnitChips
+          key={`unit-${member.key}`}
+          value={member.unit}
+          onChange={(unit) => onChangeUnit?.(memberIndex, unit)}
+          disabled={disabled || !onChangeUnit}
+        />
+      ))}
       {Array.from({ length: roundCount }, (_, roundIndex) => {
         // Key estable por ronda: combina los ids (estables, de SetDraft) de
         // las filas presentes en esta ronda en vez del índice posicional --
@@ -83,19 +123,39 @@ export default function SupersetBlock({
                 return null;
               }
 
+              // Badge de PR: mismo criterio que la rama "single" de
+              // TodayScreen -- compara solo contra el mejor peso histórico
+              // precargado (bestWeights), no contra otras series sin guardar
+              // de esta misma sesión. bestWeights es undefined en
+              // HistorialScreen, así que ahí isPr siempre da false.
+              const typedWeight =
+                member.unit === "bw"
+                  ? latestBodyWeight
+                  : parseDecimalInput(setDraft.weight);
+              const bestWeight = bestWeights?.get(member.exerciseId);
+              const isPr =
+                typedWeight !== null &&
+                bestWeight !== undefined &&
+                toKg(typedWeight, member.unit) > toKg(bestWeight.weight, bestWeight.unit);
+
               return (
                 <View key={member.key} style={styles.setRow}>
                   <Text style={styles.exerciseLabel} numberOfLines={1}>
                     {member.name}
                   </Text>
-                  <TextInput
-                    style={styles.weightInput}
-                    placeholder={member.unit}
-                    keyboardType="decimal-pad"
-                    value={setDraft.weight}
-                    editable={!disabled}
-                    onChangeText={(text) => onChangeSet(memberIndex, roundIndex, { weight: text })}
-                  />
+                  {member.unit === "bw" ? (
+                    <LockedBodyweightLabel bodyWeightKg={latestBodyWeight} />
+                  ) : (
+                    <TextInput
+                      style={styles.weightInput}
+                      placeholder={member.unit}
+                      keyboardType="decimal-pad"
+                      value={setDraft.weight}
+                      editable={!disabled}
+                      onChangeText={(text) => onChangeSet(memberIndex, roundIndex, { weight: text })}
+                    />
+                  )}
+                  {isPr && <PrBadge />}
                   <TextInput
                     style={styles.repsInput}
                     placeholder="reps"
@@ -116,6 +176,8 @@ export default function SupersetBlock({
           <Button title="+ añadir ronda" onPress={onAddRound} />
         </View>
       )}
+        </>
+      )}
     </View>
   );
 }
@@ -135,6 +197,12 @@ const styles = StyleSheet.create({
     color: "#3b5bdb",
     marginBottom: 8,
     textTransform: "uppercase",
+  },
+  collapsedNames: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#333",
+    marginBottom: 2,
   },
   round: {
     marginBottom: 10,
