@@ -10,7 +10,7 @@ Entregado: [CHANGELOG.md](CHANGELOG.md). Spec de la última tanda cerrada: [V2.m
 
 ## Próxima tanda sugerida
 
-No hay tanda cohesiva fijada. Lo más barato que queda en "Ahora": PR por volumen (#1), `notes` (#6), asistencia en sesión (#7).
+No hay tanda cohesiva fijada. Lo más barato que queda en "Ahora": PR por volumen (#1), `notes` (#6), asistencia en sesión (#7), registro de agua (#18).
 
 ---
 
@@ -23,6 +23,7 @@ No hay tanda cohesiva fijada. Lo más barato que queda en "Ahora": PR por volume
 | 1 | PR por **volumen** (peso×reps) | ambos | sí | — | Badge o indicador en Hoy al batir mejor serie por volumen, no solo por peso | El badge de PR por **peso máximo** ya está en v1 (ver CHANGELOG). Falta la segunda mitad del ítem original: mejor serie por volumen por ejercicio. |
 | 6 | Sensaciones en el registro (`notes`) | ambos | sí | — | Campo texto libre en workout o set; persiste y se muestra en Historial | Que una IA las lea es ítem #15; esto es solo captura. |
 | 7 | Asistencia en sesión (sin notificaciones) | mobile | sí | — | Timer de sesión + siguiente ejercicio + tips estáticos + log en descanso | Todo en Expo Go. Base para ítem #13. |
+| 18 | Registro de agua | ambos | sí | — | Añadir agua del día en ml o por recipiente (vaso, taza, botella…) con tamaño ajustable y aviso al cambiarlo; objetivo diario y progreso en Home | Atajos de recipiente con capacidad por defecto, editable (más/menos) con aviso porque altera el total. Recipientes propios (nombre + ml), deshacer última entrada, histórico por día. Backend: entradas (fecha, ml, recipiente) + recipientes; incluir en backup/CSV. Opcional futuro: escribir agua en Apple Salud (#17). |
 
 ### Después — coste medio
 
@@ -30,6 +31,7 @@ No hay tanda cohesiva fijada. Lo más barato que queda en "Ahora": PR por volume
 |---|------|------|---------|------------|--------------|-------------|
 | 8 | Temporizador de descanso con alarma real | mobile | **no** (EAS) | — | Alarma suena con app en background | Primer salto fuera de Expo Go (`eas-agent`). Notificaciones locales fiables. |
 | 9 | Home con silueta de cuerpo tapeable | mobile | sí | — | Tocar región del SVG filtra/navega por grupo muscular | `react-native-svg` + asset con regiones mapeadas a las 8 categorías de `muscle_group_primary`. |
+| 19 | Contador de pasos | ambos | MVP sí / completo **no** (EAS) | #17 (versión completa) | Tile en Home con pasos de hoy, objetivo diario e histórico semanal | **MVP:** `expo-sensors` `Pedometer` (Expo Go; en iOS ~7 días de historial, solo iPhone, sin Watch). **Completo:** leer pasos de HealthKit (#17), que ya agrega iPhone + Watch + otras apps; pide permiso una vez, no hay que pasar datos a mano. Requiere build EAS. Backend: resumen diario de pasos. Decisión pendiente: arrancar con Pedometer o saltar a HealthKit. |
 
 ### Algún día — coste grande
 
