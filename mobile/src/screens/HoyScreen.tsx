@@ -11,9 +11,12 @@ import SessionClock from "../components/SessionClock";
 import Button from "../components/ui/Button";
 import { Card, SectionHeader } from "../components/ui/Card";
 import Icon from "../components/ui/Icon";
+import FadeInView from "../components/ui/FadeInView";
+import PressableScale from "../components/ui/PressableScale";
 import ProgressBar from "../components/ui/ProgressBar";
 import Screen, { ScreenError, ScreenLoading } from "../components/ui/Screen";
 import Txt from "../components/ui/Txt";
+import { haptic } from "../motion/motion";
 import { INACTIVITY_LABEL, useSession } from "../session/SessionContext";
 import { makeStyles, space, useTheme } from "../theme/theme";
 import { Exercise } from "../types/exercise";
@@ -127,6 +130,7 @@ export default function HoyScreen() {
 
   function openSession() {
     if (!active) {
+      haptic.light();
       startSession();
     }
     navigation.navigate("Sesion");
@@ -261,8 +265,9 @@ export default function HoyScreen() {
                     <Icon name={isOpen ? "collapse" : "expand"} size={13} color={colors.tint} />
                   </Pressable>
 
-                  {isOpen
-                    ? summarizeByExercise(workout.sets, exerciseById).map((exercise) => (
+                  {isOpen ? (
+                    <FadeInView>
+                      {summarizeByExercise(workout.sets, exerciseById).map((exercise) => (
                         <View key={exercise.exerciseId} style={styles.exerciseBlock}>
                           <Txt variant="callout" weight="600">
                             {exercise.name}
@@ -271,8 +276,9 @@ export default function HoyScreen() {
                             {exercise.line}
                           </Txt>
                         </View>
-                      ))
-                    : null}
+                      ))}
+                    </FadeInView>
+                  ) : null}
                 </Card>
               );
             })}
@@ -287,7 +293,12 @@ export default function HoyScreen() {
 
       <View>
         <SectionHeader>Agua</SectionHeader>
-        <Pressable onPress={() => navigation.navigate("Agua")} accessibilityRole="button">
+        <PressableScale
+          onPress={() => navigation.navigate("Agua")}
+          accessibilityRole="button"
+          scaleTo={0.98}
+          dimTo={1}
+        >
           <Card>
             {water ? (
               <>
@@ -310,7 +321,7 @@ export default function HoyScreen() {
               </Txt>
             )}
           </Card>
-        </Pressable>
+        </PressableScale>
       </View>
     </Screen>
   );

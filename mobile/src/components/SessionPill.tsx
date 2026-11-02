@@ -1,17 +1,21 @@
-import { Pressable, View } from "react-native";
+import { View } from "react-native";
+import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useSession } from "../session/SessionContext";
 import { makeStyles, space, useTheme } from "../theme/theme";
 import SessionClock from "./SessionClock";
 import Icon from "./ui/Icon";
+import PressableScale from "./ui/PressableScale";
 
 const useStyles = makeStyles(({ colors }) => ({
-  pill: {
+  wrap: {
     position: "absolute",
     right: space.md,
     zIndex: 1000,
     elevation: 8,
+  },
+  pill: {
     flexDirection: "row",
     alignItems: "center",
     gap: space.sm,
@@ -50,21 +54,28 @@ export default function SessionPill({
   const paused = pausedAt !== null;
 
   return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel={paused ? "Volver a la sesión en pausa" : "Volver a la sesión en curso"}
-      style={[styles.pill, { top: insets.top + 6 }]}
-      hitSlop={8}
+    // Aparece / desaparece con un fundido corto (elemento "ocasional").
+    <Animated.View
+      entering={FadeIn.duration(180)}
+      exiting={FadeOut.duration(120)}
+      style={[styles.wrap, { top: insets.top + 6 }]}
     >
-      <View style={[styles.dot, { backgroundColor: paused ? colors.warning : colors.success }]} />
-      <Icon name="train" size={16} color={colors.tint} />
-      <SessionClock
-        startedAt={startedAt}
-        pausedAt={pausedAt}
-        variant="subhead"
-        tone={paused ? "warning" : "label"}
-      />
-    </Pressable>
+      <PressableScale
+        onPress={onPress}
+        accessibilityRole="button"
+        accessibilityLabel={paused ? "Volver a la sesión en pausa" : "Volver a la sesión en curso"}
+        hitSlop={8}
+        boxStyle={styles.pill}
+      >
+        <View style={[styles.dot, { backgroundColor: paused ? colors.warning : colors.success }]} />
+        <Icon name="train" size={16} color={colors.tint} />
+        <SessionClock
+          startedAt={startedAt}
+          pausedAt={pausedAt}
+          variant="subhead"
+          tone={paused ? "warning" : "label"}
+        />
+      </PressableScale>
+    </Animated.View>
   );
 }

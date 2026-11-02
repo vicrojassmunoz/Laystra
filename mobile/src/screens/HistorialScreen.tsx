@@ -19,6 +19,7 @@ import ExercisePickerList from "../components/ExercisePickerList";
 import SupersetBlock, { SetDraft } from "../components/SupersetBlock";
 import SetRow from "../components/SetRow";
 import Button from "../components/ui/Button";
+import FadeInView from "../components/ui/FadeInView";
 import { Card, SectionHeader } from "../components/ui/Card";
 import Icon from "../components/ui/Icon";
 import { ScreenError, ScreenLoading } from "../components/ui/Screen";
@@ -761,7 +762,7 @@ export default function HistorialScreen() {
                     ) : null}
 
                     {isOpen ? (
-                      <>
+                      <FadeInView style={{ gap: space.sm }}>
                         {summarizeByExercise(workout.sets, exerciseById).map((exercise) => (
                           <View key={exercise.exerciseId} style={styles.exerciseBlock}>
                             <Txt variant="callout" weight="600">
@@ -789,7 +790,7 @@ export default function HistorialScreen() {
                             onPress={() => confirmDelete(workout, routineName)}
                           />
                         </View>
-                      </>
+                      </FadeInView>
                     ) : null}
                   </Card>
                 );

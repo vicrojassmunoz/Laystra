@@ -10,6 +10,7 @@ import Icon from "../components/ui/Icon";
 import Screen, { ScreenError, ScreenLoading } from "../components/ui/Screen";
 import TextField from "../components/ui/TextField";
 import Txt from "../components/ui/Txt";
+import { haptic } from "../motion/motion";
 import { makeStyles, space, useTheme } from "../theme/theme";
 import { Goal } from "../types/goal";
 import { showAlert } from "../utils/alert";
@@ -117,7 +118,12 @@ export default function ObjetivosScreen() {
       target_date: goal.target_date,
       done: !goal.done,
     })
-      .then(() => load())
+      .then(() => {
+        if (!goal.done) {
+          haptic.success();
+        }
+        load();
+      })
       .catch((error: Error) => setActionError(error.message));
   }
 

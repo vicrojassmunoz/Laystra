@@ -1,7 +1,8 @@
-import { Pressable, StyleProp, View, ViewStyle } from "react-native";
+import { StyleProp, View, ViewStyle } from "react-native";
 
 import { TOUCH, makeStyles, radius, space, useTheme } from "../../theme/theme";
 import Icon, { IconName } from "./Icon";
+import PressableScale from "./PressableScale";
 import Txt from "./Txt";
 
 const useStyles = makeStyles(({ colors }) => ({
@@ -23,7 +24,6 @@ const useStyles = makeStyles(({ colors }) => ({
   plainDestructive: { backgroundColor: "transparent" },
   iconOnly: { minWidth: TOUCH, paddingHorizontal: 0 },
   disabled: { opacity: 0.4 },
-  pressed: { opacity: 0.6 },
   full: { alignSelf: "stretch" },
 }));
 
@@ -44,6 +44,7 @@ type Props = {
 
 // Botón de acción. filled = acción principal de la pantalla (una por pantalla);
 // tinted = acción secundaria; plain = terciaria; destructive = borrar/descartar.
+// La pulsación escala 0.97 en 120 ms (PressableScale).
 export default function Button({
   title,
   onPress,
@@ -68,36 +69,35 @@ export default function Button({
   const verticalSlop = size === "compact" ? 5 : 0;
 
   return (
-    <Pressable
+    <PressableScale
       onPress={onPress}
       disabled={disabled}
       accessibilityRole="button"
       accessibilityLabel={iconOnly ? title : undefined}
       accessibilityState={{ disabled }}
       hitSlop={{ top: verticalSlop, bottom: verticalSlop, left: 4, right: 4 }}
-      style={({ pressed }) => [
+      style={[fullWidth && styles.full, style]}
+      boxStyle={[
         styles.base,
         styles[size],
         styles[variant],
         fullWidth && styles.full,
         iconOnly && styles.iconOnly,
         disabled && styles.disabled,
-        pressed && styles.pressed,
-        style,
       ]}
     >
       {icon ? <Icon name={icon} size={size === "compact" ? 15 : 18} color={textColor} /> : null}
       {iconOnly ? null : (
-      <View>
-        <Txt
-          variant={size === "compact" ? "subhead" : size === "large" ? "headline" : "callout"}
-          weight="600"
-          style={{ color: textColor }}
-        >
-          {title}
-        </Txt>
-      </View>
+        <View>
+          <Txt
+            variant={size === "compact" ? "subhead" : size === "large" ? "headline" : "callout"}
+            weight="600"
+            style={{ color: textColor }}
+          >
+            {title}
+          </Txt>
+        </View>
       )}
-    </Pressable>
+    </PressableScale>
   );
 }

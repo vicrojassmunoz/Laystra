@@ -30,6 +30,7 @@ import SessionBar from "../components/SessionBar";
 import SupersetBlock, { SetDraft } from "../components/SupersetBlock";
 import { WeightUnitChips } from "../components/WeightUnitChips";
 import { ExerciseDraft, FormTarget, useSession } from "../session/SessionContext";
+import { haptic } from "../motion/motion";
 import { makeStyles, space, useTheme } from "../theme/theme";
 import { Exercise, WeightUnit } from "../types/exercise";
 import { Routine } from "../types/routine";
@@ -311,6 +312,7 @@ export default function SesionScreen() {
       );
 
     const finish = () => {
+      haptic.medium();
       stopSession();
       // Reset en vez de navigate("Hoy"): si se llegó a Sesión desde otra pantalla
       // (la píldora flotante), navigate empujaba un Hoy NUEVO encima y el back
@@ -905,6 +907,7 @@ export default function SesionScreen() {
       sets,
     })
       .then((workout) => {
+        haptic.success();
         const distinctExercises = new Set(sets.map((s) => s.exercise_id)).size;
         // Duración de ESTE entreno: desde que empezó la sesión o desde el
         // guardado anterior, no desde el inicio de la sesión entera.
@@ -987,7 +990,14 @@ export default function SesionScreen() {
             startedAt={sessionStartedAt}
             lastSetAt={lastSetAt}
             pausedAt={pausedAt}
-            onTogglePause={pausedAt === null ? pauseSession : resumeSession}
+            onTogglePause={() => {
+              haptic.light();
+              if (pausedAt === null) {
+                pauseSession();
+              } else {
+                resumeSession();
+              }
+            }}
             onStop={handleStopSession}
             nextLabel={!skipped && !submitted ? nextExerciseLabel : null}
             tip={!skipped && !submitted ? nextExerciseTip : null}

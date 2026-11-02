@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { View } from "react-native";
+import Animated from "react-native-reanimated";
 
+import { STATE_MS, transition } from "../motion/motion";
 import { makeStyles, space, useTheme } from "../theme/theme";
 import Button from "./ui/Button";
 import Icon from "./ui/Icon";
@@ -78,7 +80,8 @@ export default function SessionBar({
   const paused = pausedAt !== null;
 
   return (
-    <View style={[styles.bar, paused && styles.barPaused]}>
+    // El fondo cambia de color al pausar/reanudar (indica el estado) en 200 ms.
+    <Animated.View style={[styles.bar, paused && styles.barPaused, transition("backgroundColor", STATE_MS)]}>
       <View style={styles.topRow}>
         <View style={styles.clocks}>
           <View>
@@ -128,6 +131,6 @@ export default function SessionBar({
           </Txt>
         </View>
       ) : null}
-    </View>
+    </Animated.View>
   );
 }

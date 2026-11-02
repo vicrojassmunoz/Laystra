@@ -1,12 +1,13 @@
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import { useCallback, useRef, useState } from "react";
-import { Pressable, View } from "react-native";
+import { View } from "react-native";
 
 import { fetchSchedule } from "../api/schedule";
 import { fetchToday, todayIsoDate } from "../api/today";
 import { fetchWaterDay } from "../api/water";
 import { fetchWorkouts } from "../api/workouts";
 import { Card, Section } from "../components/ui/Card";
+import PressableScale from "../components/ui/PressableScale";
 import Row from "../components/ui/Row";
 import Screen, { ScreenError, ScreenLoading } from "../components/ui/Screen";
 import Txt from "../components/ui/Txt";
@@ -167,7 +168,12 @@ export default function HomeScreen() {
 
   return (
     <Screen>
-      <Pressable onPress={() => navigation.navigate("Semana")} accessibilityRole="button">
+      <PressableScale
+        onPress={() => navigation.navigate("Semana")}
+        accessibilityRole="button"
+        scaleTo={0.98}
+        dimTo={1}
+      >
         <Card>
           <View style={styles.stripHeader}>
             <Txt variant="headline">Esta semana</Txt>
@@ -192,7 +198,7 @@ export default function HomeScreen() {
             })}
           </View>
         </Card>
-      </Pressable>
+      </PressableScale>
 
       <Section>
         <Row

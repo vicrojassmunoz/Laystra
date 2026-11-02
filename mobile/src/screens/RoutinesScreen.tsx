@@ -17,6 +17,7 @@ import { fetchExercises } from "../api/exercises";
 import { createRoutine, deleteRoutine, fetchRoutines, updateRoutine } from "../api/routines";
 import ExercisePickerList from "../components/ExercisePickerList";
 import Button from "../components/ui/Button";
+import FadeInView from "../components/ui/FadeInView";
 import { Card } from "../components/ui/Card";
 import Icon from "../components/ui/Icon";
 import { ScreenError, ScreenLoading } from "../components/ui/Screen";
@@ -508,7 +509,7 @@ export default function RoutinesScreen() {
                 </Pressable>
 
                 {isOpen ? (
-                  <>
+                  <FadeInView style={{ gap: space.sm }}>
                     <View style={styles.exerciseList}>
                       {groupBySuperset(
                         routine.exercises.slice().sort((a, b) => a.order - b.order),
@@ -544,7 +545,7 @@ export default function RoutinesScreen() {
                         onPress={() => confirmDelete(routine)}
                       />
                     </View>
-                  </>
+                  </FadeInView>
                 ) : null}
               </Card>
             );

@@ -1,6 +1,6 @@
-import { Pressable } from "react-native";
-
+import { haptic } from "../../motion/motion";
 import { TOUCH, makeStyles, radius, space, useTheme } from "../../theme/theme";
+import PressableScale from "./PressableScale";
 import Txt from "./Txt";
 
 const useStyles = makeStyles(({ colors }) => ({
@@ -14,10 +14,11 @@ const useStyles = makeStyles(({ colors }) => ({
     backgroundColor: colors.fill,
   },
   selected: { backgroundColor: colors.tint },
-  pressed: { opacity: 0.6 },
+  disabled: { opacity: 0.4 },
 }));
 
 // Opción de una selección corta (fracciones, unidades). Seleccionado = tint lleno.
+// Elegir una opción nueva da un "tick" háptico (un valor que cambia de paso).
 export default function Chip({
   label,
   selected = false,
@@ -32,18 +33,18 @@ export default function Chip({
   const styles = useStyles();
   const { colors } = useTheme();
   return (
-    <Pressable
-      onPress={onPress}
+    <PressableScale
+      onPress={() => {
+        if (!selected) {
+          haptic.tick();
+        }
+        onPress();
+      }}
       disabled={disabled}
       accessibilityRole="button"
       accessibilityState={{ selected, disabled }}
       hitSlop={{ top: 4, bottom: 4 }}
-      style={({ pressed }) => [
-        styles.chip,
-        selected && styles.selected,
-        disabled && { opacity: 0.4 },
-        pressed && styles.pressed,
-      ]}
+      boxStyle={[styles.chip, selected && styles.selected, disabled && styles.disabled]}
     >
       <Txt
         variant="callout"
@@ -52,6 +53,6 @@ export default function Chip({
       >
         {label}
       </Txt>
-    </Pressable>
+    </PressableScale>
   );
 }

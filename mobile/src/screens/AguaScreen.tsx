@@ -24,6 +24,7 @@ import Row from "../components/ui/Row";
 import Screen, { ScreenError, ScreenLoading } from "../components/ui/Screen";
 import TextField from "../components/ui/TextField";
 import Txt from "../components/ui/Txt";
+import { haptic } from "../motion/motion";
 import { makeStyles, radius, space, useTheme } from "../theme/theme";
 import { WaterContainer, WaterDay, WaterDayTotal } from "../types/water";
 import { showAlert } from "../utils/alert";
@@ -165,7 +166,14 @@ export default function AguaScreen() {
 
   function addWater(ml: number, containerName: string | null) {
     const submit = () =>
-      run(() => createWaterEntry({ date: todayIsoDate(), ml, container_name: containerName }));
+      run(() => createWaterEntry({ date: todayIsoDate(), ml, container_name: containerName })).then(
+        (ok) => {
+          if (ok) {
+            haptic.light();
+          }
+          return ok;
+        }
+      );
 
     // Cantidades enormes en una sola entrada casi siempre son un typo.
     if (ml > LARGE_WATER_ENTRY_ML) {

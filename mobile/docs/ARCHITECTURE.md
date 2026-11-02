@@ -87,6 +87,10 @@ Tipos: `src/types/navigation.ts` (`RootStackParamList` únicamente).
 
 Visual world "Native Calm" documentado en [`DESIGN.md`](../../DESIGN.md) (raíz). Código en `src/theme/theme.ts` (tokens claro/oscuro, `makeStyles`, `useTheme`) y `src/components/ui/` (`Txt`, `Screen`, `Card`/`Section`, `Row`, `Button`, `Chip`, `TextField`, `ProgressBar`, `Icon`). Todas las pantallas están rediseñadas con el sistema nuevo. Solo las filas y hojas de los pickers de ejercicio (en Sesión, Rutinas e Historial) siguen con estilos antiguos con tema (`components/ui/compat`: mismo API que `Text`/`TextInput`/`Button` nativos pero con colores del tema). Títulos en línea en la cabecera nativa. Modo Oscuro: `app.json` en `automatic`; Perfil → Apariencia guarda la preferencia (`src/theme/appearance.ts`, AsyncStorage + `Appearance.setColorScheme`). Iconos: SF Symbols en iOS (`expo-symbols`), Ionicons como sustituto en web.
 
+## Movimiento
+
+Reglas y valores en [`DESIGN.md`](../../DESIGN.md) → *Motion*. Código: `src/motion/motion.ts` (curvas, duraciones, `transition()` para las propiedades CSS de Reanimated, `haptic.*`), `components/ui/PressableScale` y `FadeInView`. Los hápticos no hacen nada en web.
+
 ## Vista previa en navegador (web)
 
 `npx expo start --web` (o `w` en el menú de `expo start`) sirve la misma app con `react-native-web` en `http://localhost:8081`. **Es solo para iterar diseño y layout** (más rápido que Expo Go, y se puede abrir en el modo móvil de las DevTools); el iPhone sigue siendo la verdad final: SF vs fuente del navegador, cabecera/gestos nativos, safe areas, hápticos y animaciones del sistema no coinciden.
