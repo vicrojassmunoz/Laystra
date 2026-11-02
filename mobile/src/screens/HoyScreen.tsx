@@ -11,16 +11,19 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { fetchExercises } from "../api/exercises";
 import { fetchRoutines } from "../api/routines";
 import { fetchToday, todayIsoDate, TodayResponse } from "../api/today";
 import { fetchWaterDay } from "../api/water";
 import { fetchWorkouts } from "../api/workouts";
 import SessionClock from "../components/SessionClock";
 import { INACTIVITY_LABEL, useSession } from "../session/SessionContext";
+import { Exercise } from "../types/exercise";
 import { Routine } from "../types/routine";
 import { WaterDay } from "../types/water";
 import { Workout } from "../types/workout";
 import { formatMl } from "../utils/water";
+import { summarizeByExercise } from "../utils/workoutSummary";
 import { toKg } from "../utils/weightUnit";
 
 type State =
@@ -30,6 +33,7 @@ type State =
       status: "ready";
       today: TodayResponse;
       routines: Routine[];
+      exercises: Exercise[];
       workouts: Workout[]; // solo los de hoy
       water: WaterDay | null;
     };
@@ -60,6 +64,20 @@ export default function HoyScreen() {
   const { active, startedAt, pausedAt, startSession, notificationsDenied } = useSession();
   const [state, setState] = useState<State>({ status: "loading" });
   const hasDataRef = useRef(false);
+  // Entrenos de hoy desplegados (ids). Vacío = todos recogidos.
+  const [expanded, setExpanded] = useState<Set<number>>(new Set());
+
+  function toggleExpanded(workoutId: number) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(workoutId)) {
+        next.delete(workoutId);
+      } else {
+        next.add(workoutId);
+      }
+      return next;
+    });
+  }
 
   const load = useCallback(() => {
     if (!hasDataRef.current) {
@@ -70,16 +88,20 @@ export default function HoyScreen() {
     Promise.all([
       fetchToday(),
       fetchRoutines(),
+      // Solo para poner nombre a los ejercicios del desplegable; si falla se
+      // muestran como "Ejercicio #id" en vez de romper el resumen.
+      fetchExercises().catch(() => [] as Exercise[]),
       fetchWorkouts(),
       // El agua es opcional aquí: si falla, el resto del resumen sigue.
       fetchWaterDay(todayIso).catch(() => null),
     ])
-      .then(([today, routines, workouts, water]) => {
+      .then(([today, routines, exercises, workouts, water]) => {
         hasDataRef.current = true;
         setState({
           status: "ready",
           today,
           routines,
+          exercises,
           workouts: workouts.filter((w) => w.date === todayIso),
           water,
         });
@@ -121,8 +143,9 @@ export default function HoyScreen() {
     );
   }
 
-  const { today, routines, workouts, water } = state;
+  const { today, routines, exercises, workouts, water } = state;
   const routineById = new Map(routines.map((r) => [r.id, r]));
+  const exerciseById = new Map(exercises.map((e) => [e.id, e]));
   const totalVolumeKg = workouts.reduce((sum, w) => sum + workoutStats(w).volumeKg, 0);
 
   return (
@@ -180,6 +203,20 @@ export default function HoyScreen() {
                 {stats.sets === 1 ? "" : "s"} · {Math.round(stats.volumeKg)} kg de volumen
               </Text>
               {workout.notes ? <Text style={styles.notes}>📝 {workout.notes}</Text> : null}
+
+              <TouchableOpacity onPress={() => toggleExpanded(workout.id)} hitSlop={8}>
+                <Text style={styles.link}>
+                  {expanded.has(workout.id) ? "Ocultar ejercicios ▾" : "Ver ejercicios ▸"}
+                </Text>
+              </TouchableOpacity>
+
+              {expanded.has(workout.id) &&
+                summarizeByExercise(workout.sets, exerciseById).map((exercise) => (
+                  <View key={exercise.exerciseId} style={styles.exerciseBlock}>
+                    <Text style={styles.exerciseName}>{exercise.name}</Text>
+                    <Text style={styles.exerciseSets}>{exercise.entries.join(", ")}</Text>
+                  </View>
+                ))}
             </View>
           );
         })}
@@ -215,6 +252,9 @@ const styles = StyleSheet.create({
   bigClock: { fontSize: 40, fontWeight: "700", fontVariant: ["tabular-nums"] },
   workoutName: { fontSize: 17, fontWeight: "600", marginBottom: 2 },
   muted: { fontSize: 14, color: "#555" },
+  exerciseBlock: { marginTop: 8 },
+  exerciseName: { fontSize: 15, fontWeight: "600" },
+  exerciseSets: { fontSize: 14, color: "#333", marginTop: 1 },
   notes: { fontSize: 14, color: "#555", fontStyle: "italic", marginTop: 6 },
   link: { fontSize: 14, color: "#3b5bdb", marginTop: 6 },
   warning: { fontSize: 13, color: "#b8860b", marginTop: 10 },
