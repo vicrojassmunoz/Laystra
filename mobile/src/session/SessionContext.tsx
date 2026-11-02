@@ -37,11 +37,11 @@ export type SavedSummary = {
 
 type Snapshot = { formTarget: FormTarget; formRows: ExerciseDraft[]; notes: string };
 
-// "¿Sigues por aquí?": si pasan 2 h sin teclear nada nuevo en la sesión, llega
+// "¿Sigues por aquí?": si pasa 1 h sin teclear nada nuevo en la sesión, llega
 // una notificación local. Se programa en el sistema (no depende de que la app
 // siga viva en primer plano) y se reprograma en cada actividad.
-const INACTIVITY_SECONDS = 2 * 60 * 60;
-// Texto legible del umbral ("2 h" / "1 min") para el cuerpo del aviso y los textos de Hoy.
+const INACTIVITY_SECONDS = 60 * 60;
+// Texto legible del umbral ("1 h" / "30 min") para el cuerpo del aviso y los textos de Hoy.
 export const INACTIVITY_LABEL =
   INACTIVITY_SECONDS >= 3600
     ? `${INACTIVITY_SECONDS / 3600} h`
