@@ -1,5 +1,10 @@
 import { useEffect, useState } from "react";
-import { Button, StyleSheet, Text, View } from "react-native";
+import { View } from "react-native";
+
+import { makeStyles, space, useTheme } from "../theme/theme";
+import Button from "./ui/Button";
+import Icon from "./ui/Icon";
+import Txt from "./ui/Txt";
 
 type Props = {
   // ms epoch del inicio de sesión; null = aún no empezada.
@@ -26,10 +31,26 @@ export function formatClock(totalSeconds: number): string {
   return hours > 0 ? `${hours}:${mm}:${ss}` : `${mm}:${ss}`;
 }
 
+const useStyles = makeStyles(({ colors }) => ({
+  bar: {
+    backgroundColor: colors.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.separator,
+    paddingHorizontal: space.lg,
+    paddingVertical: space.md,
+    gap: space.sm,
+  },
+  barPaused: { backgroundColor: colors.warningSoft },
+  topRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: space.md },
+  clocks: { flexDirection: "row", gap: space.xl },
+  buttons: { flexDirection: "row", alignItems: "center", gap: space.sm },
+  tipRow: { flexDirection: "row", alignItems: "center", gap: space.sm },
+}));
+
 // Barra de asistencia en sesión (ROADMAP #7): cronómetro de sesión, descanso
 // desde la última serie, siguiente ejercicio y un tip estático. Solo en primer
 // plano -- la alarma real con la app en background es el ítem #8 (EAS). El
-// tick de 1 s vive aquí dentro para no re-renderizar toda la pantalla Hoy.
+// tick de 1 s vive aquí dentro para no re-renderizar toda la pantalla Sesión.
 export default function SessionBar({
   startedAt,
   lastSetAt,
@@ -39,6 +60,8 @@ export default function SessionBar({
   nextLabel,
   tip,
 }: Props) {
+  const styles = useStyles();
+  const { colors } = useTheme();
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
@@ -52,60 +75,59 @@ export default function SessionBar({
 
   // Congelado en la pausa: ambos relojes miden contra el instante de pausa.
   const clockNow = pausedAt ?? now;
+  const paused = pausedAt !== null;
 
   return (
-    <View style={[styles.bar, pausedAt !== null && styles.barPaused]}>
+    <View style={[styles.bar, paused && styles.barPaused]}>
       <View style={styles.topRow}>
         <View style={styles.clocks}>
           <View>
-            <Text style={styles.clockLabel}>Sesión</Text>
-            <Text style={styles.clockValue}>
+            <Txt variant="caption" tone="secondary" weight="600">
+              Sesión
+            </Txt>
+            <Txt variant="title2" numeric tone={paused ? "warning" : "label"}>
               {startedAt === null ? "--:--" : formatClock((clockNow - startedAt) / 1000)}
-            </Text>
+            </Txt>
           </View>
           <View>
-            <Text style={styles.clockLabel}>Descanso</Text>
-            <Text style={styles.clockValue}>
+            <Txt variant="caption" tone="secondary" weight="600">
+              Descanso
+            </Txt>
+            <Txt variant="title2" numeric tone={paused ? "warning" : "label"}>
               {lastSetAt === null ? "--:--" : formatClock((clockNow - lastSetAt) / 1000)}
-            </Text>
+            </Txt>
           </View>
         </View>
         <View style={styles.buttons}>
           <Button
-            title={pausedAt !== null ? "▶ Reanudar" : "⏸ Pausa"}
+            title={paused ? "Reanudar" : "Pausa"}
+            icon={paused ? "play" : "pause"}
+            variant={paused ? "filled" : "tinted"}
+            size="compact"
             onPress={onTogglePause}
           />
-          <Button title="■ Terminar" color="#b00020" onPress={onStop} />
+          <Button title="Terminar sesión" icon="stop" variant="destructive" size="compact" iconOnly onPress={onStop} />
         </View>
       </View>
-      {pausedAt !== null && <Text style={styles.pausedText}>Sesión en pausa</Text>}
 
-      {nextLabel && <Text style={styles.next}>{nextLabel}</Text>}
-      {tip && <Text style={styles.tip}>💡 {tip}</Text>}
+      {paused ? (
+        <Txt variant="subhead" tone="warning" weight="600">
+          Sesión en pausa
+        </Txt>
+      ) : null}
+      {nextLabel ? (
+        <Txt variant="callout" weight="600">
+          {nextLabel}
+        </Txt>
+      ) : null}
+      {tip ? (
+        <View style={styles.tipRow}>
+          <Icon name="tip" size={15} color={colors.labelSecondary} />
+          <Txt variant="footnote" tone="secondary" style={{ flex: 1 }}>
+            {tip}
+          </Txt>
+        </View>
+      ) : null}
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  bar: {
-    backgroundColor: "#eef4ff",
-    borderBottomWidth: 1,
-    borderBottomColor: "#c9dafc",
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-  },
-  barPaused: { backgroundColor: "#fff6e0", borderBottomColor: "#f0d58a" },
-  buttons: { flexDirection: "row", alignItems: "center" },
-  pausedText: { marginTop: 4, fontSize: 13, color: "#b8860b", fontWeight: "600" },
-  topRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 8,
-  },
-  clocks: { flexDirection: "row", gap: 24 },
-  clockLabel: { fontSize: 12, color: "#555", textTransform: "uppercase" },
-  clockValue: { fontSize: 22, fontWeight: "700", fontVariant: ["tabular-nums"] },
-  next: { marginTop: 6, fontSize: 15, fontWeight: "600" },
-  tip: { marginTop: 4, fontSize: 13, color: "#555" },
-});

@@ -1,16 +1,19 @@
-import { Button, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Pressable, View } from "react-native";
 
-import { LockedBodyweightLabel, WeightUnitChips } from "./WeightUnitChips";
-import PrBadge from "./PrBadge";
-import { parseDecimalInput } from "../utils/number";
-import { NO_PR, PrFlags } from "../utils/pr";
+import { makeStyles, radius, space, useTheme } from "../theme/theme";
 import { WeightUnit } from "../types/exercise";
+import { NO_PR, PrFlags } from "../utils/pr";
+import SetRow from "./SetRow";
+import Button from "./ui/Button";
+import { Card } from "./ui/Card";
+import Icon from "./ui/Icon";
+import Txt from "./ui/Txt";
+import { WeightUnitChips } from "./WeightUnitChips";
 
 // Forma compartida de una fila de serie editable -- misma forma que
-// `SetDraft` en TodayScreen y `EditSetDraft` en HistorialScreen (que ahora
-// son alias de este tipo, ver comentarios en esas pantallas). Vive aquí
-// porque este es el único sitio que la necesita en su forma "cruda" (id +
-// weight/reps como string, antes de validar/convertir a número).
+// `SetDraft` en SesionScreen y `EditSetDraft` en HistorialScreen (que son alias
+// de este tipo). Vive aquí porque este es el único sitio que la necesita en su
+// forma "cruda" (id + weight/reps como string, antes de validar/convertir).
 export type SetDraft = {
   id: number;
   weight: string;
@@ -19,10 +22,7 @@ export type SetDraft = {
 
 export type SupersetBlockMember = {
   key: string;
-  // exercise_id real del ejercicio (no la key de fila) -- necesario para
-  // buscar en bestWeights, que se indexa por exercise_id igual que en
-  // TodayScreen. Tanto TodayScreen como HistorialScreen ya tienen este dato
-  // a mano al construir `members`, así que no cuesta nada exponerlo.
+  // exercise_id real del ejercicio (no la key de fila).
   exerciseId: number;
   name: string;
   unit: WeightUnit;
@@ -37,24 +37,39 @@ type Props = {
   onRemoveRound: (roundIndex: number) => void;
   onChangeUnit?: (memberIndex: number, unit: WeightUnit) => void;
   latestBodyWeight?: number | null;
-  // set.id -> badge de PR, calculado por TodayScreen (computePrFlags) porque
+  // set.id -> badge de PR, calculado por SesionScreen (computePrFlags) porque
   // depende de TODAS las series de la sesión, no solo de este bloque. Undefined
   // en HistorialScreen: ahí nunca hay PR.
   prBySetId?: Map<number, PrFlags>;
-  // Tras guardar en Hoy: el bloque nace colapsado (solo nombres). Tocar el
+  // Tras guardar en Sesión: el bloque nace colapsado (solo nombres). Tocar el
   // header reexpande. Historial no pasa estas props y el bloque queda siempre
   // abierto, igual que antes.
   collapsed?: boolean;
   onToggleCollapse?: () => void;
 };
 
+const useStyles = makeStyles(({ colors }) => ({
+  headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  tag: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space.xs,
+    paddingVertical: 3,
+    paddingHorizontal: space.sm,
+    borderRadius: radius.pill,
+    backgroundColor: colors.tintSoft,
+  },
+  round: { gap: space.sm },
+  roundHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+}));
+
 // Renderiza un bloque de super-serie como "rondas intercaladas": una ronda
 // es una posición de serie compartida por todos los miembros del bloque
 // (ronda 1 = primera serie de cada ejercicio del bloque, ronda 2 = segunda,
 // etc.), en vez de una tarjeta por ejercicio como los ejercicios sueltos.
-// "+ añadir ronda" añade una fila a TODOS los miembros a la vez -- por eso
+// "Añadir ronda" añade una fila a TODOS los miembros a la vez -- por eso
 // las callbacks (onAddRound/onRemoveRound) no reciben qué miembro, solo el
-// caller (TodayScreen/HistorialScreen) sabe qué índices de fila del
+// caller (SesionScreen/HistorialScreen) sabe qué índices de fila del
 // formulario corresponden a este bloque y los sincroniza.
 //
 // Los miembros de un bloque pueden partir con distinto número de series
@@ -74,169 +89,99 @@ export default function SupersetBlock({
   collapsed = false,
   onToggleCollapse,
 }: Props) {
+  const styles = useStyles();
+  const { colors } = useTheme();
   const roundCount = members.reduce((max, m) => Math.max(max, m.sets.length), 0);
   const names = members.map((m) => m.name).join(" + ");
 
   return (
-    <View style={styles.container}>
-      <Pressable onPress={onToggleCollapse} disabled={!onToggleCollapse}>
-        <Text style={styles.label}>
-          Super-serie
-          {onToggleCollapse ? (collapsed ? " ▸" : " ▾") : ""}
-        </Text>
-        {collapsed && <Text style={styles.collapsedNames}>{names}</Text>}
+    <Card>
+      <Pressable
+        onPress={onToggleCollapse}
+        disabled={!onToggleCollapse}
+        accessibilityRole={onToggleCollapse ? "button" : undefined}
+        accessibilityState={onToggleCollapse ? { expanded: !collapsed } : undefined}
+        style={styles.headerRow}
+      >
+        <View style={styles.tag}>
+          <Txt variant="caption" tone="tint" weight="700">
+            Super-serie
+          </Txt>
+        </View>
+        {onToggleCollapse ? (
+          <Icon name={collapsed ? "expand" : "collapse"} size={14} color={colors.labelSecondary} />
+        ) : null}
       </Pressable>
-      {!collapsed && (
+
+      {collapsed ? (
+        <Txt variant="headline">{names}</Txt>
+      ) : (
         <>
-      {members.map((member, memberIndex) => (
-        <WeightUnitChips
-          key={`unit-${member.key}`}
-          value={member.unit}
-          onChange={(unit) => onChangeUnit?.(memberIndex, unit)}
-          disabled={disabled || !onChangeUnit}
-        />
-      ))}
-      {Array.from({ length: roundCount }, (_, roundIndex) => {
-        // Key estable por ronda: combina los ids (estables, de SetDraft) de
-        // las filas presentes en esta ronda en vez del índice posicional --
-        // si no, al quitar una ronda intermedia React podía reutilizar el
-        // mismo TextInput enfocado para el valor de otra ronda, aunque el
-        // valor mostrado siguiera siendo correcto (input controlado). Mismo
-        // motivo por el que TodayScreen ya da un id estable a cada SetDraft.
-        const roundKey = members
-          .map((m) => m.sets[roundIndex]?.id ?? "x")
-          .join("-");
-
-        return (
-          <View key={roundKey} style={styles.round}>
-            <View style={styles.roundHeader}>
-              <Text style={styles.roundTitle}>Ronda {roundIndex + 1}</Text>
-              {!disabled && (
-                <Button
-                  title="Quitar ronda"
-                  color="#b00020"
-                  onPress={() => onRemoveRound(roundIndex)}
-                />
-              )}
+          {members.map((member, memberIndex) => (
+            <View key={`unit-${member.key}`} style={{ gap: space.xs }}>
+              <Txt variant="callout" weight="600">
+                {String.fromCharCode(65 + memberIndex)} · {member.name}
+              </Txt>
+              <WeightUnitChips
+                value={member.unit}
+                onChange={(unit) => onChangeUnit?.(memberIndex, unit)}
+                disabled={disabled || !onChangeUnit}
+              />
             </View>
+          ))}
 
-            {members.map((member, memberIndex) => {
-              const setDraft = member.sets[roundIndex];
-              if (!setDraft) {
-                return null;
-              }
+          {Array.from({ length: roundCount }, (_, roundIndex) => {
+            // Key estable por ronda: combina los ids (estables, de SetDraft) de
+            // las filas presentes en esta ronda en vez del índice posicional --
+            // si no, al quitar una ronda intermedia React podía reutilizar el
+            // mismo TextInput enfocado para el valor de otra ronda.
+            const roundKey = members.map((m) => m.sets[roundIndex]?.id ?? "x").join("-");
 
-              const flags = prBySetId?.get(setDraft.id) ?? NO_PR;
-
-              return (
-                <View key={member.key} style={styles.setRow}>
-                  <Text style={styles.exerciseLabel} numberOfLines={1}>
-                    {member.name}
-                  </Text>
-                  {member.unit === "bw" ? (
-                    <LockedBodyweightLabel bodyWeightKg={latestBodyWeight} />
-                  ) : (
-                    <TextInput
-                      style={styles.weightInput}
-                      placeholder={member.unit}
-                      keyboardType="decimal-pad"
-                      value={setDraft.weight}
-                      editable={!disabled}
-                      onChangeText={(text) => onChangeSet(memberIndex, roundIndex, { weight: text })}
+            return (
+              <View key={roundKey} style={styles.round}>
+                <View style={styles.roundHeader}>
+                  <Txt variant="headline">Ronda {roundIndex + 1}</Txt>
+                  {!disabled && (
+                    <Button
+                      title="Quitar ronda"
+                      variant="plainDestructive"
+                      size="compact"
+                      onPress={() => onRemoveRound(roundIndex)}
                     />
                   )}
-                  <PrBadge flags={flags} />
-                  <TextInput
-                    style={styles.repsInput}
-                    placeholder="reps"
-                    keyboardType="number-pad"
-                    value={setDraft.reps}
-                    editable={!disabled}
-                    onChangeText={(text) => onChangeSet(memberIndex, roundIndex, { reps: text })}
-                  />
                 </View>
-              );
-            })}
-          </View>
-        );
-      })}
 
-      {!disabled && (
-        <View style={styles.addRoundButton}>
-          <Button title="+ añadir ronda" onPress={onAddRound} />
-        </View>
-      )}
+                {members.map((member, memberIndex) => {
+                  const setDraft = member.sets[roundIndex];
+                  if (!setDraft) {
+                    return null;
+                  }
+
+                  return (
+                    <SetRow
+                      key={member.key}
+                      label={String.fromCharCode(65 + memberIndex)}
+                      labelWidth={28}
+                      unit={member.unit}
+                      weight={setDraft.weight}
+                      reps={setDraft.reps}
+                      bodyWeightKg={latestBodyWeight}
+                      editable={!disabled}
+                      onChangeWeight={(text) => onChangeSet(memberIndex, roundIndex, { weight: text })}
+                      onChangeReps={(text) => onChangeSet(memberIndex, roundIndex, { reps: text })}
+                      flags={prBySetId?.get(setDraft.id) ?? NO_PR}
+                    />
+                  );
+                })}
+              </View>
+            );
+          })}
+
+          {!disabled && (
+            <Button title="Añadir ronda" icon="plus" variant="tinted" fullWidth onPress={onAddRound} />
+          )}
         </>
       )}
-    </View>
+    </Card>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    backgroundColor: "#f4f4f4",
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: "#8ab4f8",
-  },
-  label: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#3b5bdb",
-    marginBottom: 8,
-    textTransform: "uppercase",
-  },
-  collapsedNames: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#333",
-    marginBottom: 2,
-  },
-  round: {
-    marginBottom: 10,
-  },
-  roundHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 4,
-  },
-  roundTitle: {
-    fontSize: 15,
-    fontWeight: "600",
-  },
-  setRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 6,
-    gap: 8,
-  },
-  exerciseLabel: {
-    fontSize: 14,
-    color: "#333",
-    width: 96,
-  },
-  weightInput: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 6,
-    padding: 8,
-    fontSize: 16,
-    backgroundColor: "#fff",
-  },
-  repsInput: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 6,
-    padding: 8,
-    fontSize: 16,
-    backgroundColor: "#fff",
-  },
-  addRoundButton: {
-    marginTop: 4,
-  },
-});

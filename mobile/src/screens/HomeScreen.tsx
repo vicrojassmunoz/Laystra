@@ -1,16 +1,20 @@
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import { useCallback, useRef, useState } from "react";
-import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { Pressable, View } from "react-native";
 
 import { fetchSchedule } from "../api/schedule";
-import { todayIsoDate } from "../api/today";
-import { fetchWorkouts } from "../api/workouts";
+import { fetchToday, todayIsoDate } from "../api/today";
 import { fetchWaterDay } from "../api/water";
-import MenuTile from "../components/MenuTile";
+import { fetchWorkouts } from "../api/workouts";
+import { Card, Section } from "../components/ui/Card";
+import Row from "../components/ui/Row";
+import Screen, { ScreenError, ScreenLoading } from "../components/ui/Screen";
+import Txt from "../components/ui/Txt";
+import { useSession } from "../session/SessionContext";
+import { makeStyles, space, useTheme } from "../theme/theme";
 import { ScheduleEntry } from "../types/schedule";
-import { Workout } from "../types/workout";
 import { WaterDay } from "../types/water";
+import { Workout } from "../types/workout";
 import { formatMl } from "../utils/water";
 
 const DAY_LABELS = ["L", "M", "X", "J", "V", "S", "D"];
@@ -27,7 +31,7 @@ type DayInfo = {
 type State =
   | { status: "loading" }
   | { status: "error"; message: string }
-  | { status: "ready"; days: DayInfo[]; water: WaterDay | null };
+  | { status: "ready"; days: DayInfo[]; water: WaterDay | null; routineName: string | null };
 
 // Construye las 7 fechas locales (YYYY-MM-DD, sin drift UTC) de la semana
 // que contiene "hoy", empezando en lunes -- mismo convenio de día que
@@ -76,8 +80,28 @@ function deriveDays(schedule: ScheduleEntry[], workouts: Workout[], todayIso: st
   });
 }
 
+const useStyles = makeStyles(({ colors }) => ({
+  strip: { flexDirection: "row", justifyContent: "space-between", gap: space.sm },
+  dayCell: { flex: 1, alignItems: "center", gap: space.xs },
+  dayDot: {
+    width: "100%",
+    maxWidth: 44,
+    aspectRatio: 1,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: "transparent",
+  },
+  dayToday: { borderColor: colors.tint },
+  stripHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "baseline" },
+}));
+
 export default function HomeScreen() {
   const navigation = useNavigation();
+  const styles = useStyles();
+  const { colors } = useTheme();
+  const { active, paused } = useSession();
   const [state, setState] = useState<State>({ status: "loading" });
   const hasDataRef = useRef(false);
 
@@ -85,20 +109,23 @@ export default function HomeScreen() {
     if (!hasDataRef.current) {
       setState({ status: "loading" });
     }
+    const todayIso = todayIsoDate();
 
-    // El agua es opcional en Home: si falla (p. ej. backend sin desplegar
-    // todavía), el hub sigue usable y el tile solo pierde el progreso.
+    // El agua y la rutina de hoy son opcionales en Home: si fallan (p. ej.
+    // backend sin desplegar todavía), el hub sigue usable.
     Promise.all([
       fetchSchedule(),
       fetchWorkouts(),
-      fetchWaterDay(todayIsoDate()).catch(() => null),
+      fetchWaterDay(todayIso).catch(() => null),
+      fetchToday().catch(() => null),
     ])
-      .then(([schedule, workouts, water]) => {
+      .then(([schedule, workouts, water, today]) => {
         hasDataRef.current = true;
         setState({
           status: "ready",
-          days: deriveDays(schedule, workouts, todayIsoDate()),
+          days: deriveDays(schedule, workouts, todayIso),
           water,
+          routineName: today?.routine_name ?? null,
         });
       })
       .catch((error: Error) => {
@@ -108,195 +135,104 @@ export default function HomeScreen() {
       });
   }, []);
 
-  // Corre cada vez que la pestaña "Home" gana foco (no solo al montar), para
-  // reflejar workouts logueados o cambios de calendario hechos en otras pestañas.
+  // Corre cada vez que Home gana foco (no solo al montar), para reflejar
+  // workouts logueados o cambios de calendario hechos en otras pantallas.
   useFocusEffect(
     useCallback(() => {
       load();
     }, [load])
   );
 
-  function goToWeek() {
-    navigation.navigate("Semana");
-  }
-
   if (state.status === "loading") {
-    return (
-      <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
-        <ActivityIndicator size="large" />
-      </SafeAreaView>
-    );
+    return <ScreenLoading />;
   }
-
   if (state.status === "error") {
-    return (
-      <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
-        <Text style={styles.title}>No se pudo conectar con el backend</Text>
-        <Text style={styles.errorDetail}>{state.message}</Text>
-      </SafeAreaView>
-    );
+    return <ScreenError message={state.message} />;
   }
 
-  const { days, water } = state;
+  const { days, water, routineName } = state;
+
+  const dotColors = (d: DayInfo): { bg: string; fg: string } => {
+    switch (d.status) {
+      case "entrenado":
+        return { bg: colors.tint, fg: colors.onTint };
+      case "perdido":
+        return { bg: colors.dangerSoft, fg: colors.danger };
+      case "descanso":
+        return { bg: "transparent", fg: colors.labelTertiary };
+      case "pendiente":
+        return { bg: colors.fill, fg: colors.label };
+    }
+  };
 
   return (
-    <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
-      <ScrollView contentContainerStyle={styles.content}>
-        <Text style={styles.title}>Laystra</Text>
-
-        <TouchableOpacity onPress={goToWeek}>
-          <View style={styles.weekStrip}>
-            {days.map((d) => (
-              <View
-                key={d.day}
-                style={[
-                  styles.dayIndicator,
-                  dayIndicatorStyle(d.status),
-                  d.isToday && styles.dayIndicatorToday,
-                ]}
-              >
-                <Text style={[styles.dayIndicatorLabel, dayIndicatorTextStyle(d.status)]}>
-                  {DAY_LABELS[d.day]}
-                </Text>
-              </View>
-            ))}
+    <Screen webTitle="Laystra">
+      <Pressable onPress={() => navigation.navigate("Semana")} accessibilityRole="button">
+        <Card>
+          <View style={styles.stripHeader}>
+            <Txt variant="headline">Esta semana</Txt>
+            <Txt variant="subhead" tone="tint">
+              Ver semana
+            </Txt>
           </View>
-          <Text style={styles.weekStripLink}>Ver semana ›</Text>
-        </TouchableOpacity>
-
-        <View style={styles.menuGrid}>
-          {/* Acceso diario principal: sin tab bar, Hoy se abre desde aquí
-              (ROADMAP #10 — decisión: tile grande, app arranca en Home). */}
-          <MenuTile label="Hoy" variant="fullWidth" onPress={() => navigation.navigate("Hoy")} />
-
-          <MenuTile
-            label={
-              water
-                ? `Agua · ${formatMl(water.total_ml)} / ${formatMl(water.goal_ml)}`
-                : "Agua"
-            }
-            variant="fullWidth"
-            onPress={() => navigation.navigate("Agua")}
-          />
-
-          <View style={styles.menuRow}>
-            <MenuTile
-              label="Rutinas"
-              variant="half"
-              onPress={() => navigation.navigate("Rutinas")}
-            />
-            <MenuTile
-              label="Historial"
-              variant="half"
-              onPress={() => navigation.navigate("Historial")}
-            />
+          <View style={[styles.strip, { marginTop: space.sm }]}>
+            {days.map((d) => {
+              const c = dotColors(d);
+              return (
+                <View key={d.day} style={styles.dayCell}>
+                  <View
+                    style={[styles.dayDot, { backgroundColor: c.bg }, d.isToday && styles.dayToday]}
+                  >
+                    <Txt variant="subhead" weight="600" style={{ color: c.fg }}>
+                      {DAY_LABELS[d.day]}
+                    </Txt>
+                  </View>
+                </View>
+              );
+            })}
           </View>
+        </Card>
+      </Pressable>
 
-          <View style={styles.menuRow}>
-            <MenuTile
-              label="Progreso"
-              variant="half"
-              onPress={() => navigation.navigate("Progreso")}
-            />
-            <MenuTile
-              label="Objetivos"
-              variant="half"
-              onPress={() => navigation.navigate("Objetivos")}
-            />
-          </View>
+      <Section>
+        <Row
+          icon="train"
+          title="Hoy"
+          subtitle={
+            active
+              ? paused
+                ? "Sesión en pausa"
+                : "Sesión en curso"
+              : routineName
+                ? `Toca: ${routineName}`
+                : "Día de descanso"
+          }
+          onPress={() => navigation.navigate("Hoy")}
+        />
+        <Row
+          icon="water"
+          iconTone="water"
+          title="Agua"
+          value={water ? `${formatMl(water.total_ml)} / ${formatMl(water.goal_ml)}` : undefined}
+          onPress={() => navigation.navigate("Agua")}
+        />
+      </Section>
 
-          <View style={styles.menuRow}>
-            <MenuTile label="Perfil" variant="half" onPress={() => navigation.navigate("User")} />
-            <MenuTile
-              label="Análisis"
-              variant="half"
-              onPress={() => navigation.navigate("Analisis")}
-            />
-          </View>
-        </View>
-      </ScrollView>
-    </SafeAreaView>
+      <Section title="Seguimiento">
+        <Row icon="history" title="Historial" onPress={() => navigation.navigate("Historial")} />
+        <Row icon="progress" title="Progreso" onPress={() => navigation.navigate("Progreso")} />
+        <Row icon="goals" title="Objetivos" onPress={() => navigation.navigate("Objetivos")} />
+        <Row icon="analysis" title="Análisis" onPress={() => navigation.navigate("Analisis")} />
+      </Section>
+
+      <Section title="Planificación">
+        <Row icon="routines" title="Rutinas" onPress={() => navigation.navigate("Rutinas")} />
+        <Row icon="week" title="Semana" onPress={() => navigation.navigate("Semana")} />
+      </Section>
+
+      <Section>
+        <Row icon="profile" title="Perfil" onPress={() => navigation.navigate("User")} />
+      </Section>
+    </Screen>
   );
 }
-
-function dayIndicatorStyle(status: DayStatus) {
-  switch (status) {
-    case "entrenado":
-      return { backgroundColor: "#c6f6d5" };
-    case "perdido":
-      return { backgroundColor: "#f8d7da" };
-    case "descanso":
-      return { backgroundColor: "#e2e8f0" };
-    case "pendiente":
-      return { backgroundColor: "#f4f4f4" };
-  }
-}
-
-function dayIndicatorTextStyle(status: DayStatus) {
-  switch (status) {
-    case "entrenado":
-      return { color: "#1b8a1b" };
-    case "perdido":
-      return { color: "#b00020" };
-    case "descanso":
-      return { color: "#888" };
-    case "pendiente":
-      return { color: "#555" };
-  }
-}
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#fff",
-  },
-  content: {
-    padding: 16,
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: "600",
-    marginBottom: 16,
-  },
-  weekStrip: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-  },
-  dayIndicator: {
-    flex: 1,
-    marginHorizontal: 3,
-    paddingVertical: 14,
-    borderRadius: 8,
-    borderWidth: 2,
-    borderColor: "transparent",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  dayIndicatorToday: {
-    borderColor: "#333",
-  },
-  dayIndicatorLabel: {
-    fontSize: 15,
-    fontWeight: "700",
-  },
-  weekStripLink: {
-    fontSize: 13,
-    color: "#555",
-    textAlign: "right",
-    marginTop: 6,
-    marginBottom: 24,
-  },
-  menuGrid: {
-    gap: 12,
-  },
-  menuRow: {
-    flexDirection: "row",
-    gap: 12,
-  },
-  errorDetail: {
-    fontSize: 14,
-    color: "#b00020",
-    marginTop: 8,
-    textAlign: "center",
-  },
-});

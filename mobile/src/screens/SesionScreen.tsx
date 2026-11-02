@@ -1,16 +1,12 @@
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  ActivityIndicator,
-  Button,
   KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
   ScrollView,
-  StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -23,11 +19,18 @@ import { fetchRoutines } from "../api/routines";
 import { createWorkout } from "../api/workouts";
 import { fetchToday, TodayExercise, TodayResponse } from "../api/today";
 import ExercisePickerList from "../components/ExercisePickerList";
-import PrBadge from "../components/PrBadge";
+import SetRow from "../components/SetRow";
+import Button from "../components/ui/Button";
+import { Card } from "../components/ui/Card";
+import Icon from "../components/ui/Icon";
+import { ScreenError, ScreenLoading } from "../components/ui/Screen";
+import TextField from "../components/ui/TextField";
+import Txt from "../components/ui/Txt";
 import SessionBar from "../components/SessionBar";
 import SupersetBlock, { SetDraft } from "../components/SupersetBlock";
-import { LockedBodyweightLabel, WeightUnitChips } from "../components/WeightUnitChips";
+import { WeightUnitChips } from "../components/WeightUnitChips";
 import { ExerciseDraft, FormTarget, useSession } from "../session/SessionContext";
+import { makeStyles, space, useTheme } from "../theme/theme";
 import { Exercise, WeightUnit } from "../types/exercise";
 import { Routine } from "../types/routine";
 import { WorkoutSetCreate } from "../types/workout";
@@ -192,6 +195,8 @@ export default function SesionScreen() {
   const hasDataRef = useRef(false);
 
   const navigation = useNavigation();
+  const styles = useStyles();
+  const { colors } = useTheme();
   // Sesión + borrador viven en el provider (SessionContext): al salir de esta
   // pantalla a otra parte de la app el entreno a medias y los cronómetros
   // siguen ahí hasta "Terminar sesión".
@@ -965,14 +970,9 @@ export default function SesionScreen() {
 
   return (
     <SafeAreaView style={styles.container} edges={["bottom"]}>
-      {state.status === "loading" && <ActivityIndicator size="large" />}
+      {state.status === "loading" && <ScreenLoading />}
 
-      {state.status === "error" && (
-        <View>
-          <Text style={styles.title}>No se pudo conectar con el backend</Text>
-          <Text style={styles.errorDetail}>{state.message}</Text>
-        </View>
-      )}
+      {state.status === "error" && <ScreenError message={state.message} />}
 
       {state.status === "ready" && (
         <KeyboardAvoidingView
@@ -990,13 +990,12 @@ export default function SesionScreen() {
             tip={!skipped && !submitted ? nextExerciseTip : null}
           />
           <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-            <Text style={styles.title}>Sesión</Text>
-            <Text style={styles.subtitle}>{headerRoutineName(formTarget, state.data)}</Text>
+            <Txt variant="title2">{headerRoutineName(formTarget, state.data)}</Txt>
 
             {state.data.exercises.length === 0 && (
-              <Text style={styles.restDayText}>
+              <Txt variant="subhead" tone="secondary">
                 No hay rutina asignada para hoy. Aprovecha para descansar.
-              </Text>
+              </Txt>
             )}
 
             {/* Resumen de entrenos ya guardados hoy. Se muestra siempre que haya
@@ -1004,13 +1003,16 @@ export default function SesionScreen() {
                 rellena el siguiente -- si no, guardar un segundo entreno hacía
                 desaparecer de la pantalla la constancia del primero. */}
             {savedSummaries.length > 0 && (
-              <View style={styles.savedSummaries}>
+              <Card>
                 {savedSummaries.map((s) => (
-                  <Text key={s.workoutId} style={styles.savedSummaryText}>
-                    ✓ {s.label}
-                  </Text>
+                  <View key={s.workoutId} style={styles.summaryRow}>
+                    <Icon name="check" size={18} color={colors.success} />
+                    <Txt variant="subhead" style={{ flex: 1 }}>
+                      {s.label}
+                    </Txt>
+                  </View>
                 ))}
-              </View>
+              </Card>
             )}
 
             {/* El usuario descartó explícitamente el entreno pre-rellenado (o el
@@ -1018,14 +1020,18 @@ export default function SesionScreen() {
                 un aviso y la puerta abierta a elegir algo con el mismo picker de
                 "Loguear otro entreno". */}
             {skipped && (
-              <View style={styles.skippedBox}>
-                <Text style={styles.skippedText}>
+              <Card>
+                <Txt variant="subhead" tone="secondary">
                   No vas a loguear ningún entreno ahora mismo.
-                </Text>
-                <View style={styles.logAnotherButton}>
-                  <Button title="Elegir un entreno" onPress={handleLogAnother} />
-                </View>
-              </View>
+                </Txt>
+                <Button
+                  title="Elegir un entreno"
+                  variant="filled"
+                  size="large"
+                  fullWidth
+                  onPress={handleLogAnother}
+                />
+              </Card>
             )}
 
             {!skipped &&
@@ -1035,98 +1041,86 @@ export default function SesionScreen() {
               ).map((entry) => {
                 if (entry.type === "single") {
                   const { row, index: exerciseIndex } = entry.item;
+                  const collapseKey = `ex-${row.exercise.exercise_id}-${exerciseIndex}`;
+                  const collapsed = isCollapsedAfterSave(collapseKey);
                   return (
                     // Una rutina puede repetir el mismo ejercicio (p.ej. press
                     // banca pesado + press banca ligero), así que exercise_id
                     // solo no es una key única -- se combina con la posición.
-                    <View key={`${row.exercise.exercise_id}-${exerciseIndex}`} style={styles.card}>
+                    <Card key={`${row.exercise.exercise_id}-${exerciseIndex}`}>
                       <Pressable
-                        onPress={() =>
-                          toggleAfterSave(`ex-${row.exercise.exercise_id}-${exerciseIndex}`)
-                        }
+                        onPress={() => toggleAfterSave(collapseKey)}
                         disabled={!submitted}
+                        accessibilityRole={submitted ? "button" : undefined}
+                        accessibilityState={submitted ? { expanded: !collapsed } : undefined}
+                        style={styles.cardHeader}
                       >
-                        <Text style={styles.exerciseName}>
+                        <Txt variant="headline" style={{ flex: 1 }}>
                           {row.exercise.exercise_name}
-                          {submitted
-                            ? isCollapsedAfterSave(`ex-${row.exercise.exercise_id}-${exerciseIndex}`)
-                              ? " ▸"
-                              : " ▾"
-                            : ""}
-                        </Text>
-                      </Pressable>
-                      {!isCollapsedAfterSave(`ex-${row.exercise.exercise_id}-${exerciseIndex}`) && (
-                        <>
-                      {/* En entreno libre no hay rutina que fije target_sets --
-                          se le pone 1 de relleno (ver freeExercisesToDraftExercises)
-                          pero no significa nada real, así que no tiene sentido
-                          mostrarlo. */}
-                      {formTarget?.routineId !== null && (
-                        <Text style={styles.targetText}>
-                          Objetivo: {row.exercise.target_sets} serie
-                          {row.exercise.target_sets === 1 ? "" : "s"}
-                        </Text>
-                      )}
-
-                      <WeightUnitChips
-                        value={row.exercise.unit}
-                        onChange={(unit) => changeRowUnit(exerciseIndex, unit)}
-                        disabled={submitted || saving}
-                      />
-
-                      {row.sets.map((setDraft, setIndex) => {
-                        const flags = prBySetId.get(setDraft.id) ?? NO_PR;
-
-                        return (
-                          <View key={setDraft.id} style={styles.setRow}>
-                            <Text style={styles.setLabel}>Serie {setIndex + 1}</Text>
-                            {row.exercise.unit === "bw" ? (
-                              <LockedBodyweightLabel bodyWeightKg={state.latestBodyWeight} />
-                            ) : (
-                              <TextInput
-                                style={styles.weightInput}
-                                placeholder={row.exercise.unit}
-                                keyboardType="decimal-pad"
-                                value={setDraft.weight}
-                                editable={!submitted && !saving}
-                                onChangeText={(text) =>
-                                  updateSet(exerciseIndex, setIndex, { weight: text })
-                                }
-                              />
-                            )}
-                            <PrBadge flags={flags} />
-                            <TextInput
-                              style={styles.repsInput}
-                              placeholder="reps"
-                              keyboardType="number-pad"
-                              value={setDraft.reps}
-                              editable={!submitted && !saving}
-                              onChangeText={(text) => updateSet(exerciseIndex, setIndex, { reps: text })}
-                            />
-                            {!submitted && (
-                              <Button
-                                title="Quitar"
-                                color="#b00020"
-                                onPress={() => removeSet(exerciseIndex, setIndex)}
-                                disabled={saving}
-                              />
-                            )}
-                          </View>
-                        );
-                      })}
-
-                      {!submitted && (
-                        <View style={styles.addSetButton}>
-                          <Button
-                            title="+ añadir serie"
-                            onPress={() => addSet(exerciseIndex)}
-                            disabled={saving}
+                        </Txt>
+                        {submitted ? (
+                          <Icon
+                            name={collapsed ? "expand" : "collapse"}
+                            size={14}
+                            color={colors.labelSecondary}
                           />
-                        </View>
-                      )}
+                        ) : null}
+                      </Pressable>
+
+                      {!collapsed && (
+                        <>
+                          {/* En entreno libre no hay rutina que fije target_sets --
+                              se le pone 1 de relleno (ver freeExercisesToDraftExercises)
+                              pero no significa nada real, así que no tiene sentido
+                              mostrarlo. */}
+                          {formTarget?.routineId !== null && (
+                            <Txt variant="footnote" tone="secondary" style={{ marginTop: -space.xs }}>
+                              Objetivo: {row.exercise.target_sets} serie
+                              {row.exercise.target_sets === 1 ? "" : "s"}
+                            </Txt>
+                          )}
+
+                          <WeightUnitChips
+                            value={row.exercise.unit}
+                            onChange={(unit) => changeRowUnit(exerciseIndex, unit)}
+                            disabled={submitted || saving}
+                          />
+
+                          {row.sets.map((setDraft, setIndex) => (
+                            <SetRow
+                              key={setDraft.id}
+                              label={`Serie ${setIndex + 1}`}
+                              unit={row.exercise.unit}
+                              weight={setDraft.weight}
+                              reps={setDraft.reps}
+                              bodyWeightKg={state.latestBodyWeight}
+                              editable={!submitted && !saving}
+                              onChangeWeight={(text) =>
+                                updateSet(exerciseIndex, setIndex, { weight: text })
+                              }
+                              onChangeReps={(text) =>
+                                updateSet(exerciseIndex, setIndex, { reps: text })
+                              }
+                              onRemove={
+                                submitted ? undefined : () => removeSet(exerciseIndex, setIndex)
+                              }
+                              flags={prBySetId.get(setDraft.id) ?? NO_PR}
+                            />
+                          ))}
+
+                          {!submitted && (
+                            <Button
+                              title="Añadir serie"
+                              icon="plus"
+                              variant="tinted"
+                              fullWidth
+                              disabled={saving}
+                              onPress={() => addSet(exerciseIndex)}
+                            />
+                          )}
                         </>
                       )}
-                    </View>
+                    </Card>
                   );
                 }
 
@@ -1163,10 +1157,9 @@ export default function SesionScreen() {
               })}
 
             {!skipped && formRows.length > 0 && (!submitted || notes.trim() !== "") && (
-              <View style={styles.notesBox}>
-                <Text style={styles.notesLabel}>Sensaciones</Text>
-                <TextInput
-                  style={styles.notesInput}
+              <Card>
+                <Txt variant="headline">Sensaciones</Txt>
+                <TextField
                   multiline
                   placeholder="¿Cómo te sentiste? (opcional)"
                   value={notes}
@@ -1174,24 +1167,35 @@ export default function SesionScreen() {
                   maxLength={2000}
                   onChangeText={setNotes}
                 />
-              </View>
+              </Card>
             )}
 
-            {formError && <Text style={styles.errorDetail}>{formError}</Text>}
+            {formError && (
+              <Txt variant="subhead" tone="danger" style={{ textAlign: "center" }}>
+                {formError}
+              </Txt>
+            )}
 
             {!skipped && formRows.length > 0 && (
-              <View style={styles.saveButton}>
+              <View style={styles.actions}>
                 {submitted ? (
                   // El resumen de arriba (savedSummaries) ya deja constancia de que
                   // este entreno se guardó, como último ítem de la lista -- no hace
                   // falta repetirlo aquí también.
-                  <View style={styles.logAnotherButton}>
-                    <Button title="Loguear otro entreno" onPress={handleLogAnother} />
-                  </View>
+                  <Button
+                    title="Loguear otro entreno"
+                    variant="filled"
+                    size="large"
+                    fullWidth
+                    onPress={handleLogAnother}
+                  />
                 ) : (
                   <>
                     <Button
                       title={saving ? "Guardando..." : "Guardar entreno"}
+                      variant="filled"
+                      size="large"
+                      fullWidth
                       onPress={handleSave}
                       disabled={saving}
                     />
@@ -1201,23 +1205,21 @@ export default function SesionScreen() {
                         "Quitar" para descartarlo sin más. Mutuamente
                         excluyentes, nunca se muestran los dos a la vez. */}
                     {savedSummaries.length > 0 ? (
-                      <View style={styles.cancelAnotherButton}>
-                        <Button
-                          title="Cancelar"
-                          color="#b00020"
-                          onPress={handleCancelAnother}
-                          disabled={saving}
-                        />
-                      </View>
+                      <Button
+                        title="Cancelar"
+                        variant="plain"
+                        fullWidth
+                        onPress={handleCancelAnother}
+                        disabled={saving}
+                      />
                     ) : (
-                      <View style={styles.cancelAnotherButton}>
-                        <Button
-                          title="Quitar entreno de hoy"
-                          color="#b00020"
-                          onPress={handleSkipToday}
-                          disabled={saving}
-                        />
-                      </View>
+                      <Button
+                        title="Quitar entreno de hoy"
+                        variant="destructive"
+                        fullWidth
+                        onPress={handleSkipToday}
+                        disabled={saving}
+                      />
                     )}
                   </>
                 )}
@@ -1428,131 +1430,29 @@ export default function SesionScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  notesBox: {
-    marginTop: 8,
-    marginBottom: 8,
-  },
-  notesLabel: {
-    fontSize: 15,
-    fontWeight: "600",
-    marginBottom: 4,
-  },
-  notesInput: {
-    minHeight: 64,
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 6,
-    padding: 8,
-    fontSize: 16,
-    backgroundColor: "#fff",
-    textAlignVertical: "top",
-  },
+const useStyles = makeStyles(({ colors }) => ({
   container: {
     flex: 1,
-    backgroundColor: "#fff",
+    backgroundColor: colors.bg,
   },
   content: {
-    padding: 16,
-    paddingBottom: 48,
-    alignItems: "stretch",
+    padding: space.lg,
+    paddingBottom: space.xxxl * 2,
+    gap: space.lg,
   },
-  title: {
-    fontSize: 24,
-    fontWeight: "600",
-    marginBottom: 8,
-    textAlign: "center",
-  },
-  subtitle: {
-    fontSize: 18,
-    color: "#555",
-    marginBottom: 16,
-    textAlign: "center",
-  },
-  restDayText: {
-    fontSize: 16,
-    color: "#555",
-    textAlign: "center",
-    marginTop: 8,
-  },
-  skippedBox: {
-    alignItems: "center",
-    marginTop: 8,
-  },
-  skippedText: {
-    fontSize: 16,
-    color: "#555",
-    textAlign: "center",
-  },
-  savedSummaries: {
-    marginBottom: 12,
-  },
-  savedSummaryText: {
-    fontSize: 14,
-    color: "#1b8a1b",
-    marginBottom: 2,
-  },
-  card: {
-    backgroundColor: "#f4f4f4",
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 12,
-  },
-  exerciseName: {
-    fontSize: 18,
-    fontWeight: "600",
-    marginBottom: 2,
-  },
-  targetText: {
-    fontSize: 13,
-    color: "#777",
-    marginBottom: 8,
-  },
-  addSetButton: {
-    marginTop: 4,
-  },
-  setRow: {
+  summaryRow: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 8,
-    gap: 8,
+    gap: space.sm,
   },
-  setLabel: {
-    fontSize: 14,
-    color: "#555",
-    width: 64,
-  },
-  weightInput: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 6,
-    padding: 8,
-    fontSize: 16,
-  },
-  repsInput: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 6,
-    padding: 8,
-    fontSize: 16,
-  },
-  saveButton: {
-    marginTop: 12,
+  cardHeader: {
+    flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
+    gap: space.sm,
   },
-  logAnotherButton: {
-    marginTop: 12,
-  },
-  cancelAnotherButton: {
-    marginTop: 8,
-  },
-  errorDetail: {
-    fontSize: 14,
-    color: "#b00020",
-    marginTop: 8,
-    textAlign: "center",
+  actions: {
+    gap: space.sm,
   },
   modalBackdrop: {
     flex: 1,
@@ -1567,7 +1467,7 @@ const styles = StyleSheet.create({
     maxHeight: "70%",
   },
   modalCard: {
-    backgroundColor: "#fff",
+    backgroundColor: colors.surface,
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
     padding: 20,
@@ -1577,6 +1477,7 @@ const styles = StyleSheet.create({
     flexShrink: 1,
   },
   modalTitle: {
+    color: colors.label,
     fontSize: 20,
     fontWeight: "600",
     marginBottom: 16,
@@ -1585,9 +1486,10 @@ const styles = StyleSheet.create({
   option: {
     paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: "#eee",
+    borderBottomColor: colors.separator,
   },
   optionText: {
+    color: colors.label,
     fontSize: 16,
     textAlign: "center",
   },
@@ -1595,18 +1497,18 @@ const styles = StyleSheet.create({
     fontSize: 16,
     textAlign: "center",
     fontWeight: "600",
-    color: "#1b8a1b",
+    color: colors.success,
   },
   // Ejercicio ya perteneciente a otro bloque de super-serie -- no
   // seleccionable para uno nuevo, ver alreadyGroupedFreeExerciseIds.
   optionTextDisabled: {
     fontSize: 16,
     textAlign: "center",
-    color: "#aaa",
+    color: colors.labelTertiary,
   },
   optionHint: {
     fontSize: 12,
-    color: "#999",
+    color: colors.labelTertiary,
     textAlign: "center",
     marginTop: 2,
   },
@@ -1616,10 +1518,11 @@ const styles = StyleSheet.create({
   freeOption: {
     paddingVertical: 14,
     borderBottomWidth: 2,
-    borderBottomColor: "#ccc",
+    borderBottomColor: colors.separator,
     marginBottom: 4,
   },
   freeOptionText: {
+    color: colors.label,
     fontSize: 16,
     fontWeight: "600",
     textAlign: "center",
@@ -1630,14 +1533,14 @@ const styles = StyleSheet.create({
   supersetOption: {
     paddingVertical: 12,
     borderTopWidth: 2,
-    borderTopColor: "#ccc",
+    borderTopColor: colors.separator,
     marginTop: 4,
   },
   supersetOptionText: {
     fontSize: 15,
     fontWeight: "600",
     textAlign: "center",
-    color: "#3b5bdb",
+    color: colors.tint,
   },
   modalActions: {
     flexDirection: "row",
@@ -1651,7 +1554,7 @@ const styles = StyleSheet.create({
   cancelText: {
     fontSize: 16,
     textAlign: "center",
-    color: "#b00020",
+    color: colors.danger,
     fontWeight: "600",
   },
   doneButton: {
@@ -1661,13 +1564,13 @@ const styles = StyleSheet.create({
   doneText: {
     fontSize: 16,
     textAlign: "center",
-    color: "#1b8a1b",
+    color: colors.success,
     fontWeight: "600",
   },
   doneTextDisabled: {
     fontSize: 16,
     textAlign: "center",
-    color: "#aaa",
+    color: colors.labelTertiary,
     fontWeight: "600",
   },
-});
+}));

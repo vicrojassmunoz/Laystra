@@ -1,14 +1,36 @@
-import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Pressable, View } from "react-native";
 
+import { makeStyles, radius, space, useTheme } from "../theme/theme";
 import { WeightUnit } from "../types/exercise";
-import { formatWeightUnit } from "../utils/weightUnit";
 import { showAlert } from "../utils/alert";
+import { formatWeightUnit } from "../utils/weightUnit";
+import Chip from "./ui/Chip";
+import Icon from "./ui/Icon";
+import Txt from "./ui/Txt";
 
 const OPTIONS: { value: WeightUnit; label: string }[] = [
   { value: "kg", label: "kg" },
   { value: "lb", label: "lb" },
   { value: "bw", label: "PC" },
 ];
+
+const useStyles = makeStyles(({ colors }) => ({
+  row: { flexDirection: "row", alignItems: "center", gap: space.sm },
+  info: { minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" },
+  locked: {
+    flex: 1,
+    // minWidth: 0: en web el <input> vecino impone su ancho intrínseco y, sin
+    // esto, este bloque se aplastaba hasta una tira vertical de letras.
+    minWidth: 0,
+    minHeight: 44,
+    justifyContent: "center",
+    paddingHorizontal: space.sm,
+    alignItems: "center",
+    borderRadius: radius.control,
+    borderCurve: "continuous",
+    backgroundColor: colors.fill,
+  },
+}));
 
 type ChipsProps = {
   value: WeightUnit;
@@ -17,37 +39,35 @@ type ChipsProps = {
 };
 
 export function WeightUnitChips({ value, onChange, disabled }: ChipsProps) {
+  const styles = useStyles();
+  const { colors } = useTheme();
+
   return (
     <View style={styles.row}>
-      {OPTIONS.map((option) => {
-        const selected = value === option.value;
-        return (
-          <TouchableOpacity
-            key={option.value}
-            style={[styles.chip, selected && styles.chipSelected]}
-            onPress={() => onChange(option.value)}
-            disabled={disabled}
-          >
-            <Text style={selected ? styles.chipTextSelected : styles.chipText}>
-              {option.label}
-            </Text>
-          </TouchableOpacity>
-        );
-      })}
+      {OPTIONS.map((option) => (
+        <Chip
+          key={option.value}
+          label={option.label}
+          selected={value === option.value}
+          disabled={disabled}
+          onPress={() => onChange(option.value)}
+        />
+      ))}
       {value === "bw" && (
-        <TouchableOpacity
-          style={styles.infoButton}
+        <Pressable
+          style={styles.info}
+          accessibilityRole="button"
+          accessibilityLabel="Qué es PC"
+          disabled={disabled}
           onPress={() =>
             showAlert(
               "Peso corporal (PC)",
               "PC registra la serie como peso corporal. Si tienes un peso en Perfil, se usa el último al guardar. Si no, se guarda solo como PC."
             )
           }
-          disabled={disabled}
-          hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
         >
-          <Text style={styles.infoText}>i</Text>
-        </TouchableOpacity>
+          <Icon name="info" size={20} color={colors.tint} />
+        </Pressable>
       )}
     </View>
   );
@@ -58,11 +78,12 @@ type LockedProps = {
 };
 
 export function LockedBodyweightLabel({ bodyWeightKg }: LockedProps) {
+  const styles = useStyles();
   return (
     <View style={styles.locked}>
-      <Text style={styles.lockedText}>
-        {bodyWeightKg != null && bodyWeightKg > 0 ? `PC · ${bodyWeightKg} kg` : "PC"}
-      </Text>
+      <Txt variant="body" tone="secondary" numeric numberOfLines={1}>
+        {bodyWeightKg != null && bodyWeightKg > 0 ? `${bodyWeightKg} kg` : "PC"}
+      </Txt>
     </View>
   );
 }
@@ -74,59 +95,3 @@ export function formatSetLine(weight: number, unit: string, reps: number): strin
   }
   return `${weight}${formatWeightUnit(unit)} x ${reps}`;
 }
-
-const styles = StyleSheet.create({
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginBottom: 8,
-  },
-  chip: {
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 16,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  chipSelected: {
-    borderColor: "#3b5bdb",
-    backgroundColor: "#3b5bdb",
-  },
-  chipText: {
-    fontSize: 13,
-    color: "#333",
-  },
-  chipTextSelected: {
-    fontSize: 13,
-    color: "#fff",
-    fontWeight: "600",
-  },
-  infoButton: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    borderWidth: 1,
-    borderColor: "#3b5bdb",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  infoText: {
-    fontSize: 13,
-    color: "#3b5bdb",
-    fontWeight: "700",
-  },
-  locked: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 6,
-    padding: 8,
-    backgroundColor: "#eee",
-  },
-  lockedText: {
-    fontSize: 16,
-    color: "#333",
-    fontWeight: "600",
-  },
-});

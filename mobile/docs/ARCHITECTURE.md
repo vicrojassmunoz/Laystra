@@ -83,6 +83,10 @@ Tipos: `src/types/navigation.ts` (`RootStackParamList` únicamente).
 
 **Análisis:** `week_tonnage` se muestra en kg. El backend normaliza lb a kg y trata bw como kg antes de calcularlo, por lo que la etiqueta sigue siendo correcta.
 
+## Sistema de diseño
+
+Visual world "Native Calm" documentado en [`DESIGN.md`](../../DESIGN.md) (raíz). Código en `src/theme/theme.ts` (tokens claro/oscuro, `makeStyles`, `useTheme`) y `src/components/ui/` (`Txt`, `Screen`, `Card`/`Section`, `Row`, `Button`, `Chip`, `TextField`, `ProgressBar`, `Icon`). Pantallas migradas: Home, Hoy, Sesión, Agua; el resto sigue con estilos antiguos hasta la fase 2 (`app.json` mantiene `userInterfaceStyle: "light"` mientras tanto). Iconos: SF Symbols en iOS (`expo-symbols`), Ionicons como sustituto en web.
+
 ## Vista previa en navegador (web)
 
 `npx expo start --web` (o `w` en el menú de `expo start`) sirve la misma app con `react-native-web` en `http://localhost:8081`. **Es solo para iterar diseño y layout** (más rápido que Expo Go, y se puede abrir en el modo móvil de las DevTools); el iPhone sigue siendo la verdad final: SF vs fuente del navegador, cabecera/gestos nativos, safe areas, hápticos y animaciones del sistema no coinciden.

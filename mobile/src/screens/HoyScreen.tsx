@@ -1,15 +1,6 @@
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import { useCallback, useRef, useState } from "react";
-import {
-  ActivityIndicator,
-  Button,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { Pressable, View } from "react-native";
 
 import { fetchExercises } from "../api/exercises";
 import { fetchRoutines } from "../api/routines";
@@ -17,14 +8,21 @@ import { fetchToday, todayIsoDate, TodayResponse } from "../api/today";
 import { fetchWaterDay } from "../api/water";
 import { fetchWorkouts } from "../api/workouts";
 import SessionClock from "../components/SessionClock";
+import Button from "../components/ui/Button";
+import { Card, SectionHeader } from "../components/ui/Card";
+import Icon from "../components/ui/Icon";
+import ProgressBar from "../components/ui/ProgressBar";
+import Screen, { ScreenError, ScreenLoading } from "../components/ui/Screen";
+import Txt from "../components/ui/Txt";
 import { INACTIVITY_LABEL, useSession } from "../session/SessionContext";
+import { makeStyles, space, useTheme } from "../theme/theme";
 import { Exercise } from "../types/exercise";
 import { Routine } from "../types/routine";
 import { WaterDay } from "../types/water";
 import { Workout } from "../types/workout";
 import { formatMl } from "../utils/water";
-import { summarizeByExercise } from "../utils/workoutSummary";
 import { toKg } from "../utils/weightUnit";
+import { summarizeByExercise } from "../utils/workoutSummary";
 
 type State =
   | { status: "loading" }
@@ -57,10 +55,28 @@ function workoutStats(workout: Workout): { exercises: number; sets: number; volu
   return { exercises, sets: workout.sets.length, volumeKg };
 }
 
+const useStyles = makeStyles(({ colors }) => ({
+  statusRow: { flexDirection: "row", alignItems: "center", gap: space.sm },
+  dot: { width: 8, height: 8, borderRadius: 4 },
+  workoutHead: { flexDirection: "row", alignItems: "center", gap: space.sm },
+  exerciseBlock: {
+    paddingTop: space.md,
+    marginTop: space.md,
+    borderTopWidth: 1,
+    borderTopColor: colors.separator,
+    gap: 2,
+  },
+  toggle: { flexDirection: "row", alignItems: "center", gap: space.xs, minHeight: 36 },
+  notes: { flexDirection: "row", alignItems: "flex-start", gap: space.sm },
+  waterTop: { flexDirection: "row", alignItems: "baseline", justifyContent: "space-between" },
+}));
+
 // Hoy = resumen del día. Loguear (series, sensaciones, cronómetro) vive en
 // "Sesión", que se abre desde aquí y sigue viva si sales a otras pantallas.
 export default function HoyScreen() {
   const navigation = useNavigation();
+  const styles = useStyles();
+  const { colors } = useTheme();
   const { active, startedAt, pausedAt, startSession, notificationsDenied } = useSession();
   const [state, setState] = useState<State>({ status: "loading" });
   const hasDataRef = useRef(false);
@@ -127,136 +143,185 @@ export default function HoyScreen() {
   }
 
   if (state.status === "loading") {
-    return (
-      <SafeAreaView style={styles.container} edges={["bottom"]}>
-        <ActivityIndicator size="large" />
-      </SafeAreaView>
-    );
+    return <ScreenLoading />;
   }
-
   if (state.status === "error") {
-    return (
-      <SafeAreaView style={styles.container} edges={["bottom"]}>
-        <Text style={styles.title}>No se pudo conectar con el backend</Text>
-        <Text style={styles.errorDetail}>{state.message}</Text>
-      </SafeAreaView>
-    );
+    return <ScreenError message={state.message} />;
   }
 
   const { today, routines, exercises, workouts, water } = state;
   const routineById = new Map(routines.map((r) => [r.id, r]));
   const exerciseById = new Map(exercises.map((e) => [e.id, e]));
   const totalVolumeKg = workouts.reduce((sum, w) => sum + workoutStats(w).volumeKg, 0);
+  const paused = pausedAt !== null;
+  const waterProgress = water && water.goal_ml > 0 ? water.total_ml / water.goal_ml : 0;
 
   return (
-    <SafeAreaView style={styles.container} edges={["bottom"]}>
-      <ScrollView contentContainerStyle={styles.content}>
-        <Text style={styles.title}>Hoy</Text>
-        <Text style={styles.date}>{longDate(today.date)}</Text>
+    <Screen webTitle="Hoy">
+      <Txt variant="subhead" tone="secondary" style={{ marginTop: -space.sm }}>
+        {longDate(today.date)}
+      </Txt>
 
-        <View style={[styles.card, active && styles.cardActive]}>
-          {active && startedAt !== null ? (
-            <>
-              <Text style={styles.cardLabel}>
-                {pausedAt !== null ? "Sesión en pausa" : "Sesión en curso"}
-              </Text>
-              <SessionClock startedAt={startedAt} pausedAt={pausedAt} style={styles.bigClock} />
-              <View style={styles.cardButton}>
-                <Button title="Volver a la sesión" onPress={openSession} />
-              </View>
-            </>
-          ) : (
-            <>
-              <Text style={styles.cardLabel}>
-                {today.routine_name ? `Toca: ${today.routine_name}` : "Día de descanso"}
-              </Text>
-              <Text style={styles.muted}>
-                {today.exercises.length > 0
-                  ? `${today.exercises.length} ejercicio${today.exercises.length === 1 ? "" : "s"} planificados`
-                  : "Puedes entrenar igualmente: elige una rutina o un entreno libre dentro de la sesión."}
-              </Text>
-              <View style={styles.cardButton}>
-                <Button title="▶ Empezar sesión" onPress={openSession} />
-              </View>
-            </>
-          )}
-          {active && notificationsDenied && (
-            <Text style={styles.warning}>
-              Sin permiso de notificaciones: no te avisaré si pasas ${INACTIVITY_LABEL} sin registrar nada.
-            </Text>
-          )}
-        </View>
-
-        <Text style={styles.sectionTitle}>Entrenos de hoy</Text>
-        {workouts.length === 0 && <Text style={styles.muted}>Aún no has guardado nada hoy.</Text>}
-        {workouts.map((workout) => {
-          const stats = workoutStats(workout);
-          const name =
-            workout.routine_id != null
-              ? routineById.get(workout.routine_id)?.name ?? `Rutina #${workout.routine_id}`
-              : "Entreno libre";
-          return (
-            <View key={workout.id} style={styles.card}>
-              <Text style={styles.workoutName}>{name}</Text>
-              <Text style={styles.muted}>
-                {stats.exercises} ejercicio{stats.exercises === 1 ? "" : "s"} · {stats.sets} serie
-                {stats.sets === 1 ? "" : "s"} · {Math.round(stats.volumeKg)} kg de volumen
-              </Text>
-              {workout.notes ? <Text style={styles.notes}>📝 {workout.notes}</Text> : null}
-
-              <TouchableOpacity onPress={() => toggleExpanded(workout.id)} hitSlop={8}>
-                <Text style={styles.link}>
-                  {expanded.has(workout.id) ? "Ocultar ejercicios ▾" : "Ver ejercicios ▸"}
-                </Text>
-              </TouchableOpacity>
-
-              {expanded.has(workout.id) &&
-                summarizeByExercise(workout.sets, exerciseById).map((exercise) => (
-                  <View key={exercise.exerciseId} style={styles.exerciseBlock}>
-                    <Text style={styles.exerciseName}>{exercise.name}</Text>
-                    <Text style={styles.exerciseSets}>{exercise.entries.join(", ")}</Text>
-                  </View>
-                ))}
+      <Card>
+        {active && startedAt !== null ? (
+          <>
+            <View style={styles.statusRow}>
+              <View
+                style={[styles.dot, { backgroundColor: paused ? colors.warning : colors.success }]}
+              />
+              <Txt variant="subhead" tone={paused ? "warning" : "success"} weight="600">
+                {paused ? "Sesión en pausa" : "Sesión en curso"}
+              </Txt>
             </View>
-          );
-        })}
-        {workouts.length > 1 && (
-          <Text style={styles.muted}>Total hoy: {Math.round(totalVolumeKg)} kg de volumen</Text>
+            <SessionClock
+              startedAt={startedAt}
+              pausedAt={pausedAt}
+              variant="largeTitle"
+              tone={paused ? "secondary" : "label"}
+            />
+            <View style={{ marginTop: space.sm }}>
+              <Button
+                title="Volver a la sesión"
+                variant="filled"
+                size="large"
+                icon="train"
+                fullWidth
+                onPress={openSession}
+              />
+            </View>
+            {notificationsDenied ? (
+              <Txt variant="footnote" tone="warning" style={{ marginTop: space.xs }}>
+                Sin permiso de notificaciones: no te avisaré si pasas {INACTIVITY_LABEL} sin
+                registrar nada.
+              </Txt>
+            ) : null}
+          </>
+        ) : (
+          <>
+            <Txt variant="title3">
+              {today.routine_name ? `Toca: ${today.routine_name}` : "Día de descanso"}
+            </Txt>
+            <Txt variant="subhead" tone="secondary">
+              {today.exercises.length > 0
+                ? `${today.exercises.length} ejercicio${today.exercises.length === 1 ? "" : "s"} planificados`
+                : "Puedes entrenar igualmente: elige una rutina o un entreno libre dentro de la sesión."}
+            </Txt>
+            <View style={{ marginTop: space.sm }}>
+              <Button
+                title="Empezar sesión"
+                variant="filled"
+                size="large"
+                icon="play"
+                fullWidth
+                onPress={openSession}
+              />
+            </View>
+          </>
         )}
+      </Card>
 
-        <Text style={styles.sectionTitle}>Agua</Text>
-        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate("Agua")}>
-          <Text style={styles.workoutName}>
-            💧{" "}
-            {water
-              ? `${formatMl(water.total_ml)} / ${formatMl(water.goal_ml)}`
-              : "No disponible"}
-          </Text>
-          <Text style={styles.link}>Abrir Agua ›</Text>
-        </TouchableOpacity>
-      </ScrollView>
-    </SafeAreaView>
+      <View>
+        <SectionHeader>Entrenos de hoy</SectionHeader>
+        {workouts.length === 0 ? (
+          <Card>
+            <Txt variant="subhead" tone="secondary">
+              Aún no has guardado nada hoy.
+            </Txt>
+          </Card>
+        ) : (
+          <View style={{ gap: space.md }}>
+            {workouts.map((workout) => {
+              const stats = workoutStats(workout);
+              const name =
+                workout.routine_id != null
+                  ? routineById.get(workout.routine_id)?.name ?? `Rutina #${workout.routine_id}`
+                  : "Entreno libre";
+              const isOpen = expanded.has(workout.id);
+
+              return (
+                <Card key={workout.id}>
+                  <View style={styles.workoutHead}>
+                    <Icon name="check" size={20} color={colors.success} />
+                    <Txt variant="headline" style={{ flex: 1 }}>
+                      {name}
+                    </Txt>
+                  </View>
+                  <Txt variant="subhead" tone="secondary" numeric>
+                    {stats.exercises} ejercicio{stats.exercises === 1 ? "" : "s"} · {stats.sets} serie
+                    {stats.sets === 1 ? "" : "s"} · {Math.round(stats.volumeKg)} kg de volumen
+                  </Txt>
+                  {workout.notes ? (
+                    <View style={styles.notes}>
+                      <Icon name="note" size={16} color={colors.labelSecondary} />
+                      <Txt variant="subhead" tone="secondary" style={{ flex: 1 }}>
+                        {workout.notes}
+                      </Txt>
+                    </View>
+                  ) : null}
+
+                  <Pressable
+                    onPress={() => toggleExpanded(workout.id)}
+                    accessibilityRole="button"
+                    accessibilityState={{ expanded: isOpen }}
+                    style={styles.toggle}
+                  >
+                    <Txt variant="subhead" tone="tint" weight="600">
+                      {isOpen ? "Ocultar ejercicios" : "Ver ejercicios"}
+                    </Txt>
+                    <Icon name={isOpen ? "collapse" : "expand"} size={13} color={colors.tint} />
+                  </Pressable>
+
+                  {isOpen
+                    ? summarizeByExercise(workout.sets, exerciseById).map((exercise) => (
+                        <View key={exercise.exerciseId} style={styles.exerciseBlock}>
+                          <Txt variant="callout" weight="600">
+                            {exercise.name}
+                          </Txt>
+                          <Txt variant="subhead" tone="secondary" numeric>
+                            {exercise.entries.join("  ·  ")}
+                          </Txt>
+                        </View>
+                      ))
+                    : null}
+                </Card>
+              );
+            })}
+            {workouts.length > 1 ? (
+              <Txt variant="footnote" tone="secondary" style={{ paddingHorizontal: space.lg }}>
+                Total hoy: {Math.round(totalVolumeKg)} kg de volumen
+              </Txt>
+            ) : null}
+          </View>
+        )}
+      </View>
+
+      <View>
+        <SectionHeader>Agua</SectionHeader>
+        <Pressable onPress={() => navigation.navigate("Agua")} accessibilityRole="button">
+          <Card>
+            {water ? (
+              <>
+                <View style={styles.waterTop}>
+                  <Txt variant="title3" numeric>
+                    {formatMl(water.total_ml)}
+                  </Txt>
+                  <Txt variant="subhead" tone="secondary" numeric>
+                    de {formatMl(water.goal_ml)}
+                  </Txt>
+                </View>
+                <ProgressBar
+                  value={waterProgress}
+                  tone={water.total_ml >= water.goal_ml ? "success" : "water"}
+                />
+              </>
+            ) : (
+              <Txt variant="subhead" tone="secondary">
+                Agua no disponible ahora mismo.
+              </Txt>
+            )}
+          </Card>
+        </Pressable>
+      </View>
+    </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
-  content: { padding: 16, paddingBottom: 48 },
-  title: { fontSize: 24, fontWeight: "600" },
-  date: { fontSize: 15, color: "#555", marginBottom: 16 },
-  sectionTitle: { fontSize: 18, fontWeight: "600", marginTop: 16, marginBottom: 8 },
-  card: { backgroundColor: "#f4f4f4", borderRadius: 8, padding: 14, marginBottom: 10 },
-  cardActive: { backgroundColor: "#e6f6e9", borderWidth: 1, borderColor: "#7fd18b" },
-  cardLabel: { fontSize: 18, fontWeight: "600", marginBottom: 4 },
-  cardButton: { marginTop: 12 },
-  bigClock: { fontSize: 40, fontWeight: "700", fontVariant: ["tabular-nums"] },
-  workoutName: { fontSize: 17, fontWeight: "600", marginBottom: 2 },
-  muted: { fontSize: 14, color: "#555" },
-  exerciseBlock: { marginTop: 8 },
-  exerciseName: { fontSize: 15, fontWeight: "600" },
-  exerciseSets: { fontSize: 14, color: "#333", marginTop: 1 },
-  notes: { fontSize: 14, color: "#555", fontStyle: "italic", marginTop: 6 },
-  link: { fontSize: 14, color: "#3b5bdb", marginTop: 6 },
-  warning: { fontSize: 13, color: "#b8860b", marginTop: 10 },
-  errorDetail: { fontSize: 14, color: "#b00020", marginTop: 8 },
-});
