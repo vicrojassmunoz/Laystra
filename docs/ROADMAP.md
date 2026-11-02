@@ -10,7 +10,11 @@ Entregado: [CHANGELOG.md](CHANGELOG.md). Spec de la última tanda cerrada: [V2.m
 
 ## Próxima tanda sugerida
 
-No hay tanda cohesiva fijada. Siguiente natural: **#8** (alarma de descanso real, primer salto a EAS): desbloquea #17 (HealthKit) y con él el contador de pasos completo (#19).
+Tras la versión "Native Calm" (2026-11-02, ver [HANDOFF.md](HANDOFF.md)), candidatos en este orden de coste/valor:
+1. **#8 Temporizador de descanso con alarma:** ahora probablemente solo JS, porque las notificaciones locales ya funcionan en el build instalado.
+2. **Migrar los datos del dev local a producción** (el Docker está vacío de entrenos) y **persistir la sesión** (AsyncStorage ya instalado; guardar también la duración del entreno).
+3. **Pasos:** primero Pedometer (`expo-sensors`, barato); HealthKit (#17/#19) exige nueva capability y regenerar el provisioning profile.
+4. **Calidad:** tests Jest de utils puras, pasar `reviewer`, unificar los pickers de ejercicio.
 
 ---
 

@@ -19,6 +19,10 @@ Never add Claude as a co-author or include any "Generated with Claude Code" / `C
   ```
 - If a new top-level working directory is added later, remember to include it explicitly in the checkout list above — it won't come along automatically.
 
+## Estado actual (leer primero)
+
+**Estado a 2026-11-02 — ver [`docs/HANDOFF.md`](docs/HANDOFF.md)**: qué está hecho y en producción, mapa del código, flujo de promoción a producción, lecciones y candidatos de futuro. Contexto de producto en [`PRODUCT.md`](PRODUCT.md), sistema visual y de movimiento en [`DESIGN.md`](DESIGN.md). La sección "Project status" de abajo es el **historial por fases** (Fase 0–4, v1) y está desactualizada en detalles: ya no hay tab bar (Home es un hub en un stack), la app va en **Expo SDK 58** (no 54), Hoy es un resumen y el logueo vive en la pantalla Sesión. Para ver la UI sin Mac, usar `tools/visual/`. La vista web (`npx expo start --web`) no detecta errores solo nativos: pedir comprobación en Expo Go tras tocar algo nativo.
+
 ## Project status
 
 Fase 0 backend is done: all MVP endpoints (`/exercises`, `/routines`, `/schedule`, `/today`, `/workouts`, `/exercises/{id}/progress`) implemented against an in-memory seeded store — no SQLite yet, that came in Fase 1.

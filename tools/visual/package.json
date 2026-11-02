@@ -1,0 +1,9 @@
+{
+  "name": "laystra-visual-tools",
+  "private": true,
+  "type": "module",
+  "description": "Capturas y comprobaciones de la vista web de Laystra con Playwright (sin descargar navegador: usa Helium)",
+  "dependencies": {
+    "playwright-core": "^1.64.1"
+  }
+}
