@@ -41,7 +41,12 @@ type Snapshot = { formTarget: FormTarget; formRows: ExerciseDraft[]; notes: stri
 // una notificación local. Se programa en el sistema (no depende de que la app
 // siga viva en primer plano) y se reprograma en cada actividad.
 const INACTIVITY_SECONDS = 2 * 60 * 60;
-const INACTIVITY_BODY = "Ey, ¿sigues por aquí? Llevas 2 h sin registrar nada en tu sesión.";
+// Texto legible del umbral ("2 h" / "1 min") para el cuerpo del aviso y los textos de Hoy.
+export const INACTIVITY_LABEL =
+  INACTIVITY_SECONDS >= 3600
+    ? `${INACTIVITY_SECONDS / 3600} h`
+    : `${Math.round(INACTIVITY_SECONDS / 60)} min`;
+const INACTIVITY_BODY = `Ey, ¿sigues por aquí? Llevas ${INACTIVITY_LABEL} sin registrar nada en tu sesión.`;
 // Teclear dispara muchos touch(): se agrupan para no reprogramar en cada tecla.
 const RESCHEDULE_DEBOUNCE_MS = 2000;
 
@@ -57,7 +62,14 @@ Notifications.setNotificationHandler({
 type SessionValue = {
   // --- Sesión (cronómetro) ---
   active: boolean;
+  // ms epoch del inicio. Al reanudar tras una pausa se desplaza hacia delante lo
+  // que duró la pausa, así (now - startedAt) nunca cuenta el tiempo pausado.
   startedAt: number | null;
+  // ms epoch en que se pausó; null = corriendo. Con pausa, los relojes se congelan.
+  pausedAt: number | null;
+  paused: boolean;
+  pauseSession: () => void;
+  resumeSession: () => void;
   // Última serie completada (reps escritas); ancla del contador de descanso.
   lastSetAt: number | null;
   setLastSetAt: Dispatch<SetStateAction<number | null>>;
@@ -106,6 +118,7 @@ export function useSession(): SessionValue {
 
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [startedAt, setStartedAt] = useState<number | null>(null);
+  const [pausedAt, setPausedAt] = useState<number | null>(null);
   const [lastSetAt, setLastSetAt] = useState<number | null>(null);
   const [notificationsDenied, setNotificationsDenied] = useState(false);
 
@@ -125,6 +138,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const nextSetId = useCallback(() => nextSetIdRef.current++, []);
 
   const activeRef = useRef(false);
+  const pausedRef = useRef(false);
+  const pausedAtRef = useRef<number | null>(null);
   const notificationIdRef = useRef<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -143,7 +158,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const scheduleInactivity = useCallback(async () => {
     await cancelInactivity();
-    if (!activeRef.current) {
+    if (!activeRef.current || pausedRef.current) {
       return;
     }
     try {
@@ -154,8 +169,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           seconds: INACTIVITY_SECONDS,
         },
       });
-      // La sesión pudo terminar mientras se programaba.
-      if (activeRef.current) {
+      // La sesión pudo terminar (o pausarse) mientras se programaba.
+      if (activeRef.current && !pausedRef.current) {
         notificationIdRef.current = id;
       } else {
         await Notifications.cancelScheduledNotificationAsync(id);
@@ -166,7 +181,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [cancelInactivity]);
 
   const touch = useCallback(() => {
-    if (!activeRef.current) {
+    if (!activeRef.current || pausedRef.current) {
       return;
     }
     if (debounceRef.current !== null) {
@@ -201,8 +216,46 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     })();
   }, [scheduleInactivity]);
 
+  const pauseSession = useCallback(() => {
+    if (!activeRef.current || pausedRef.current) {
+      return;
+    }
+    pausedRef.current = true;
+    const now = Date.now();
+    pausedAtRef.current = now;
+    setPausedAt(now);
+    // En pausa no hay "inactividad" que avisar.
+    if (debounceRef.current !== null) {
+      clearTimeout(debounceRef.current);
+      debounceRef.current = null;
+    }
+    void cancelInactivity();
+  }, [cancelInactivity]);
+
+  const resumeSession = useCallback(() => {
+    const pausedAtValue = pausedAtRef.current;
+    if (!activeRef.current || !pausedRef.current || pausedAtValue === null) {
+      return;
+    }
+    pausedRef.current = false;
+    pausedAtRef.current = null;
+    // Desplaza todos los anclajes lo que duró la pausa, para que ni la sesión ni
+    // el descanso cuenten el tiempo pausado.
+    const shift = Date.now() - pausedAtValue;
+    setPausedAt(null);
+    setStartedAt((s) => (s === null ? s : s + shift));
+    setLastSetAt((l) => (l === null ? l : l + shift));
+    if (segmentStartRef.current !== null) {
+      segmentStartRef.current += shift;
+    }
+    // La cuenta de inactividad empieza de cero al reanudar.
+    void scheduleInactivity();
+  }, [scheduleInactivity]);
+
   const stopSession = useCallback(() => {
     activeRef.current = false;
+    pausedRef.current = false;
+    pausedAtRef.current = null;
     if (debounceRef.current !== null) {
       clearTimeout(debounceRef.current);
       debounceRef.current = null;
@@ -210,6 +263,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     void cancelInactivity();
 
     setStartedAt(null);
+    setPausedAt(null);
     setLastSetAt(null);
     segmentStartRef.current = null;
     setNotes("");
@@ -237,6 +291,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     () => ({
       active: startedAt !== null,
       startedAt,
+      pausedAt,
+      paused: pausedAt !== null,
+      pauseSession,
+      resumeSession,
       lastSetAt,
       setLastSetAt,
       notificationsDenied,
@@ -266,6 +324,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }),
     [
       startedAt,
+      pausedAt,
+      pauseSession,
+      resumeSession,
       lastSetAt,
       notificationsDenied,
       startSession,

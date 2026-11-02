@@ -199,6 +199,9 @@ export default function SesionScreen() {
     startedAt: sessionStartedAt,
     lastSetAt,
     setLastSetAt,
+    pausedAt,
+    pauseSession,
+    resumeSession,
     stopSession,
     touch,
     formTarget,
@@ -980,6 +983,8 @@ export default function SesionScreen() {
           <SessionBar
             startedAt={sessionStartedAt}
             lastSetAt={lastSetAt}
+            pausedAt={pausedAt}
+            onTogglePause={pausedAt === null ? pauseSession : resumeSession}
             onStop={handleStopSession}
             nextLabel={!skipped && !submitted ? nextExerciseLabel : null}
             tip={!skipped && !submitted ? nextExerciseTip : null}

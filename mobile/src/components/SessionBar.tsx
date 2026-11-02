@@ -6,6 +6,9 @@ type Props = {
   startedAt: number | null;
   // ms epoch de la última serie completada (reps escritas); ancla del descanso.
   lastSetAt: number | null;
+  // ms epoch de la pausa; null = corriendo.
+  pausedAt: number | null;
+  onTogglePause: () => void;
   // Termina la sesión (el padre pide confirmación si hay un entreno sin guardar).
   onStop: () => void;
   // "Siguiente: X" ya formateado por quien conoce el formulario; null = nada pendiente.
@@ -27,37 +30,55 @@ export function formatClock(totalSeconds: number): string {
 // desde la última serie, siguiente ejercicio y un tip estático. Solo en primer
 // plano -- la alarma real con la app en background es el ítem #8 (EAS). El
 // tick de 1 s vive aquí dentro para no re-renderizar toda la pantalla Hoy.
-export default function SessionBar({ startedAt, lastSetAt, onStop, nextLabel, tip }: Props) {
+export default function SessionBar({
+  startedAt,
+  lastSetAt,
+  pausedAt,
+  onTogglePause,
+  onStop,
+  nextLabel,
+  tip,
+}: Props) {
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
-    if (startedAt === null) {
+    if (startedAt === null || pausedAt !== null) {
       return;
     }
     setNow(Date.now());
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
-  }, [startedAt]);
+  }, [startedAt, pausedAt]);
+
+  // Congelado en la pausa: ambos relojes miden contra el instante de pausa.
+  const clockNow = pausedAt ?? now;
 
   return (
-    <View style={styles.bar}>
+    <View style={[styles.bar, pausedAt !== null && styles.barPaused]}>
       <View style={styles.topRow}>
         <View style={styles.clocks}>
           <View>
             <Text style={styles.clockLabel}>Sesión</Text>
             <Text style={styles.clockValue}>
-              {startedAt === null ? "--:--" : formatClock((now - startedAt) / 1000)}
+              {startedAt === null ? "--:--" : formatClock((clockNow - startedAt) / 1000)}
             </Text>
           </View>
           <View>
             <Text style={styles.clockLabel}>Descanso</Text>
             <Text style={styles.clockValue}>
-              {lastSetAt === null ? "--:--" : formatClock((now - lastSetAt) / 1000)}
+              {lastSetAt === null ? "--:--" : formatClock((clockNow - lastSetAt) / 1000)}
             </Text>
           </View>
         </View>
-        <Button title="■ Terminar" color="#b00020" onPress={onStop} />
+        <View style={styles.buttons}>
+          <Button
+            title={pausedAt !== null ? "▶ Reanudar" : "⏸ Pausa"}
+            onPress={onTogglePause}
+          />
+          <Button title="■ Terminar" color="#b00020" onPress={onStop} />
+        </View>
       </View>
+      {pausedAt !== null && <Text style={styles.pausedText}>Sesión en pausa</Text>}
 
       {nextLabel && <Text style={styles.next}>{nextLabel}</Text>}
       {tip && <Text style={styles.tip}>💡 {tip}</Text>}
@@ -73,6 +94,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 10,
   },
+  barPaused: { backgroundColor: "#fff6e0", borderBottomColor: "#f0d58a" },
+  buttons: { flexDirection: "row", alignItems: "center" },
+  pausedText: { marginTop: 4, fontSize: 13, color: "#b8860b", fontWeight: "600" },
   topRow: {
     flexDirection: "row",
     alignItems: "center",

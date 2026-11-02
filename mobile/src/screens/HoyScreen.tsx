@@ -16,7 +16,7 @@ import { fetchToday, todayIsoDate, TodayResponse } from "../api/today";
 import { fetchWaterDay } from "../api/water";
 import { fetchWorkouts } from "../api/workouts";
 import SessionClock from "../components/SessionClock";
-import { useSession } from "../session/SessionContext";
+import { INACTIVITY_LABEL, useSession } from "../session/SessionContext";
 import { Routine } from "../types/routine";
 import { WaterDay } from "../types/water";
 import { Workout } from "../types/workout";
@@ -57,7 +57,7 @@ function workoutStats(workout: Workout): { exercises: number; sets: number; volu
 // "Sesión", que se abre desde aquí y sigue viva si sales a otras pantallas.
 export default function HoyScreen() {
   const navigation = useNavigation();
-  const { active, startedAt, startSession, notificationsDenied } = useSession();
+  const { active, startedAt, pausedAt, startSession, notificationsDenied } = useSession();
   const [state, setState] = useState<State>({ status: "loading" });
   const hasDataRef = useRef(false);
 
@@ -134,8 +134,10 @@ export default function HoyScreen() {
         <View style={[styles.card, active && styles.cardActive]}>
           {active && startedAt !== null ? (
             <>
-              <Text style={styles.cardLabel}>Sesión en curso</Text>
-              <SessionClock startedAt={startedAt} style={styles.bigClock} />
+              <Text style={styles.cardLabel}>
+                {pausedAt !== null ? "Sesión en pausa" : "Sesión en curso"}
+              </Text>
+              <SessionClock startedAt={startedAt} pausedAt={pausedAt} style={styles.bigClock} />
               <View style={styles.cardButton}>
                 <Button title="Volver a la sesión" onPress={openSession} />
               </View>
@@ -157,7 +159,7 @@ export default function HoyScreen() {
           )}
           {active && notificationsDenied && (
             <Text style={styles.warning}>
-              Sin permiso de notificaciones: no te avisaré si pasas 2 h sin registrar nada.
+              Sin permiso de notificaciones: no te avisaré si pasas ${INACTIVITY_LABEL} sin registrar nada.
             </Text>
           )}
         </View>

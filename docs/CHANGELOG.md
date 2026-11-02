@@ -10,6 +10,8 @@ Rediseño de la asistencia en sesión (#7) a partir del uso real; adelanta del �
 
 **Mobile:** `Hoy` pasa a ser el resumen del día; el formulario de logueo se mueve a la nueva pantalla `Sesion` (`SesionScreen`, antes `TodayScreen`). La sesión se arranca/termina explícitamente (▶ Empezar / ■ Terminar); el cronómetro y el borrador viven en `SessionContext`, así que sobreviven a navegar por otras pantallas. Píldora flotante `SessionPill` con el reloj en todas las pantallas mientras la sesión está en curso (toque → vuelve a Sesión). Si pasan 2 h sin teclear nada nuevo llega una notificación local "Ey, ¿sigues por aquí?" (`expo-notifications`, SDK 58).
 
+**Pausa:** ⏸ Pausa / ▶ Reanudar en la barra de Sesión congela sesión y descanso (la píldora y Hoy lo muestran en ámbar); al reanudar los anclajes se desplazan lo que duró la pausa. En pausa no hay aviso de inactividad pendiente; al reanudar la cuenta de 2 h empieza de cero.
+
 **Sin backend nuevo.** El borrador no se persiste en disco: si iOS mata la app, la sesión se pierde.
 
 ---

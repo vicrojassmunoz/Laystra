@@ -7,18 +7,24 @@ import { formatClock } from "./SessionBar";
 // lo use (píldora flotante, tarjeta de Hoy) no re-renderice nada más cada segundo.
 export default function SessionClock({
   startedAt,
+  pausedAt = null,
   style,
 }: {
   startedAt: number;
+  // Con pausa el reloj se congela en el instante en que se pausó.
+  pausedAt?: number | null;
   style?: StyleProp<TextStyle>;
 }) {
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
+    if (pausedAt !== null) {
+      return;
+    }
     setNow(Date.now());
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
-  }, [startedAt]);
+  }, [startedAt, pausedAt]);
 
-  return <Text style={style}>{formatClock((now - startedAt) / 1000)}</Text>;
+  return <Text style={style}>{formatClock(((pausedAt ?? now) - startedAt) / 1000)}</Text>;
 }

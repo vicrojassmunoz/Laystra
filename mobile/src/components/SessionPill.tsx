@@ -13,7 +13,7 @@ export default function SessionPill({
   currentRoute: string | undefined;
   onPress: () => void;
 }) {
-  const { active, startedAt } = useSession();
+  const { active, startedAt, pausedAt } = useSession();
   const insets = useSafeAreaInsets();
 
   if (!active || startedAt === null || currentRoute === "Sesion") {
@@ -25,12 +25,12 @@ export default function SessionPill({
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel="Volver a la sesión en curso"
-      style={[styles.pill, { top: insets.top + 6 }]}
+      style={[styles.pill, pausedAt !== null && styles.pillPaused, { top: insets.top + 6 }]}
       hitSlop={8}
     >
-      <Text style={styles.dot}>●</Text>
+      <Text style={styles.dot}>{pausedAt !== null ? "⏸" : "●"}</Text>
       <Text style={styles.icon}>🏋️</Text>
-      <SessionClock startedAt={startedAt} style={styles.time} />
+      <SessionClock startedAt={startedAt} pausedAt={pausedAt} style={styles.time} />
     </Pressable>
   );
 }
@@ -53,6 +53,7 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     shadowOffset: { width: 0, height: 2 },
   },
+  pillPaused: { backgroundColor: "#b8860b" },
   dot: { color: "#c6f6d5", fontSize: 10 },
   icon: { fontSize: 14 },
   time: {
