@@ -1,5 +1,5 @@
 ---
-description: Expo SDK 57 constraints for the mobile app
+description: Expo SDK 58 constraints for the mobile app
 globs: mobile/**
 alwaysApply: false
 ---
@@ -8,7 +8,7 @@ alwaysApply: false
 
 Leer la documentación versionada en https://docs.expo.dev/versions/v57.0.0/ antes de escribir código.
 
-Pinned a **SDK 57** (Expo Go del iPhone del desarrollador, 2026-09-07). No subir de versión sin comprobar primero qué SDK soporta Expo Go en el dispositivo — un desajuste da el error "project uses SDK X / Expo Go is SDK Y".
+Pinned a **SDK 58** (Expo Go del iPhone del desarrollador, 2026-11-02; antes SDK 57). No subir de versión sin comprobar primero qué SDK soporta Expo Go en el dispositivo — un desajuste da el error "project uses SDK X / Expo Go is SDK Y".
 
 ## Patrones de pantalla (obligatorios)
 

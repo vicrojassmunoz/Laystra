@@ -9,6 +9,7 @@ import {
   Modal,
   Platform,
   ScrollView,
+  ScrollViewInstance,
   StyleSheet,
   Text,
   TextInput,
@@ -55,7 +56,7 @@ export default function RoutinesScreen() {
   const [formError, setFormError] = useState<string | null>(null);
   const [pickerRowId, setPickerRowId] = useState<number | null>(null);
   const [pickerQuery, setPickerQuery] = useState("");
-  const scrollRef = useRef<ScrollView>(null);
+  const scrollRef = useRef<ScrollViewInstance>(null);
 
   // Contador de ids de bloque de super-serie, local a este formulario (no es
   // un id del backend -- el backend solo exige que el mismo entero se repita

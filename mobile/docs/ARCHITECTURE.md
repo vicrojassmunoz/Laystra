@@ -1,6 +1,6 @@
 # Arquitectura mobile — Laystra
 
-App Expo (React Native) + TypeScript, SDK 57. Consume la API REST del backend FastAPI.
+App Expo (React Native) + TypeScript, SDK 58. Consume la API REST del backend FastAPI.
 
 ## Navegación
 
@@ -54,7 +54,7 @@ Tipos: `src/types/navigation.ts` (`RootStackParamList` únicamente).
 5. **Picker ejercicios:** siempre `ExercisePickerList` (buscador + agrupación + "+ Nuevo ejercicio" + edición). Usado en Rutinas (2 pickers), Hoy (entreno libre + superserie), Progreso, Historial. El formulario sirve para `POST /exercises` (`createExercise`) y `PUT /exercises/{id}` (`updateExercise`): nombre, chips kg/lb/PC (`bw` en API), grupo principal obligatorio y secundarios opcionales. El botón **Editar** es hermano del `renderItem`, no está anidado dentro de la zona seleccionable. El padre sincroniza su lista mediante `onCreated` y `onUpdated`.
 6. **Estado:** `useState` local; sin Redux/Context global salvo necesidad real.
 7. **Estilos:** `StyleSheet.create` inline por pantalla.
-8. **CSV:** `File`/`Paths` de `expo-file-system` (API nueva; en SDK 57 el paquete va en `~57.x`). **No** usar `writeAsStringAsync` del import principal — lanza en runtime. Share con `expo-sharing` `shareAsync`. Sigue en Expo Go.
+8. **CSV:** `File`/`Paths` de `expo-file-system` (API nueva; en SDK 58 el paquete va en `~58.x`). **No** usar `writeAsStringAsync` del import principal — lanza en runtime. Share con `expo-sharing` `shareAsync`. Sigue en Expo Go.
 
 ## Hoy e Historial
 
@@ -95,4 +95,4 @@ Sin tests unitarios por ahora — verificación en dispositivo vía Expo Go o bu
 
 Sin Mac — iOS vía EAS. Ver `eas.json` y subagente `eas-agent`. Salir de Expo Go implica development build.
 
-Dependencias nativas en Expo Go (directas en `package.json`): `expo-file-system` / `expo-sharing` en la línea SDK 57. No fuerzan development build. Un build EAS `preview` anterior a v2/SDK 57 hay que reconstruirlo para CSV y para el bump de SDK.
+Dependencias nativas en Expo Go (directas en `package.json`): `expo-file-system` / `expo-sharing` en la línea SDK 58. No fuerzan development build. Un build EAS `preview` anterior a v2/SDK 57 hay que reconstruirlo para CSV y para el bump de SDK.
