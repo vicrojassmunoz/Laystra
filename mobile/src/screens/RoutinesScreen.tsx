@@ -2,16 +2,12 @@ import { useFocusEffect } from "@react-navigation/native";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Button,
   Keyboard,
   KeyboardAvoidingView,
   Modal,
   Platform,
   ScrollView,
   ScrollViewInstance,
-  StyleSheet,
-  Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -25,6 +21,8 @@ import { Routine, RoutineExercise, RoutineExerciseCreate } from "../types/routin
 import { secondaryHint } from "../utils/exercisePicker";
 import { groupBySuperset } from "../utils/superset";
 import { showAlert } from "../utils/alert";
+import { Text, TextInput, Button } from "../components/ui/compat";
+import { makeStyles } from "../theme/theme";
 
 type State =
   | { status: "loading" }
@@ -46,6 +44,7 @@ function makeEmptyRow(id: number): DraftRow {
 }
 
 export default function RoutinesScreen() {
+  const styles = useStyles();
   const [state, setState] = useState<State>({ status: "loading" });
   const hasDataRef = useRef(false);
 
@@ -396,7 +395,6 @@ export default function RoutinesScreen() {
           contentContainerStyle={styles.content}
           keyboardShouldPersistTaps="handled"
         >
-          <Text style={styles.title}>Rutinas</Text>
 
           {routines.length === 0 && (
             <Text style={styles.emptyText}>Todavía no hay rutinas.</Text>
@@ -608,10 +606,10 @@ export default function RoutinesScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles(({ colors }) => ({
   container: {
     flex: 1,
-    backgroundColor: "#fff",
+    backgroundColor: colors.bg,
   },
   content: {
     padding: 16,
@@ -624,11 +622,11 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: 16,
-    color: "#555",
+    color: colors.labelSecondary,
     marginBottom: 16,
   },
   card: {
-    backgroundColor: "#f4f4f4",
+    backgroundColor: colors.surface,
     borderRadius: 8,
     padding: 12,
     marginBottom: 12,
@@ -640,7 +638,7 @@ const styles = StyleSheet.create({
   },
   exerciseLine: {
     fontSize: 15,
-    color: "#333",
+    color: colors.label,
     marginVertical: 2,
   },
   cardActions: {
@@ -654,14 +652,14 @@ const styles = StyleSheet.create({
   // supersetGroupBox del formulario, pero sin acciones.
   supersetGroupBoxReadOnly: {
     borderWidth: 1,
-    borderColor: "#8ab4f8",
+    borderColor: colors.tint,
     borderRadius: 6,
     padding: 8,
     marginVertical: 4,
   },
   supersetGroupBox: {
     borderWidth: 1,
-    borderColor: "#8ab4f8",
+    borderColor: colors.tint,
     borderRadius: 6,
     padding: 8,
     marginBottom: 8,
@@ -675,7 +673,7 @@ const styles = StyleSheet.create({
   supersetGroupLabel: {
     fontSize: 13,
     fontWeight: "700",
-    color: "#3b5bdb",
+    color: colors.tint,
     textTransform: "uppercase",
   },
   formButtonsRow: {
@@ -687,7 +685,7 @@ const styles = StyleSheet.create({
     marginTop: 16,
     paddingTop: 16,
     borderTopWidth: 1,
-    borderTopColor: "#ddd",
+    borderTopColor: colors.separator,
   },
   formTitle: {
     fontSize: 20,
@@ -696,7 +694,7 @@ const styles = StyleSheet.create({
   },
   input: {
     borderWidth: 1,
-    borderColor: "#ccc",
+    borderColor: colors.separator,
     borderRadius: 6,
     padding: 10,
     fontSize: 16,
@@ -707,22 +705,22 @@ const styles = StyleSheet.create({
   },
   pickerButton: {
     borderWidth: 1,
-    borderColor: "#ccc",
+    borderColor: colors.separator,
     borderRadius: 6,
     padding: 10,
     marginBottom: 4,
   },
   pickerButtonText: {
     fontSize: 16,
-    color: "#000",
+    color: colors.label,
   },
   pickerPlaceholderText: {
     fontSize: 16,
-    color: "#999",
+    color: colors.labelTertiary,
   },
   numberInput: {
     borderWidth: 1,
-    borderColor: "#ccc",
+    borderColor: colors.separator,
     borderRadius: 6,
     padding: 8,
     fontSize: 16,
@@ -736,7 +734,7 @@ const styles = StyleSheet.create({
   },
   errorDetail: {
     fontSize: 14,
-    color: "#b00020",
+    color: colors.danger,
     marginTop: 8,
   },
   modalBackdrop: {
@@ -756,7 +754,7 @@ const styles = StyleSheet.create({
     maxHeight: "70%",
   },
   modalCard: {
-    backgroundColor: "#fff",
+    backgroundColor: colors.surface,
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
     padding: 20,
@@ -771,7 +769,7 @@ const styles = StyleSheet.create({
   option: {
     paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: "#eee",
+    borderBottomColor: colors.separator,
   },
   optionText: {
     fontSize: 16,
@@ -781,11 +779,11 @@ const styles = StyleSheet.create({
     fontSize: 16,
     textAlign: "center",
     fontWeight: "600",
-    color: "#1b8a1b",
+    color: colors.success,
   },
   optionHint: {
     fontSize: 12,
-    color: "#999",
+    color: colors.labelTertiary,
     textAlign: "center",
     marginTop: 2,
   },
@@ -796,7 +794,7 @@ const styles = StyleSheet.create({
   cancelText: {
     fontSize: 16,
     textAlign: "center",
-    color: "#b00020",
+    color: colors.danger,
     fontWeight: "600",
   },
   modalActions: {
@@ -815,13 +813,13 @@ const styles = StyleSheet.create({
   doneText: {
     fontSize: 16,
     textAlign: "center",
-    color: "#1b8a1b",
+    color: colors.success,
     fontWeight: "600",
   },
   doneTextDisabled: {
     fontSize: 16,
     textAlign: "center",
-    color: "#aaa",
+    color: colors.labelTertiary,
     fontWeight: "600",
   },
-});
+}));

@@ -1,11 +1,17 @@
 import { useFocusEffect } from "@react-navigation/native";
 import { useCallback, useRef, useState } from "react";
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  ScrollView,
+  View,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { fetchAnalyticsSummary } from "../api/analytics";
 import { AnalyticsSummary } from "../types/analytics";
 import { MUSCLE_GROUP_ORDER } from "../utils/exercisePicker";
+import { Text } from "../components/ui/compat";
+import { makeStyles } from "../theme/theme";
 
 type State =
   | { status: "loading" }
@@ -17,6 +23,7 @@ type State =
 const STALE_DAYS_THRESHOLD = 7;
 
 export default function AnalisisScreen() {
+  const styles = useStyles();
   const [state, setState] = useState<State>({ status: "loading" });
   const hasDataRef = useRef(false);
 
@@ -113,10 +120,10 @@ export default function AnalisisScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles(({ colors }) => ({
   container: {
     flex: 1,
-    backgroundColor: "#fff",
+    backgroundColor: colors.bg,
   },
   content: {
     padding: 16,
@@ -128,7 +135,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   tonnageCard: {
-    backgroundColor: "#f4f4f4",
+    backgroundColor: colors.surface,
     borderRadius: 8,
     padding: 16,
     alignItems: "center",
@@ -136,7 +143,7 @@ const styles = StyleSheet.create({
   },
   tonnageLabel: {
     fontSize: 14,
-    color: "#555",
+    color: colors.labelSecondary,
     marginBottom: 4,
   },
   tonnageValue: {
@@ -157,24 +164,24 @@ const styles = StyleSheet.create({
   },
   volumeLabel: {
     fontSize: 14,
-    color: "#333",
+    color: colors.label,
     width: 90,
   },
   barTrack: {
     flex: 1,
     height: 12,
     borderRadius: 6,
-    backgroundColor: "#eee",
+    backgroundColor: colors.fill,
     overflow: "hidden",
   },
   barFill: {
     height: "100%",
     borderRadius: 6,
-    backgroundColor: "#3b5bdb",
+    backgroundColor: colors.tint,
   },
   volumeValue: {
     fontSize: 13,
-    color: "#555",
+    color: colors.labelSecondary,
     width: 48,
     textAlign: "right",
   },
@@ -183,23 +190,23 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingVertical: 8,
     borderBottomWidth: 1,
-    borderBottomColor: "#eee",
+    borderBottomColor: colors.separator,
   },
   gapLabel: {
     fontSize: 15,
-    color: "#333",
+    color: colors.label,
   },
   gapValue: {
     fontSize: 15,
-    color: "#555",
+    color: colors.labelSecondary,
   },
   gapValueStale: {
-    color: "#b00020",
+    color: colors.danger,
     fontWeight: "600",
   },
   errorDetail: {
     fontSize: 14,
-    color: "#b00020",
+    color: colors.danger,
     marginTop: 8,
   },
-});
+}));

@@ -290,7 +290,7 @@ export default function AguaScreen() {
   const lastEntry = day.entries.length > 0 ? day.entries[day.entries.length - 1] : null;
 
   return (
-    <Screen webTitle="Agua">
+    <Screen>
       <Card>
         <View style={styles.totalRow}>
           <Txt variant="largeTitle" numeric>

@@ -2,14 +2,10 @@ import { useFocusEffect } from "@react-navigation/native";
 import { useCallback, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Button,
   KeyboardAvoidingView,
   Modal,
   Platform,
   ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -30,6 +26,8 @@ import { groupBySuperset, validSupersetGroups } from "../utils/superset";
 import { convertWeight } from "../utils/weightUnit";
 import { showAlert } from "../utils/alert";
 import { shareCsv } from "../utils/shareCsv";
+import { Text, TextInput, Button } from "../components/ui/compat";
+import { makeStyles } from "../theme/theme";
 
 type State =
   | { status: "loading" }
@@ -123,6 +121,7 @@ function buildEditGroups(
 }
 
 export default function HistorialScreen() {
+  const styles = useStyles();
   const [state, setState] = useState<State>({ status: "loading" });
   const hasDataRef = useRef(false);
 
@@ -504,7 +503,6 @@ export default function HistorialScreen() {
         keyboardVerticalOffset={0}
       >
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-          <Text style={styles.title}>Historial</Text>
 
           <View style={styles.exportButton}>
             <Button
@@ -753,7 +751,7 @@ export default function HistorialScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles(({ colors }) => ({
   notesBox: {
     marginTop: 8,
   },
@@ -765,22 +763,22 @@ const styles = StyleSheet.create({
   notesInput: {
     minHeight: 64,
     borderWidth: 1,
-    borderColor: "#ccc",
+    borderColor: colors.separator,
     borderRadius: 6,
     padding: 8,
     fontSize: 16,
-    backgroundColor: "#fff",
+    backgroundColor: colors.surface,
     textAlignVertical: "top",
   },
   notesText: {
     fontSize: 14,
-    color: "#555",
+    color: colors.labelSecondary,
     fontStyle: "italic",
     marginTop: 6,
   },
   container: {
     flex: 1,
-    backgroundColor: "#fff",
+    backgroundColor: colors.bg,
   },
   content: {
     padding: 16,
@@ -799,22 +797,22 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: 16,
-    color: "#555",
+    color: colors.labelSecondary,
   },
   card: {
-    backgroundColor: "#f4f4f4",
+    backgroundColor: colors.surface,
     borderRadius: 8,
     padding: 12,
     marginBottom: 12,
   },
   cardEditing: {
-    backgroundColor: "#eef4ff",
+    backgroundColor: colors.tintSoft,
     borderWidth: 1,
-    borderColor: "#8ab4f8",
+    borderColor: colors.tint,
   },
   date: {
     fontSize: 14,
-    color: "#555",
+    color: colors.labelSecondary,
   },
   routineName: {
     fontSize: 18,
@@ -823,7 +821,7 @@ const styles = StyleSheet.create({
   },
   setLine: {
     fontSize: 15,
-    color: "#333",
+    color: colors.label,
     marginVertical: 2,
   },
   cardActions: {
@@ -851,30 +849,30 @@ const styles = StyleSheet.create({
   },
   setLabel: {
     fontSize: 14,
-    color: "#555",
+    color: colors.labelSecondary,
     width: 64,
   },
   weightInput: {
     flex: 1,
     borderWidth: 1,
-    borderColor: "#ccc",
+    borderColor: colors.separator,
     borderRadius: 6,
     padding: 8,
     fontSize: 16,
-    backgroundColor: "#fff",
+    backgroundColor: colors.surface,
   },
   repsInput: {
     flex: 1,
     borderWidth: 1,
-    borderColor: "#ccc",
+    borderColor: colors.separator,
     borderRadius: 6,
     padding: 8,
     fontSize: 16,
-    backgroundColor: "#fff",
+    backgroundColor: colors.surface,
   },
   errorDetail: {
     fontSize: 14,
-    color: "#b00020",
+    color: colors.danger,
     marginTop: 8,
     textAlign: "center",
   },
@@ -887,7 +885,7 @@ const styles = StyleSheet.create({
     maxHeight: "70%",
   },
   modalCard: {
-    backgroundColor: "#fff",
+    backgroundColor: colors.surface,
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
     padding: 20,
@@ -902,7 +900,7 @@ const styles = StyleSheet.create({
   option: {
     paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: "#eee",
+    borderBottomColor: colors.separator,
   },
   optionText: {
     fontSize: 16,
@@ -910,7 +908,7 @@ const styles = StyleSheet.create({
   },
   optionHint: {
     fontSize: 12,
-    color: "#999",
+    color: colors.labelTertiary,
     textAlign: "center",
     marginTop: 2,
   },
@@ -921,7 +919,7 @@ const styles = StyleSheet.create({
   cancelText: {
     fontSize: 16,
     textAlign: "center",
-    color: "#b00020",
+    color: colors.danger,
     fontWeight: "600",
   },
-});
+}));

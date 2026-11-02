@@ -2,9 +2,6 @@ import { ReactNode, useState } from "react";
 import {
   ActivityIndicator,
   ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -12,6 +9,8 @@ import {
 import { createExercise, updateExercise } from "../api/exercises";
 import { Exercise, WeightUnit } from "../types/exercise";
 import { MUSCLE_GROUP_ORDER, filterExercises, groupExercisesByMuscle } from "../utils/exercisePicker";
+import { Text, TextInput } from "./ui/compat";
+import { makeStyles } from "../theme/theme";
 
 type Props = {
   exercises: Exercise[];
@@ -58,6 +57,7 @@ export default function ExercisePickerList({
   onCreated,
   onUpdated,
 }: Props) {
+  const styles = useStyles();
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState(emptyCreateForm);
@@ -275,10 +275,10 @@ export default function ExercisePickerList({
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles(({ colors }) => ({
   searchInput: {
     borderWidth: 1,
-    borderColor: "#ccc",
+    borderColor: colors.separator,
     borderRadius: 6,
     padding: 10,
     fontSize: 16,
@@ -297,7 +297,7 @@ const styles = StyleSheet.create({
   sectionHeader: {
     fontSize: 13,
     fontWeight: "700",
-    color: "#3b5bdb",
+    color: colors.tint,
     textTransform: "uppercase",
     marginTop: 10,
     marginBottom: 2,
@@ -315,12 +315,12 @@ const styles = StyleSheet.create({
   },
   editButtonText: {
     fontSize: 13,
-    color: "#3b5bdb",
+    color: colors.tint,
     fontWeight: "600",
   },
   emptyText: {
     fontSize: 15,
-    color: "#777",
+    color: colors.labelSecondary,
     textAlign: "center",
     paddingVertical: 16,
   },
@@ -330,19 +330,19 @@ const styles = StyleSheet.create({
   },
   newButtonText: {
     fontSize: 16,
-    color: "#3b5bdb",
+    color: colors.tint,
     fontWeight: "600",
   },
   createForm: {
     marginBottom: 8,
     paddingBottom: 8,
     borderBottomWidth: 1,
-    borderBottomColor: "#eee",
+    borderBottomColor: colors.separator,
   },
   fieldLabel: {
     fontSize: 13,
     fontWeight: "600",
-    color: "#555",
+    color: colors.labelSecondary,
     marginBottom: 6,
     marginTop: 4,
   },
@@ -359,26 +359,26 @@ const styles = StyleSheet.create({
   },
   chip: {
     borderWidth: 1,
-    borderColor: "#ccc",
+    borderColor: colors.separator,
     borderRadius: 16,
     paddingHorizontal: 10,
     paddingVertical: 6,
   },
   chipSelected: {
-    borderColor: "#3b5bdb",
-    backgroundColor: "#3b5bdb",
+    borderColor: colors.tint,
+    backgroundColor: colors.tint,
   },
   chipText: {
     fontSize: 13,
-    color: "#333",
+    color: colors.label,
   },
   chipTextSelected: {
     fontSize: 13,
-    color: "#fff",
+    color: colors.onTint,
     fontWeight: "600",
   },
   createError: {
-    color: "#b00020",
+    color: colors.danger,
     fontSize: 14,
     marginBottom: 8,
   },
@@ -390,11 +390,11 @@ const styles = StyleSheet.create({
   },
   cancelCreate: {
     fontSize: 16,
-    color: "#666",
+    color: colors.labelSecondary,
   },
   saveCreate: {
     fontSize: 16,
-    color: "#3b5bdb",
+    color: colors.tint,
     fontWeight: "600",
   },
-});
+}));

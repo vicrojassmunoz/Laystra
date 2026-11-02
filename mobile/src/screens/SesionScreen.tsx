@@ -312,7 +312,10 @@ export default function SesionScreen() {
 
     const finish = () => {
       stopSession();
-      navigation.navigate("Hoy");
+      // Reset en vez de navigate("Hoy"): si se llegó a Sesión desde otra pantalla
+      // (la píldora flotante), navigate empujaba un Hoy NUEVO encima y el back
+      // rebotaba entre Hoy y una Sesión ya vacía. Así el stack queda Home → Hoy.
+      navigation.reset({ index: 1, routes: [{ name: "Home" }, { name: "Hoy" }] });
     };
 
     if (!hasUnsaved) {

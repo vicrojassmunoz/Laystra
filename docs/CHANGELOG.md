@@ -4,6 +4,14 @@ Historial de ítems que empezaron en [ROADMAP.md](ROADMAP.md) y ya están hechos
 
 ---
 
+## 2026-11-02 — Rediseño "Native Calm"
+
+Sistema de diseño nuevo (ver [DESIGN.md](../DESIGN.md)): tokens claro/oscuro, componentes `ui/`, SF Symbols (`expo-symbols`; Ionicons en web), títulos en línea. Rediseñadas a mano: Home (listas agrupadas), Hoy, Sesión (`SetRow`, `SupersetBlock`, `PrBadge` nuevos), Agua y **Perfil** (resumen de peso con variación, alta de medición, ajustes y exportación). El resto de pantallas usa tokens vía `ui/compat`.
+
+**Modo Oscuro:** `userInterfaceStyle: "automatic"` + Perfil → Apariencia (Sistema/Claro/Oscuro, persistente). **Navegación:** "Terminar sesión" hace `reset` del stack a Home → Hoy (antes empujaba un Hoy nuevo y el back rebotaba entre Hoy y Sesión). **Web:** vista previa con `expo start --web`.
+
+---
+
 ## 2026-11-02 — Hoy como resumen y Sesión con cronómetro global
 
 Rediseño de la asistencia en sesión (#7) a partir del uso real; adelanta del ítem #8 solo la notificación local de inactividad (la alarma de descanso sigue pendiente).

@@ -157,8 +157,8 @@ export default function HoyScreen() {
   const waterProgress = water && water.goal_ml > 0 ? water.total_ml / water.goal_ml : 0;
 
   return (
-    <Screen webTitle="Hoy">
-      <Txt variant="subhead" tone="secondary" style={{ marginTop: -space.sm }}>
+    <Screen>
+      <Txt variant="subhead" tone="secondary">
         {longDate(today.date)}
       </Txt>
 

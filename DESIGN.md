@@ -20,7 +20,10 @@ Semantic colors (`bg`, `surface`, `surfaceInset`, `label`, `labelSecondary`, `la
 `Txt`, `Screen` (+ `ScreenLoading` / `ScreenError`), `Card`, `Section`, `SectionHeader`, `Row`, `Button` (`filled` = the one primary action per screen, `tinted`, `plain`, `destructive`, `plainDestructive`, `iconOnly`), `Chip`, `TextField`, `ProgressBar`, `Icon` (SF Symbols on iOS, Ionicons stand-in on web). Domain pieces built on them: `SetRow`, `SupersetBlock`, `PrBadge`, `WeightUnitChips`, `SessionBar`, `SessionPill`.
 
 ## Migration status
-Migrated: Home, Hoy, Sesión, Agua, navigation shell. **Not yet migrated (still hard-coded light styles):** Historial, Rutinas, Semana, Progreso, Objetivos, Perfil, Análisis, `ExercisePickerList`. `app.json` stays `userInterfaceStyle: "light"` until those are done; flip it to `"automatic"` to ship Dark Mode on device.
+- **Redesigned by hand:** Home, Hoy, Sesión, Agua, Perfil, navigation shell.
+- **Themed via drop-ins (Dark Mode works, layout unchanged):** Historial, Rutinas, Semana, Progreso, Objetivos, Análisis, `ExercisePickerList`. They use `components/ui/compat` (`Text`, `TextInput`, `Button` with the old API but theme colors) and a `makeStyles` stylesheet with token colors. Candidates for a real redesign pass.
+- `app.json` is `userInterfaceStyle: "automatic"`; the user can override in Perfil → Apariencia (Sistema / Claro / Oscuro, stored with AsyncStorage and applied with `Appearance.setColorScheme`).
+- **Titles are inline** in the native header (centered, next to the back arrow) -- no large titles, to save vertical space.
 
 ## Verification
 No Simulator. Layout/color/type are checked in the Expo Web preview (390×844 @2×, light and dark) with a headless Helium driven by `playwright-core`; the iPhone via Expo Go is the final check (fonts, native header/large titles, safe areas and haptics differ from web).

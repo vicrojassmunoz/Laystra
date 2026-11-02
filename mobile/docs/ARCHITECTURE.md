@@ -37,7 +37,7 @@ Tipos: `src/types/navigation.ts` (`RootStackParamList` únicamente).
 | `HistorialScreen` | `exercises`, `routines`, `workouts` (`GET /workouts/export`) |
 | `ProgressScreen` | `exercises`, `progress` |
 | `ObjetivosScreen` | `goals` |
-| `UserScreen` | `bodyMetrics`, `today` |
+| `UserScreen` (Perfil) | `bodyMetrics`, `workouts` (export CSV), `water` (export CSV) |
 | `AnalisisScreen` | `analytics` |
 | `AguaScreen` | `water` (`/water`, `/water/containers`, `/water/history`, `/water/settings`, `/water/export`) |
 
@@ -85,7 +85,7 @@ Tipos: `src/types/navigation.ts` (`RootStackParamList` únicamente).
 
 ## Sistema de diseño
 
-Visual world "Native Calm" documentado en [`DESIGN.md`](../../DESIGN.md) (raíz). Código en `src/theme/theme.ts` (tokens claro/oscuro, `makeStyles`, `useTheme`) y `src/components/ui/` (`Txt`, `Screen`, `Card`/`Section`, `Row`, `Button`, `Chip`, `TextField`, `ProgressBar`, `Icon`). Pantallas migradas: Home, Hoy, Sesión, Agua; el resto sigue con estilos antiguos hasta la fase 2 (`app.json` mantiene `userInterfaceStyle: "light"` mientras tanto). Iconos: SF Symbols en iOS (`expo-symbols`), Ionicons como sustituto en web.
+Visual world "Native Calm" documentado en [`DESIGN.md`](../../DESIGN.md) (raíz). Código en `src/theme/theme.ts` (tokens claro/oscuro, `makeStyles`, `useTheme`) y `src/components/ui/` (`Txt`, `Screen`, `Card`/`Section`, `Row`, `Button`, `Chip`, `TextField`, `ProgressBar`, `Icon`). Rediseñadas a mano: Home, Hoy, Sesión, Agua, Perfil. El resto usa los sustitutos de `components/ui/compat` (mismo API que `Text`/`TextInput`/`Button` nativos pero con colores del tema) y tokens en sus estilos. Títulos en línea en la cabecera nativa. Modo Oscuro: `app.json` en `automatic`; Perfil → Apariencia guarda la preferencia (`src/theme/appearance.ts`, AsyncStorage + `Appearance.setColorScheme`). Iconos: SF Symbols en iOS (`expo-symbols`), Ionicons como sustituto en web.
 
 ## Vista previa en navegador (web)
 

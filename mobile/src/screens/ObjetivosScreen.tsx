@@ -2,13 +2,9 @@ import { useFocusEffect } from "@react-navigation/native";
 import { useCallback, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Button,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -18,6 +14,8 @@ import { createGoal, deleteGoal, fetchGoals, updateGoal } from "../api/goals";
 import { Goal } from "../types/goal";
 import { parseDecimalInput } from "../utils/number";
 import { showAlert } from "../utils/alert";
+import { Text, TextInput, Button } from "../components/ui/compat";
+import { makeStyles } from "../theme/theme";
 
 type State =
   | { status: "loading" }
@@ -29,6 +27,7 @@ type State =
 // PUT de reemplazo total, así que el toggle de "hecho" reutiliza el mismo
 // updateGoal que editar texto/objetivo -- ver toggleDone.
 export default function ObjetivosScreen() {
+  const styles = useStyles();
   const [state, setState] = useState<State>({ status: "loading" });
   const hasDataRef = useRef(false);
 
@@ -287,10 +286,10 @@ export default function ObjetivosScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles(({ colors }) => ({
   container: {
     flex: 1,
-    backgroundColor: "#fff",
+    backgroundColor: colors.bg,
   },
   content: {
     padding: 16,
@@ -303,11 +302,11 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: 16,
-    color: "#555",
+    color: colors.labelSecondary,
     marginBottom: 16,
   },
   card: {
-    backgroundColor: "#f4f4f4",
+    backgroundColor: colors.surface,
     borderRadius: 8,
     padding: 12,
     marginBottom: 12,
@@ -322,16 +321,16 @@ const styles = StyleSheet.create({
     height: 22,
     borderRadius: 4,
     borderWidth: 2,
-    borderColor: "#3b5bdb",
+    borderColor: colors.tint,
     alignItems: "center",
     justifyContent: "center",
     marginTop: 2,
   },
   checkboxChecked: {
-    backgroundColor: "#3b5bdb",
+    backgroundColor: colors.tint,
   },
   checkboxMark: {
-    color: "#fff",
+    color: colors.onTint,
     fontSize: 14,
     fontWeight: "700",
   },
@@ -344,11 +343,11 @@ const styles = StyleSheet.create({
   },
   goalTextDone: {
     textDecorationLine: "line-through",
-    color: "#888",
+    color: colors.labelSecondary,
   },
   goalMeta: {
     fontSize: 13,
-    color: "#777",
+    color: colors.labelSecondary,
     marginTop: 2,
   },
   cardActions: {
@@ -361,7 +360,7 @@ const styles = StyleSheet.create({
     marginTop: 16,
     paddingTop: 16,
     borderTopWidth: 1,
-    borderTopColor: "#ddd",
+    borderTopColor: colors.separator,
   },
   formTitle: {
     fontSize: 20,
@@ -370,7 +369,7 @@ const styles = StyleSheet.create({
   },
   input: {
     borderWidth: 1,
-    borderColor: "#ccc",
+    borderColor: colors.separator,
     borderRadius: 6,
     padding: 10,
     fontSize: 16,
@@ -384,7 +383,7 @@ const styles = StyleSheet.create({
   },
   errorDetail: {
     fontSize: 14,
-    color: "#b00020",
+    color: colors.danger,
     marginTop: 8,
   },
-});
+}));

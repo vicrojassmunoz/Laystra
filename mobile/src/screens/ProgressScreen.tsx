@@ -6,8 +6,6 @@ import {
   Modal,
   Platform,
   ScrollView,
-  StyleSheet,
-  Text,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -20,6 +18,8 @@ import { Exercise } from "../types/exercise";
 import { ProgressResponse } from "../types/progress";
 import { secondaryHint } from "../utils/exercisePicker";
 import { formatWeightUnit } from "../utils/weightUnit";
+import { Text } from "../components/ui/compat";
+import { makeStyles } from "../theme/theme";
 
 type ExercisesState =
   | { status: "loading" }
@@ -33,6 +33,7 @@ type ProgressState =
   | { status: "ready"; data: ProgressResponse };
 
 export default function ProgressScreen() {
+  const styles = useStyles();
   const [exercisesState, setExercisesState] = useState<ExercisesState>({ status: "loading" });
   const hasExercisesRef = useRef(false);
 
@@ -132,7 +133,6 @@ export default function ProgressScreen() {
   return (
     <SafeAreaView style={styles.container} edges={["bottom"]}>
       <ScrollView contentContainerStyle={styles.content}>
-        <Text style={styles.title}>Progreso</Text>
 
         {exercisesState.status === "loading" && <ActivityIndicator size="large" />}
 
@@ -263,10 +263,10 @@ export default function ProgressScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles(({ colors }) => ({
   container: {
     flex: 1,
-    backgroundColor: "#fff",
+    backgroundColor: colors.bg,
   },
   content: {
     padding: 16,
@@ -279,12 +279,12 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: 16,
-    color: "#555",
+    color: colors.labelSecondary,
     marginTop: 8,
   },
   subtitle: {
     fontSize: 14,
-    color: "#777",
+    color: colors.labelSecondary,
     marginBottom: 8,
   },
   errorTitle: {
@@ -293,12 +293,12 @@ const styles = StyleSheet.create({
   },
   errorDetail: {
     fontSize: 14,
-    color: "#b00020",
+    color: colors.danger,
     marginTop: 8,
   },
   pickerButton: {
     borderWidth: 1,
-    borderColor: "#ccc",
+    borderColor: colors.separator,
     borderRadius: 6,
     padding: 12,
     marginBottom: 8,
@@ -308,34 +308,34 @@ const styles = StyleSheet.create({
   },
   pickerButtonText: {
     fontSize: 16,
-    color: "#000",
+    color: colors.label,
     fontWeight: "600",
   },
   pickerPlaceholderText: {
     fontSize: 16,
-    color: "#999",
+    color: colors.labelTertiary,
   },
   pickerChangeText: {
     fontSize: 14,
-    color: "#0066cc",
+    color: colors.tint,
   },
   progressLoading: {
     marginTop: 24,
   },
   card: {
-    backgroundColor: "#f4f4f4",
+    backgroundColor: colors.surface,
     borderRadius: 8,
     padding: 12,
     marginBottom: 12,
   },
   date: {
     fontSize: 14,
-    color: "#555",
+    color: colors.labelSecondary,
     marginBottom: 4,
   },
   pointLine: {
     fontSize: 15,
-    color: "#333",
+    color: colors.label,
     marginVertical: 2,
   },
   modalBackdrop: {
@@ -351,7 +351,7 @@ const styles = StyleSheet.create({
     maxHeight: "70%",
   },
   modalCard: {
-    backgroundColor: "#fff",
+    backgroundColor: colors.surface,
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
     padding: 20,
@@ -366,7 +366,7 @@ const styles = StyleSheet.create({
   option: {
     paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: "#eee",
+    borderBottomColor: colors.separator,
   },
   optionText: {
     fontSize: 16,
@@ -374,7 +374,7 @@ const styles = StyleSheet.create({
   },
   optionHint: {
     fontSize: 12,
-    color: "#999",
+    color: colors.labelTertiary,
     textAlign: "center",
     marginTop: 2,
   },
@@ -385,7 +385,7 @@ const styles = StyleSheet.create({
   cancelText: {
     fontSize: 16,
     textAlign: "center",
-    color: "#b00020",
+    color: colors.danger,
     fontWeight: "600",
   },
-});
+}));

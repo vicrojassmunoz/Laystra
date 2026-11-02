@@ -166,7 +166,7 @@ export default function HomeScreen() {
   };
 
   return (
-    <Screen webTitle="Laystra">
+    <Screen>
       <Pressable onPress={() => navigation.navigate("Semana")} accessibilityRole="button">
         <Card>
           <View style={styles.stripHeader}>

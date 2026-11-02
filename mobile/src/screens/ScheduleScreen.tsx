@@ -4,8 +4,6 @@ import {
   ActivityIndicator,
   Modal,
   ScrollView,
-  StyleSheet,
-  Text,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -15,6 +13,8 @@ import { fetchRoutines } from "../api/routines";
 import { fetchSchedule, updateScheduleDay } from "../api/schedule";
 import { Routine } from "../types/routine";
 import { ScheduleEntry } from "../types/schedule";
+import { Text } from "../components/ui/compat";
+import { makeStyles } from "../theme/theme";
 
 const DAY_LABELS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
 
@@ -24,6 +24,7 @@ type State =
   | { status: "ready"; schedule: ScheduleEntry[]; routines: Routine[] };
 
 export default function ScheduleScreen() {
+  const styles = useStyles();
   const [state, setState] = useState<State>({ status: "loading" });
   const hasDataRef = useRef(false);
   const [openDay, setOpenDay] = useState<number | null>(null);
@@ -108,7 +109,6 @@ export default function ScheduleScreen() {
   return (
     <SafeAreaView style={styles.container} edges={["bottom"]}>
       <ScrollView contentContainerStyle={styles.content}>
-        <Text style={styles.title}>Semana</Text>
 
         {schedule
           .slice()
@@ -166,10 +166,10 @@ export default function ScheduleScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles(({ colors }) => ({
   container: {
     flex: 1,
-    backgroundColor: "#fff",
+    backgroundColor: colors.bg,
   },
   content: {
     padding: 16,
@@ -185,7 +185,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 14,
     paddingHorizontal: 12,
-    backgroundColor: "#f4f4f4",
+    backgroundColor: colors.surface,
     borderRadius: 8,
     marginBottom: 8,
   },
@@ -195,7 +195,7 @@ const styles = StyleSheet.create({
   },
   dayValue: {
     fontSize: 16,
-    color: "#555",
+    color: colors.labelSecondary,
   },
   modalBackdrop: {
     flex: 1,
@@ -203,7 +203,7 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
   },
   modalCard: {
-    backgroundColor: "#fff",
+    backgroundColor: colors.surface,
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
     padding: 20,
@@ -217,7 +217,7 @@ const styles = StyleSheet.create({
   option: {
     paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: "#eee",
+    borderBottomColor: colors.separator,
   },
   optionText: {
     fontSize: 16,
@@ -230,13 +230,13 @@ const styles = StyleSheet.create({
   cancelText: {
     fontSize: 16,
     textAlign: "center",
-    color: "#b00020",
+    color: colors.danger,
     fontWeight: "600",
   },
   errorDetail: {
     fontSize: 14,
-    color: "#b00020",
+    color: colors.danger,
     marginTop: 8,
     textAlign: "center",
   },
-});
+}));

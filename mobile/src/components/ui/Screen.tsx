@@ -21,16 +21,12 @@ const useStyles = makeStyles(({ colors }) => ({
 
 type Props = {
   children: ReactNode;
-  // Título grande. En iOS lo dibuja la cabecera nativa (headerLargeTitle), así
-  // que aquí solo se pinta en web, donde no existe.
-  webTitle?: string;
   contentStyle?: StyleProp<ViewStyle>;
 };
 
-// Pantalla con scroll, fondo del tema y los insets que iOS espera. Con título
-// grande nativo, `contentInsetAdjustmentBehavior="automatic"` hace que el título
-// se pliegue al hacer scroll.
-export default function Screen({ children, webTitle, contentStyle }: Props) {
+// Pantalla con scroll, fondo del tema y los insets que iOS espera. El título va
+// en la cabecera nativa (en línea, centrado), no en el cuerpo.
+export default function Screen({ children, contentStyle }: Props) {
   const styles = useStyles();
 
   return (
@@ -45,7 +41,6 @@ export default function Screen({ children, webTitle, contentStyle }: Props) {
         contentInsetAdjustmentBehavior="automatic"
         keyboardShouldPersistTaps="handled"
       >
-        {Platform.OS === "web" && webTitle ? <Txt variant="largeTitle">{webTitle}</Txt> : null}
         {children}
       </ScrollView>
     </KeyboardAvoidingView>
