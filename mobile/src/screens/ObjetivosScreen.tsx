@@ -2,7 +2,6 @@ import { useFocusEffect } from "@react-navigation/native";
 import { useCallback, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Button,
   KeyboardAvoidingView,
   Platform,
@@ -18,6 +17,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { createGoal, deleteGoal, fetchGoals, updateGoal } from "../api/goals";
 import { Goal } from "../types/goal";
 import { parseDecimalInput } from "../utils/number";
+import { showAlert } from "../utils/alert";
 
 type State =
   | { status: "loading" }
@@ -83,7 +83,7 @@ export default function ObjetivosScreen() {
   }
 
   function confirmDelete(goal: Goal) {
-    Alert.alert("¿Borrar objetivo?", `Se borrará "${goal.text}" permanentemente.`, [
+    showAlert("¿Borrar objetivo?", `Se borrará "${goal.text}" permanentemente.`, [
       { text: "Cancelar", style: "cancel" },
       {
         text: "Borrar",

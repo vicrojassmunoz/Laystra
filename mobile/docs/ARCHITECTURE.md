@@ -83,6 +83,16 @@ Tipos: `src/types/navigation.ts` (`RootStackParamList` únicamente).
 
 **Análisis:** `week_tonnage` se muestra en kg. El backend normaliza lb a kg y trata bw como kg antes de calcularlo, por lo que la etiqueta sigue siendo correcta.
 
+## Vista previa en navegador (web)
+
+`npx expo start --web` (o `w` en el menú de `expo start`) sirve la misma app con `react-native-web` en `http://localhost:8081`. **Es solo para iterar diseño y layout** (más rápido que Expo Go, y se puede abrir en el modo móvil de las DevTools); el iPhone sigue siendo la verdad final: SF vs fuente del navegador, cabecera/gestos nativos, safe areas, hápticos y animaciones del sistema no coinciden.
+
+Lo que cambia en web, y por qué hay helpers:
+- `Alert.alert` no hace nada en react-native-web → siempre `showAlert` de `src/utils/alert.ts` (misma firma; usa `window.alert/confirm` en web).
+- CSV: `src/utils/shareCsv.ts` descarga el fichero en web y usa `expo-file-system` + `expo-sharing` (importados dinámicamente) en iOS.
+- Notificaciones locales no existen en web: `SessionContext` las salta (`NOTIFICATIONS_SUPPORTED`); el cronómetro y la pausa funcionan igual.
+- El navegador llama al backend por CORS (`allow_origins=["*"]`); `EXPO_PUBLIC_API_URL` sirve tal cual.
+
 ## Contrato API
 
 Tipos duplicados a mano respecto al backend. Mapa completo: `.cursor/rules/api-contract.mdc`.

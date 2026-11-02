@@ -2,7 +2,6 @@ import { useFocusEffect } from "@react-navigation/native";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Button,
   Keyboard,
   KeyboardAvoidingView,
@@ -25,6 +24,7 @@ import { Exercise } from "../types/exercise";
 import { Routine, RoutineExercise, RoutineExerciseCreate } from "../types/routine";
 import { secondaryHint } from "../utils/exercisePicker";
 import { groupBySuperset } from "../utils/superset";
+import { showAlert } from "../utils/alert";
 
 type State =
   | { status: "loading" }
@@ -253,7 +253,7 @@ export default function RoutinesScreen() {
   }
 
   function confirmDelete(routine: Routine) {
-    Alert.alert("¿Borrar rutina?", `Se borrará "${routine.name}" permanentemente.`, [
+    showAlert("¿Borrar rutina?", `Se borrará "${routine.name}" permanentemente.`, [
       { text: "Cancelar", style: "cancel" },
       {
         text: "Borrar",

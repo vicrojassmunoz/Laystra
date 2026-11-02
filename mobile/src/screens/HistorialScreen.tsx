@@ -1,10 +1,7 @@
 import { useFocusEffect } from "@react-navigation/native";
-import { File, Paths } from "expo-file-system";
-import * as Sharing from "expo-sharing";
 import { useCallback, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Button,
   KeyboardAvoidingView,
   Modal,
@@ -31,6 +28,8 @@ import { parseDecimalInput } from "../utils/number";
 import { secondaryHint } from "../utils/exercisePicker";
 import { groupBySuperset, validSupersetGroups } from "../utils/superset";
 import { convertWeight } from "../utils/weightUnit";
+import { showAlert } from "../utils/alert";
+import { shareCsv } from "../utils/shareCsv";
 
 type State =
   | { status: "loading" }
@@ -253,23 +252,7 @@ export default function HistorialScreen() {
     setExporting(true);
     setActionError(null);
     try {
-      const available = await Sharing.isAvailableAsync();
-      if (!available) {
-        throw new Error("Compartir no está disponible en este dispositivo.");
-      }
-      const csv = await exportWorkoutsCsv();
-      const withBom = csv.startsWith("\ufeff") ? csv : `\ufeff${csv}`;
-      // File/Paths es la API de expo-file-system 19 (SDK 54). writeAsStringAsync
-      // del import principal está deprecado y lanza en runtime; hay que usar
-      // esta forma o importar de expo-file-system/legacy.
-      const file = new File(Paths.cache, "laystra-workouts.csv");
-      file.create({ overwrite: true });
-      file.write(withBom);
-      await Sharing.shareAsync(file.uri, {
-        mimeType: "text/csv",
-        UTI: "public.comma-separated-values-text",
-        dialogTitle: "Exportar entrenos",
-      });
+      await shareCsv(await exportWorkoutsCsv(), "laystra-workouts.csv", "Exportar entrenos");
     } catch (error) {
       setActionError(error instanceof Error ? error.message : "No se pudo exportar el CSV.");
     } finally {
@@ -278,7 +261,7 @@ export default function HistorialScreen() {
   }
 
   function confirmDelete(workout: Workout, routineName: string) {
-    Alert.alert(
+    showAlert(
       "¿Borrar entreno?",
       `Se borrará el entreno de "${routineName}" del ${workout.date} permanentemente.`,
       [

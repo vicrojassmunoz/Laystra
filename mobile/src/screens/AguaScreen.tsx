@@ -2,7 +2,6 @@ import { useFocusEffect } from "@react-navigation/native";
 import { useCallback, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Button,
   KeyboardAvoidingView,
   Modal,
@@ -33,6 +32,7 @@ import {
 import { WaterContainer, WaterDay, WaterDayTotal } from "../types/water";
 import { parseDecimalInput } from "../utils/number";
 import { shareCsv } from "../utils/shareCsv";
+import { showAlert } from "../utils/alert";
 import {
   CONTAINER_FRACTIONS,
   LARGE_WATER_ENTRY_ML,
@@ -130,7 +130,7 @@ export default function AguaScreen() {
 
     // Cantidades enormes en una sola entrada casi siempre son un typo.
     if (ml > LARGE_WATER_ENTRY_ML) {
-      Alert.alert(
+      showAlert(
         "¿Seguro?",
         `Vas a añadir ${formatMl(ml)} de golpe. ¿Es correcto?`,
         [
@@ -192,7 +192,7 @@ export default function AguaScreen() {
     if (ml !== container.ml) {
       // Cambiar la capacidad altera cuánto cuenta cada toque futuro, así que se
       // avisa. Lo ya registrado no cambia (cada entrada guarda sus propios ml).
-      Alert.alert(
+      showAlert(
         "Cambiar capacidad",
         `"${container.name}" pasará de ${container.ml} ml a ${ml} ml. Solo afecta a lo que añadas desde ahora; el agua ya registrada no cambia.`,
         [
@@ -206,7 +206,7 @@ export default function AguaScreen() {
   }
 
   function removeContainer(container: WaterContainer) {
-    Alert.alert("Borrar recipiente", `¿Borrar "${container.name}"? El agua ya registrada se mantiene.`, [
+    showAlert("Borrar recipiente", `¿Borrar "${container.name}"? El agua ya registrada se mantiene.`, [
       { text: "Cancelar", style: "cancel" },
       {
         text: "Borrar",

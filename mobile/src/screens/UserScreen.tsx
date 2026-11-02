@@ -2,7 +2,6 @@ import { useFocusEffect } from "@react-navigation/native";
 import { useCallback, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Button,
   KeyboardAvoidingView,
   Platform,
@@ -18,6 +17,7 @@ import { createBodyMetric, deleteBodyMetric, fetchBodyMetrics } from "../api/bod
 import { todayIsoDate } from "../api/today";
 import { BodyMetric } from "../types/bodyMetric";
 import { parseDecimalInput } from "../utils/number";
+import { showAlert } from "../utils/alert";
 
 type State =
   | { status: "loading" }
@@ -66,7 +66,7 @@ export default function UserScreen() {
   );
 
   function confirmDelete(metric: BodyMetric) {
-    Alert.alert(
+    showAlert(
       "¿Borrar registro?",
       `Se borrará el registro del ${metric.date} permanentemente.`,
       [

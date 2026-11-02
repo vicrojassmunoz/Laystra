@@ -2,7 +2,6 @@ import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Button,
   KeyboardAvoidingView,
   Modal,
@@ -38,6 +37,7 @@ import { BestMark, NO_PR, PrFlags, computePrFlags } from "../utils/pr";
 import { tipFor } from "../utils/sessionTips";
 import { equalizeSupersetRounds, groupBySuperset, validSupersetGroups } from "../utils/superset";
 import { convertWeight, toKg } from "../utils/weightUnit";
+import { showAlert } from "../utils/alert";
 
 type State =
   | { status: "loading" }
@@ -315,7 +315,7 @@ export default function SesionScreen() {
       return;
     }
 
-    Alert.alert(
+    showAlert(
       "Terminar sesión",
       "Tienes un entreno sin guardar. Si terminas la sesión se descarta.",
       [

@@ -1,7 +1,8 @@
-import { Alert, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 
 import { WeightUnit } from "../types/exercise";
 import { formatWeightUnit } from "../utils/weightUnit";
+import { showAlert } from "../utils/alert";
 
 const OPTIONS: { value: WeightUnit; label: string }[] = [
   { value: "kg", label: "kg" },
@@ -37,7 +38,7 @@ export function WeightUnitChips({ value, onChange, disabled }: ChipsProps) {
         <TouchableOpacity
           style={styles.infoButton}
           onPress={() =>
-            Alert.alert(
+            showAlert(
               "Peso corporal (PC)",
               "PC registra la serie como peso corporal. Si tienes un peso en Perfil, se usa el último al guardar. Si no, se guarda solo como PC."
             )

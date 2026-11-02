@@ -1,4 +1,5 @@
 import * as Notifications from "expo-notifications";
+import { Platform } from "react-native";
 import {
   Dispatch,
   MutableRefObject,
@@ -50,14 +51,20 @@ const INACTIVITY_BODY = `Ey, ¿sigues por aquí? Llevas ${INACTIVITY_LABEL} sin 
 // Teclear dispara muchos touch(): se agrupan para no reprogramar en cada tecla.
 const RESCHEDULE_DEBOUNCE_MS = 2000;
 
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowBanner: true,
-    shouldShowList: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-  }),
-});
+// Las notificaciones locales programadas no existen en web (vista previa en
+// navegador): todo lo de aviso de inactividad se salta ahí.
+const NOTIFICATIONS_SUPPORTED = Platform.OS !== "web";
+
+if (NOTIFICATIONS_SUPPORTED) {
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowBanner: true,
+      shouldShowList: true,
+      shouldPlaySound: true,
+      shouldSetBadge: false,
+    }),
+  });
+}
 
 type SessionValue = {
   // --- Sesión (cronómetro) ---
@@ -158,7 +165,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const scheduleInactivity = useCallback(async () => {
     await cancelInactivity();
-    if (!activeRef.current || pausedRef.current) {
+    if (!NOTIFICATIONS_SUPPORTED || !activeRef.current || pausedRef.current) {
       return;
     }
     try {
@@ -203,6 +210,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     segmentStartRef.current = now;
 
     void (async () => {
+      if (!NOTIFICATIONS_SUPPORTED) {
+        return;
+      }
       try {
         let { status } = await Notifications.getPermissionsAsync();
         if (status !== "granted") {
