@@ -3,6 +3,7 @@
 export type RootStackParamList = {
   Home: undefined;
   Hoy: undefined;
+  Sesion: undefined;
   Rutinas: undefined;
   Semana: undefined;
   Historial: undefined;

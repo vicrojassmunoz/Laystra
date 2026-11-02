@@ -25,7 +25,7 @@ No hay tanda cohesiva fijada. Siguiente natural: **#8** (alarma de descanso real
 
 | # | Ítem | Capa | Expo Go | Depende de | Hecho cuando | Descripción |
 |---|------|------|---------|------------|--------------|-------------|
-| 8 | Temporizador de descanso con alarma real | mobile | **no** (EAS) | — | Alarma suena con app en background | Primer salto fuera de Expo Go (`eas-agent`). Notificaciones locales fiables. |
+| 8 | Temporizador de descanso con alarma real | mobile | **no** (EAS) | — | Alarma suena con app en background | Primer salto fuera de Expo Go (`eas-agent`). Notificaciones locales fiables. Nota 2026-11-02: la infraestructura de notificación local ya existe (`SessionContext`, aviso de inactividad de 2 h con `expo-notifications`); falta el temporizador de descanso con cuenta atrás y alarma. |
 | 9 | Home con silueta de cuerpo tapeable | mobile | sí | — | Tocar región del SVG filtra/navega por grupo muscular | `react-native-svg` + asset con regiones mapeadas a las 8 categorías de `muscle_group_primary`. |
 | 19 | Contador de pasos | ambos | MVP sí / completo **no** (EAS) | #17 (versión completa) | Tile en Home con pasos de hoy, objetivo diario e histórico semanal | **MVP:** `expo-sensors` `Pedometer` (Expo Go; en iOS ~7 días de historial, solo iPhone, sin Watch). **Completo:** leer pasos de HealthKit (#17), que ya agrega iPhone + Watch + otras apps; pide permiso una vez, no hay que pasar datos a mano. Requiere build EAS. Backend: resumen diario de pasos. Decisión pendiente: arrancar con Pedometer o saltar a HealthKit. |
 

@@ -6,7 +6,8 @@ type Props = {
   startedAt: number | null;
   // ms epoch de la última serie completada (reps escritas); ancla del descanso.
   lastSetAt: number | null;
-  onStart: () => void;
+  // Termina la sesión (el padre pide confirmación si hay un entreno sin guardar).
+  onStop: () => void;
   // "Siguiente: X" ya formateado por quien conoce el formulario; null = nada pendiente.
   nextLabel: string | null;
   tip: string | null;
@@ -26,7 +27,7 @@ export function formatClock(totalSeconds: number): string {
 // desde la última serie, siguiente ejercicio y un tip estático. Solo en primer
 // plano -- la alarma real con la app en background es el ítem #8 (EAS). El
 // tick de 1 s vive aquí dentro para no re-renderizar toda la pantalla Hoy.
-export default function SessionBar({ startedAt, lastSetAt, onStart, nextLabel, tip }: Props) {
+export default function SessionBar({ startedAt, lastSetAt, onStop, nextLabel, tip }: Props) {
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
@@ -40,25 +41,23 @@ export default function SessionBar({ startedAt, lastSetAt, onStart, nextLabel, t
 
   return (
     <View style={styles.bar}>
-      {startedAt === null ? (
-        <View style={styles.startRow}>
-          <Text style={styles.hint}>Se inicia sola al escribir la primera serie.</Text>
-          <Button title="▶ Iniciar sesión" onPress={onStart} />
-        </View>
-      ) : (
+      <View style={styles.topRow}>
         <View style={styles.clocks}>
-          <View style={styles.clock}>
+          <View>
             <Text style={styles.clockLabel}>Sesión</Text>
-            <Text style={styles.clockValue}>{formatClock((now - startedAt) / 1000)}</Text>
+            <Text style={styles.clockValue}>
+              {startedAt === null ? "--:--" : formatClock((now - startedAt) / 1000)}
+            </Text>
           </View>
-          <View style={styles.clock}>
+          <View>
             <Text style={styles.clockLabel}>Descanso</Text>
             <Text style={styles.clockValue}>
               {lastSetAt === null ? "--:--" : formatClock((now - lastSetAt) / 1000)}
             </Text>
           </View>
         </View>
-      )}
+        <Button title="■ Terminar" color="#b00020" onPress={onStop} />
+      </View>
 
       {nextLabel && <Text style={styles.next}>{nextLabel}</Text>}
       {tip && <Text style={styles.tip}>💡 {tip}</Text>}
@@ -74,15 +73,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 10,
   },
-  startRow: {
+  topRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 8,
   },
-  hint: { flex: 1, fontSize: 13, color: "#555" },
   clocks: { flexDirection: "row", gap: 24 },
-  clock: {},
   clockLabel: { fontSize: 12, color: "#555", textTransform: "uppercase" },
   clockValue: { fontSize: 22, fontWeight: "700", fontVariant: ["tabular-nums"] },
   next: { marginTop: 6, fontSize: 15, fontWeight: "600" },

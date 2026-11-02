@@ -1,7 +1,8 @@
-import { useFocusEffect } from "@react-navigation/native";
+import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Button,
   KeyboardAvoidingView,
   Modal,
@@ -27,6 +28,7 @@ import PrBadge from "../components/PrBadge";
 import SessionBar from "../components/SessionBar";
 import SupersetBlock, { SetDraft } from "../components/SupersetBlock";
 import { LockedBodyweightLabel, WeightUnitChips } from "../components/WeightUnitChips";
+import { ExerciseDraft, FormTarget, useSession } from "../session/SessionContext";
 import { Exercise, WeightUnit } from "../types/exercise";
 import { Routine } from "../types/routine";
 import { WorkoutSetCreate } from "../types/workout";
@@ -52,31 +54,8 @@ type State =
       bestWeights: Map<number, BestMark>;
     };
 
-// SetDraft (id + weight/reps como string) viene de SupersetBlock -- es la
-// misma forma que necesita una fila de serie tanto suelta como dentro de un
-// bloque, así que se reusa un único tipo en vez de declararlo dos veces.
-type ExerciseDraft = {
-  exercise: TodayExercise;
-  sets: SetDraft[];
-};
-
-// Qué rutina (o "entreno libre") está representando el formulario ahora mismo.
-// Empieza igualada a la rutina de hoy (routine_id/routine_name de /today), pero
-// tras "Loguear otro entreno" puede apuntar a otra rutina distinta o a ninguna
-// (entreno libre, routine_id null) -- se guarda aparte de `state.data` porque
-// state.data siempre es "lo de hoy" tal cual lo devuelve el backend.
-type FormTarget = {
-  routineId: number | null;
-  routineName: string | null; // null = entreno libre
-  exercises: TodayExercise[];
-};
-
-// Resumen colapsado de un entreno ya guardado en esta sesión de pantalla, para
-// no perderlo de vista mientras se rellena un segundo (o tercer) entreno.
-type SavedSummary = {
-  workoutId: number;
-  label: string;
-};
+// ExerciseDraft / FormTarget / SavedSummary viven en session/SessionContext (el
+// borrador sobrevive a la navegación mientras la sesión está en curso).
 
 // `nextId` es un contador compartido (no uno distinto por ejercicio) que la
 // pantalla pasa desde un useRef, igual que `nextRowIdRef` en RoutinesScreen.
@@ -206,41 +185,57 @@ function headerRoutineName(formTarget: FormTarget | null, data: TodayResponse): 
   return data.routine_name ?? "Día de descanso";
 }
 
-export default function TodayScreen() {
+export default function SesionScreen() {
   const [state, setState] = useState<State>({ status: "loading" });
   // Recuerda si ya tenemos datos en pantalla para no tapar la vista con un
   // spinner cada vez que el usuario vuelve a esta pestaña.
   const hasDataRef = useRef(false);
 
-  const [formTarget, setFormTarget] = useState<FormTarget | null>(null);
-  const [formRows, setFormRows] = useState<ExerciseDraft[]>([]);
-  const [formError, setFormError] = useState<string | null>(null);
+  const navigation = useNavigation();
+  // Sesión + borrador viven en el provider (SessionContext): al salir de esta
+  // pantalla a otra parte de la app el entreno a medias y los cronómetros
+  // siguen ahí hasta "Terminar sesión".
+  const {
+    startedAt: sessionStartedAt,
+    lastSetAt,
+    setLastSetAt,
+    stopSession,
+    touch,
+    formTarget,
+    setFormTarget,
+    formRows,
+    setFormRows,
+    formError,
+    setFormError,
+    submitted,
+    setSubmitted,
+    skipped,
+    setSkipped,
+    savedSummaries,
+    setSavedSummaries,
+    expandedAfterSave,
+    setExpandedAfterSave,
+    notes,
+    setNotes,
+    draftKeyRef,
+    snapshotRef: lastSubmittedSnapshotRef,
+    segmentStartRef,
+    nextSetId,
+  } = useSession();
   const [saving, setSaving] = useState(false);
-  const [submitted, setSubmitted] = useState(false);
   // El usuario descartó el entreno pre-rellenado de hoy (rutina asignada, o el
   // que dejó abierto "Loguear otro entreno") sin llegar a guardarlo -- no
   // quiere loguear nada ahora mismo, ni ese ni ningún otro por el momento.
   // Distinto de "Cancelar" (que solo aplica si ya hay algo guardado hoy al
   // que volver): esto es para el caso en que todavía no se ha guardado nada.
-  const [skipped, setSkipped] = useState(false);
   // Entrenos ya guardados hoy en esta pantalla (el de /today más los que se
   // vayan añadiendo con "Loguear otro entreno"), para mostrarlos de forma
   // resumida mientras se rellena el siguiente. Se reinicia cuando cambia el
   // día (ver el useEffect de más abajo).
-  const [savedSummaries, setSavedSummaries] = useState<SavedSummary[]>([]);
   // Tras guardar, las tarjetas nacen colapsadas. Las keys de este Set son las
   // que el usuario ha reexpandido (tap). Vacío = todo colapsado. Mientras
   // submitted es false se ignora y las tarjetas se muestran abiertas.
-  const [expandedAfterSave, setExpandedAfterSave] = useState<Set<string>>(new Set());
 
-  // Sensaciones del entreno en curso (ROADMAP #6); viajan en `notes` del workout.
-  const [notes, setNotes] = useState("");
-  // Asistencia en sesión (ROADMAP #7). startedAt arranca solo al escribir la
-  // primera serie (o con el botón); lastSetAt es la última serie completada
-  // (reps escritas) y ancla el contador de descanso. Se reinician cada vez que
-  // nace un formulario nuevo (ver resetSession).
-  const [sessionStartedAt, setSessionStartedAt] = useState<number | null>(null);
-  const [lastSetAt, setLastSetAt] = useState<number | null>(null);
 
   // Picker de dos pasos para "Loguear otro entreno": "target" (elegir otra
   // rutina o "entreno libre") y "exercises" (solo para entreno libre, elegir
@@ -278,17 +273,11 @@ export default function TodayScreen() {
   // para poder volver a ella si el usuario pulsa "Loguear otro entreno", elige
   // un destino, y luego se arrepiente -- sin esto no había forma de salir de
   // ese formulario en blanco salvo guardarlo o cambiar de pestaña.
-  const lastSubmittedSnapshotRef = useRef<{
-    formTarget: FormTarget;
-    formRows: ExerciseDraft[];
-    notes: string;
-  } | null>(null);
 
   // Identifica qué se está logueando (fecha + rutina + firma de ejercicios/sets/reps
   // objetivo). Mientras esta clave no cambie, el formulario no se reconstruye en
   // cada focus -- si no, volver de "Historial" a "Hoy" borraría lo ya escrito (o,
   // peor, invitaría a re-guardar un entreno ya guardado como si fuera nuevo).
-  const draftKeyRef = useRef<string | null>(null);
   // Invalida /progress en vuelo: un PUT de unidad no debe dejar que un load()
   // anterior pise bestWeights ya convertidos.
   const progressEpochRef = useRef(0);
@@ -296,19 +285,41 @@ export default function TodayScreen() {
   // buildDraft). Empieza en 1 y nunca se resetea entre reconstrucciones del
   // draft -- no hace falta, solo importa que cada id sea único dentro de la
   // vida de la pantalla.
-  const nextSetIdRef = useRef(1);
-  function nextSetId(): number {
-    return nextSetIdRef.current++;
-  }
+  // (nextSetId, draftKeyRef y la instantánea del último guardado vienen del provider.)
 
+  // Cada formulario nuevo parte sin notas y con el descanso a cero. El cronómetro
+  // de la SESIÓN no se toca: una sesión puede abarcar varios entrenos.
   function resetSession() {
     setNotes("");
-    setSessionStartedAt(null);
     setLastSetAt(null);
   }
 
-  function startSession() {
-    setSessionStartedAt((prev) => prev ?? Date.now());
+  function handleStopSession() {
+    const hasUnsaved =
+      !submitted &&
+      !skipped &&
+      formRows.some((row) =>
+        row.sets.some((s) => s.reps.trim() !== "" || s.weight.trim() !== "")
+      );
+
+    const finish = () => {
+      stopSession();
+      navigation.navigate("Hoy");
+    };
+
+    if (!hasUnsaved) {
+      finish();
+      return;
+    }
+
+    Alert.alert(
+      "Terminar sesión",
+      "Tienes un entreno sin guardar. Si terminas la sesión se descarta.",
+      [
+        { text: "Seguir", style: "cancel" },
+        { text: "Terminar y descartar", style: "destructive", onPress: finish },
+      ]
+    );
   }
 
   function isCollapsedAfterSave(key: string): boolean {
@@ -512,10 +523,11 @@ export default function TodayScreen() {
   }, [state]);
 
   function updateSet(exerciseIndex: number, setIndex: number, patch: Partial<SetDraft>) {
-    // Asistencia en sesión: la sesión arranca sola al tocar la primera serie, y
-    // el descanso se reinicia cuando una serie pasa de sin reps a con reps.
+    // Asistencia en sesión: cualquier edición cuenta como actividad (reprograma
+    // el aviso de inactividad), y el descanso se reinicia cuando una serie pasa
+    // de sin reps a con reps.
     if (!submitted) {
-      startSession();
+      touch();
     }
     const prevReps = formRows[exerciseIndex]?.sets[setIndex]?.reps ?? "";
     if (patch.reps !== undefined && prevReps.trim() === "" && patch.reps.trim() !== "") {
@@ -549,6 +561,7 @@ export default function TodayScreen() {
   }
 
   function addSet(exerciseIndex: number) {
+    touch();
     setFormRows((prev) =>
       prev.map((row, i) => {
         if (i !== exerciseIndex) {
@@ -569,6 +582,7 @@ export default function TodayScreen() {
   }
 
   function removeSet(exerciseIndex: number, setIndex: number) {
+    touch();
     setFormRows((prev) =>
       prev.map((row, i) =>
         i === exerciseIndex ? { ...row, sets: row.sets.filter((_, j) => j !== setIndex) } : row
@@ -871,6 +885,7 @@ export default function TodayScreen() {
     // de guardar) para que fecha y rutina no puedan desincronizarse si la app
     // queda abierta justo a caballo de medianoche. El routine_id, en cambio, sale
     // de formTarget -- puede ser distinto al de /today si esto es un "otro entreno".
+    touch();
     const trimmedNotes = notes.trim();
     createWorkout({
       date: state.data.date,
@@ -880,8 +895,12 @@ export default function TodayScreen() {
     })
       .then((workout) => {
         const distinctExercises = new Set(sets.map((s) => s.exercise_id)).size;
+        // Duración de ESTE entreno: desde que empezó la sesión o desde el
+        // guardado anterior, no desde el inicio de la sesión entera.
+        const segmentStart = segmentStartRef.current ?? sessionStartedAt;
         const minutes =
-          sessionStartedAt === null ? 0 : Math.round((Date.now() - sessionStartedAt) / 60000);
+          segmentStart === null ? 0 : Math.round((Date.now() - segmentStart) / 60000);
+        segmentStartRef.current = Date.now();
         const label = `${formTarget.routineName ?? "Entreno libre"} — ${distinctExercises} ejercicio${
           distinctExercises === 1 ? "" : "s"
         }${minutes >= 1 ? ` · ${minutes} min` : ""}`;
@@ -958,17 +977,15 @@ export default function TodayScreen() {
           behavior={Platform.OS === "ios" ? "padding" : undefined}
           keyboardVerticalOffset={0}
         >
-          {!skipped && !submitted && formRows.length > 0 && (
-            <SessionBar
-              startedAt={sessionStartedAt}
-              lastSetAt={lastSetAt}
-              onStart={startSession}
-              nextLabel={nextExerciseLabel}
-              tip={nextExerciseTip}
-            />
-          )}
+          <SessionBar
+            startedAt={sessionStartedAt}
+            lastSetAt={lastSetAt}
+            onStop={handleStopSession}
+            nextLabel={!skipped && !submitted ? nextExerciseLabel : null}
+            tip={!skipped && !submitted ? nextExerciseTip : null}
+          />
           <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-            <Text style={styles.title}>Hoy</Text>
+            <Text style={styles.title}>Sesión</Text>
             <Text style={styles.subtitle}>{headerRoutineName(formTarget, state.data)}</Text>
 
             {state.data.exercises.length === 0 && (

@@ -7,15 +7,19 @@ App Expo (React Native) + TypeScript, SDK 58. Consume la API REST del backend Fa
 ```
 Stack.Navigator (root, initialRouteName: Home)
 ├── Home          (hub; header oculto)
-├── Hoy
+├── Hoy           (resumen del día + empezar/volver a la sesión)
+├── Sesion        (formulario de logueo + cronómetro; se abre desde Hoy)
 ├── Rutinas
 ├── Semana
 ├── Historial
 ├── Progreso
 ├── Objetivos
 ├── Perfil (User)
+├── Agua
 └── Análisis
 ```
+
+`SessionPill` (flotante, fuera del navigator pero dentro del `NavigationContainer`) aparece en cualquier pantalla menos `Sesion` mientras hay sesión en curso; toque → `Sesion`. `App.tsx` envuelve todo en `SessionProvider` y usa `createNavigationContainerRef` + `onStateChange` para saber la ruta visible.
 
 Sin bottom tab bar (ROADMAP #10 del Home hub, 2026-09-07). Home es el hub: strip semanal → Semana; tile grande **Hoy**; resto vía tiles. Back nativo del stack para volver.
 
@@ -26,7 +30,8 @@ Tipos: `src/types/navigation.ts` (`RootStackParamList` únicamente).
 | Pantalla | Módulos API |
 |----------|-------------|
 | `HomeScreen` | `schedule`, `today`, `workouts`, `water` (progreso del tile Agua; opcional, `.catch(() => null)`) |
-| `TodayScreen` | `today`, `exercises`, `routines`, `workouts`, `progress`, `bodyMetrics` (prefill de peso corporal) |
+| `HoyScreen` | `today`, `routines`, `workouts` (solo los de hoy), `water` (opcional) |
+| `SesionScreen` | `today`, `exercises`, `routines`, `workouts`, `progress`, `bodyMetrics` (prefill de peso corporal) |
 | `RoutinesScreen` | `exercises`, `routines` |
 | `ScheduleScreen` | `schedule`, `routines` |
 | `HistorialScreen` | `exercises`, `routines`, `workouts` (`GET /workouts/export`) |
@@ -41,7 +46,7 @@ Tipos: `src/types/navigation.ts` (`RootStackParamList` únicamente).
 - `src/screens/` — una pantalla por fichero; refetch con `useFocusEffect`
 - `src/api/` — un módulo por recurso REST; patrón `fetch` + `buildErrorMessage` (`http.ts`)
 - `src/types/` — tipos TS (excepto `TodayResponse`, que vive en `api/today.ts`). `types/exercise.ts` define `WeightUnit = "kg" | "lb" | "bw"`.
-- `src/components/` — `ExercisePickerList` (buscador, grupos, alta/edición de ejercicios), `SupersetBlock` (`collapsed` en Hoy post-save), `MenuTile`, `PrBadge`
+- `src/components/` — `ExercisePickerList` (buscador, grupos, alta/edición de ejercicios), `SupersetBlock` (`collapsed` en Hoy post-save), `MenuTile`, `PrBadge`, `SessionBar` / `SessionClock` / `SessionPill`
 - `src/utils/` — `number.ts` (coma decimal), `exercisePicker.ts` (grupos musculares), `superset.ts`, `weightUnit.ts` (etiqueta de unidad)
 - `src/config.ts` — `EXPO_PUBLIC_API_URL`
 
@@ -56,11 +61,17 @@ Tipos: `src/types/navigation.ts` (`RootStackParamList` únicamente).
 7. **Estilos:** `StyleSheet.create` inline por pantalla.
 8. **CSV:** `File`/`Paths` de `expo-file-system` (API nueva; en SDK 58 el paquete va en `~58.x`). **No** usar `writeAsStringAsync` del import principal — lanza en runtime. Share con `expo-sharing` `shareAsync`. Sigue en Expo Go.
 
-## Hoy e Historial
+## Hoy, Sesión e Historial
 
-**Hoy:** `buildDraft` pre-rellena el peso de ejercicios `bw` con el último `BodyMetric` (`latestBodyWeight`). `fetchBodyMetrics().catch(() => [])` hace este dato opcional: si falla `/body-metrics`, Hoy sigue usable con pesos vacíos. El `draftKeyRef` existente evita reconstruir y pisar el formulario al hacer refocus mientras la clave fecha/rutina/ejercicios no cambie. Tras guardar (`submitted`), las tarjetas sueltas y `SupersetBlock` nacen colapsadas (solo nombre; tap reexpande). Estado local `expandedAfterSave` (Set de keys; vacío = todo colapsado). Mientras se edita, abiertas como antes. Al hacer back a Home la pantalla se desmonta (stack) — un borrador sin guardar no sobrevive.
+**Hoy** (`HoyScreen`) es solo el resumen del día: rutina que toca, tarjeta de sesión (▶ Empezar / "Sesión en curso" con reloj + "Volver a la sesión"), entrenos ya guardados hoy (ejercicios, series, volumen, notas) y agua. Loguear ocurre en **Sesión**.
 
-**Sensaciones y sesión (Hoy):** `notes` (estado local) viaja en `POST /workouts`; Historial la muestra y la reenvía en `PUT` (omitirla la borraría). `SessionBar` (arriba de Hoy, solo mientras se edita) lleva cronómetro de sesión, descanso desde la última serie con reps escritas, "Siguiente: …" (primer ejercicio con alguna serie sin reps) y un tip estático (`utils/sessionTips.ts`). Estado `sessionStartedAt`/`lastSetAt` en `TodayScreen`; el tick de 1 s vive dentro de `SessionBar` para no re-renderizar toda la pantalla. `resetSession()` se llama cada vez que nace un formulario nuevo. Solo primer plano: la alarma real es ROADMAP #8.
+**Sesión y borrador (`src/session/SessionContext.tsx`):** el provider (en `App.tsx`) guarda el cronómetro (`startedAt`, `lastSetAt`) **y todo el borrador del entreno** (`formRows`, `formTarget`, `notes`, `submitted`, `savedSummaries`, `draftKeyRef`...). Así el entreno a medias sobrevive a salir a Agua, Historial, etc. mientras la sesión está en curso (antes un back a Home lo perdía). `stopSession()` ("■ Terminar", con confirmación si hay un entreno sin guardar) lo descarta todo y cancela el aviso. Una sesión puede abarcar varios entrenos; la duración que se añade al resumen al guardar cuenta desde el inicio de la sesión o desde el guardado anterior (`segmentStartRef`). Es estado en memoria: si iOS mata la app, la sesión y el borrador se pierden.
+
+**Aviso de inactividad:** `expo-notifications` (notificación local, funciona en Expo Go iOS). Al empezar se pide permiso y se programa un `TIME_INTERVAL` de 2 h; `touch()` (cualquier edición de series, añadir/quitar serie, guardar) cancela y reprograma con debounce de 2 s. Cuerpo: "Ey, ¿sigues por aquí?…". Al terminar la sesión se cancela. Si el permiso se deniega, Hoy lo avisa. Plugin `expo-notifications` en `app.json` (solo importa en builds EAS).
+
+**Hoy (lógica del formulario, ahora en `SesionScreen`):** `buildDraft` pre-rellena el peso de ejercicios `bw` con el último `BodyMetric` (`latestBodyWeight`). `fetchBodyMetrics().catch(() => [])` hace este dato opcional: si falla `/body-metrics`, Hoy sigue usable con pesos vacíos. El `draftKeyRef` existente evita reconstruir y pisar el formulario al hacer refocus mientras la clave fecha/rutina/ejercicios no cambie. Tras guardar (`submitted`), las tarjetas sueltas y `SupersetBlock` nacen colapsadas (solo nombre; tap reexpande). Estado local `expandedAfterSave` (Set de keys; vacío = todo colapsado). Mientras se edita, abiertas como antes. Al salir de la pantalla Sesión el borrador se conserva (vive en `SessionContext`) hasta "Terminar sesión".
+
+**Sensaciones y asistencia (Sesión):** `notes` (en `SessionContext`) viaja en `POST /workouts`; Historial la muestra y la reenvía en `PUT` (omitirla la borraría). `SessionBar` (arriba de Hoy, solo mientras se edita) lleva cronómetro de sesión, descanso desde la última serie con reps escritas, "Siguiente: …" (primer ejercicio con alguna serie sin reps) y un tip estático (`utils/sessionTips.ts`). Estado `sessionStartedAt`/`lastSetAt` en `TodayScreen`; el tick de 1 s vive dentro de `SessionBar` para no re-renderizar toda la pantalla. `resetSession()` se llama cada vez que nace un formulario nuevo. Solo primer plano: la alarma real es ROADMAP #8.
 
 **PR:** `bestWeights` (`Map<exercise_id, BestMark>`, `utils/pr.ts`) guarda mejor peso + `volumeKg` (máx. de `best_set_volume_kg` de `/progress`, `null` si el backend no lo manda). `prFlags` compara una serie contra el histórico: 🏆 (peso) y 💪 (volumen peso×reps, requiere reps > 0). `computePrFlags` lo aplica a toda la sesión y deja el badge solo en la **mejor serie por ejercicio** (peso y volumen por separado; empate → la primera), así 50 kg y luego 49 kg con récord previo de 45 solo marca el de 50. Devuelve `set.id → flags`; `TodayScreen` lo pasa a `SupersetBlock` como `prBySetId`. `PrBadge` pinta el resultado. El histórico se precarga solo para los ejercicios de la rutina del día.
 

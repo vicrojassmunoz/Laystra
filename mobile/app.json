@@ -33,7 +33,8 @@
     "owner": "vicrojass",
     "plugins": [
       "expo-sharing",
-      "expo-status-bar"
+      "expo-status-bar",
+      "expo-notifications"
     ]
   }
 }

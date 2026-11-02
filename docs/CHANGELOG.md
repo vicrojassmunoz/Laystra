@@ -4,6 +4,16 @@ Historial de ítems que empezaron en [ROADMAP.md](ROADMAP.md) y ya están hechos
 
 ---
 
+## 2026-11-02 — Hoy como resumen y Sesión con cronómetro global
+
+Rediseño de la asistencia en sesión (#7) a partir del uso real; adelanta del ítem #8 solo la notificación local de inactividad (la alarma de descanso sigue pendiente).
+
+**Mobile:** `Hoy` pasa a ser el resumen del día; el formulario de logueo se mueve a la nueva pantalla `Sesion` (`SesionScreen`, antes `TodayScreen`). La sesión se arranca/termina explícitamente (▶ Empezar / ■ Terminar); el cronómetro y el borrador viven en `SessionContext`, así que sobreviven a navegar por otras pantallas. Píldora flotante `SessionPill` con el reloj en todas las pantallas mientras la sesión está en curso (toque → vuelve a Sesión). Si pasan 2 h sin teclear nada nuevo llega una notificación local "Ey, ¿sigues por aquí?" (`expo-notifications`, SDK 58).
+
+**Sin backend nuevo.** El borrador no se persiste en disco: si iOS mata la app, la sesión se pierde.
+
+---
+
 ## 2026-11-01 — Sensaciones, PR por volumen, asistencia en sesión y agua
 
 Cierra los ítems de roadmap **#1, #6, #7 y #18**. Todo sigue en Expo Go.
