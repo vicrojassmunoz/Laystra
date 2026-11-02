@@ -1,20 +1,18 @@
 import { useFocusEffect } from "@react-navigation/native";
 import { useCallback, useRef, useState } from "react";
-import {
-  ActivityIndicator,
-  Modal,
-  ScrollView,
-  TouchableOpacity,
-  View,
-} from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { Modal, Pressable, View } from "react-native";
 
 import { fetchRoutines } from "../api/routines";
 import { fetchSchedule, updateScheduleDay } from "../api/schedule";
+import Button from "../components/ui/Button";
+import { Section } from "../components/ui/Card";
+import Icon from "../components/ui/Icon";
+import Row from "../components/ui/Row";
+import Screen, { ScreenError, ScreenLoading } from "../components/ui/Screen";
+import Txt from "../components/ui/Txt";
+import { makeStyles, radius, space, useTheme } from "../theme/theme";
 import { Routine } from "../types/routine";
 import { ScheduleEntry } from "../types/schedule";
-import { Text } from "../components/ui/compat";
-import { makeStyles } from "../theme/theme";
 
 const DAY_LABELS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
 
@@ -23,13 +21,44 @@ type State =
   | { status: "error"; message: string }
   | { status: "ready"; schedule: ScheduleEntry[]; routines: Routine[] };
 
+const useStyles = makeStyles(({ colors }) => ({
+  value: { flexDirection: "row", alignItems: "center", gap: space.sm },
+  todayTag: {
+    paddingVertical: 2,
+    paddingHorizontal: space.sm,
+    borderRadius: radius.pill,
+    backgroundColor: colors.tintSoft,
+  },
+  backdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "flex-end" },
+  sheet: {
+    backgroundColor: colors.bg,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: space.xl,
+    paddingBottom: space.xxxl,
+    gap: space.md,
+    maxHeight: "85%",
+  },
+  grabber: {
+    alignSelf: "center",
+    width: 36,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: colors.labelTertiary,
+  },
+}));
+
 export default function ScheduleScreen() {
   const styles = useStyles();
+  const { colors } = useTheme();
   const [state, setState] = useState<State>({ status: "loading" });
   const hasDataRef = useRef(false);
   const [openDay, setOpenDay] = useState<number | null>(null);
   const [updating, setUpdating] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
+
+  // 0 = lunes ... 6 = domingo, mismo convenio que ScheduleEntry.day.
+  const todayIndex = (new Date().getDay() + 6) % 7;
 
   const load = useCallback(() => {
     if (!hasDataRef.current) {
@@ -48,8 +77,8 @@ export default function ScheduleScreen() {
       });
   }, []);
 
-  // Corre cada vez que la pestaña "Semana" gana foco (no solo al montar), para
-  // reflejar rutinas creadas o el día de hoy asignado desde otras pestañas.
+  // Corre cada vez que la pantalla gana foco (no solo al montar), para reflejar
+  // rutinas creadas o el día de hoy asignado desde otras pantallas.
   useFocusEffect(
     useCallback(() => {
       load();
@@ -88,155 +117,103 @@ export default function ScheduleScreen() {
   }
 
   if (state.status === "loading") {
-    return (
-      <SafeAreaView style={styles.container} edges={["bottom"]}>
-        <ActivityIndicator size="large" />
-      </SafeAreaView>
-    );
+    return <ScreenLoading />;
   }
-
   if (state.status === "error") {
-    return (
-      <SafeAreaView style={styles.container} edges={["bottom"]}>
-        <Text style={styles.title}>No se pudo conectar con el backend</Text>
-        <Text style={styles.errorDetail}>{state.message}</Text>
-      </SafeAreaView>
-    );
+    return <ScreenError message={state.message} />;
   }
 
   const { schedule, routines } = state;
+  const sorted = schedule.slice().sort((a, b) => a.day - b.day);
+  const openEntry = openDay !== null ? schedule.find((e) => e.day === openDay) : undefined;
 
   return (
-    <SafeAreaView style={styles.container} edges={["bottom"]}>
-      <ScrollView contentContainerStyle={styles.content}>
+    <Screen>
+      <Txt variant="subhead" tone="secondary">
+        Toca un día para asignarle una rutina o dejarlo de descanso.
+      </Txt>
 
-        {schedule
-          .slice()
-          .sort((a, b) => a.day - b.day)
-          .map((entry) => {
-            const routine = routines.find((r) => r.id === entry.routine_id);
-            return (
-              <TouchableOpacity
-                key={entry.day}
-                style={styles.dayRow}
-                onPress={() => openDayModal(entry.day)}
-              >
-                <Text style={styles.dayLabel}>{DAY_LABELS[entry.day]}</Text>
-                <Text style={styles.dayValue}>{routine?.name ?? "Descanso"}</Text>
-              </TouchableOpacity>
-            );
-          })}
-      </ScrollView>
+      <Section>
+        {sorted.map((entry) => {
+          const routine = routines.find((r) => r.id === entry.routine_id);
+          const isToday = entry.day === todayIndex;
+          return (
+            <Row
+              key={entry.day}
+              title={DAY_LABELS[entry.day]}
+              titleTone="label"
+              subtitle={
+                routine
+                  ? `${routine.exercises.length} ejercicio${routine.exercises.length === 1 ? "" : "s"}`
+                  : undefined
+              }
+              value={
+                <View style={styles.value}>
+                  {isToday ? (
+                    <View style={styles.todayTag}>
+                      <Txt variant="caption" tone="tint" weight="700">
+                        Hoy
+                      </Txt>
+                    </View>
+                  ) : null}
+                  <Txt variant="body" tone={routine ? "label" : "secondary"}>
+                    {routine?.name ?? "Descanso"}
+                  </Txt>
+                </View>
+              }
+              onPress={() => openDayModal(entry.day)}
+            />
+          );
+        })}
+      </Section>
 
-      <Modal visible={openDay !== null} transparent animationType="slide">
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>
+      <Modal visible={openDay !== null} transparent animationType="slide" onRequestClose={closeDayModal}>
+        <Pressable style={styles.backdrop} onPress={closeDayModal}>
+          <Pressable style={styles.sheet} onPress={() => {}}>
+            <View style={styles.grabber} />
+            <Txt variant="title3" style={{ textAlign: "center" }}>
               {openDay !== null ? DAY_LABELS[openDay] : ""}
-            </Text>
+            </Txt>
 
-            <TouchableOpacity
-              style={styles.option}
-              disabled={updating}
-              onPress={() => openDay !== null && handleSelect(openDay, null)}
-            >
-              <Text style={styles.optionText}>Descanso</Text>
-            </TouchableOpacity>
+            <Section>
+              <Row
+                title="Descanso"
+                chevron={false}
+                value={
+                  openEntry && openEntry.routine_id === null ? (
+                    <Icon name="check" size={20} color={colors.tint} />
+                  ) : undefined
+                }
+                onPress={updating ? undefined : () => openDay !== null && handleSelect(openDay, null)}
+              />
+              {routines.map((routine) => (
+                <Row
+                  key={routine.id}
+                  title={routine.name}
+                  subtitle={`${routine.exercises.length} ejercicio${routine.exercises.length === 1 ? "" : "s"}`}
+                  chevron={false}
+                  value={
+                    openEntry && openEntry.routine_id === routine.id ? (
+                      <Icon name="check" size={20} color={colors.tint} />
+                    ) : undefined
+                  }
+                  onPress={
+                    updating ? undefined : () => openDay !== null && handleSelect(openDay, routine.id)
+                  }
+                />
+              ))}
+            </Section>
 
-            {routines.map((routine) => (
-              <TouchableOpacity
-                key={routine.id}
-                style={styles.option}
-                disabled={updating}
-                onPress={() => openDay !== null && handleSelect(openDay, routine.id)}
-              >
-                <Text style={styles.optionText}>{routine.name}</Text>
-              </TouchableOpacity>
-            ))}
+            {modalError ? (
+              <Txt variant="subhead" tone="danger">
+                {modalError}
+              </Txt>
+            ) : null}
 
-            {modalError && <Text style={styles.errorDetail}>{modalError}</Text>}
-
-            <TouchableOpacity style={styles.cancelButton} onPress={closeDayModal}>
-              <Text style={styles.cancelText}>Cancelar</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
+            <Button title="Cancelar" variant="tinted" size="large" fullWidth onPress={closeDayModal} />
+          </Pressable>
+        </Pressable>
       </Modal>
-    </SafeAreaView>
+    </Screen>
   );
 }
-
-const useStyles = makeStyles(({ colors }) => ({
-  container: {
-    flex: 1,
-    backgroundColor: colors.bg,
-  },
-  content: {
-    padding: 16,
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: "600",
-    marginBottom: 16,
-  },
-  dayRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingVertical: 14,
-    paddingHorizontal: 12,
-    backgroundColor: colors.surface,
-    borderRadius: 8,
-    marginBottom: 8,
-  },
-  dayLabel: {
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  dayValue: {
-    fontSize: 16,
-    color: colors.labelSecondary,
-  },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.4)",
-    justifyContent: "flex-end",
-  },
-  modalCard: {
-    backgroundColor: colors.surface,
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    padding: 20,
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: "600",
-    marginBottom: 16,
-    textAlign: "center",
-  },
-  option: {
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.separator,
-  },
-  optionText: {
-    fontSize: 16,
-    textAlign: "center",
-  },
-  cancelButton: {
-    paddingVertical: 14,
-    marginTop: 8,
-  },
-  cancelText: {
-    fontSize: 16,
-    textAlign: "center",
-    color: colors.danger,
-    fontWeight: "600",
-  },
-  errorDetail: {
-    fontSize: 14,
-    color: colors.danger,
-    marginTop: 8,
-    textAlign: "center",
-  },
-}));

@@ -4,6 +4,15 @@ Historial de ítems que empezaron en [ROADMAP.md](ROADMAP.md) y ya están hechos
 
 ---
 
+## 2026-11-02 — Semana, Objetivos y formulario de ejercicios
+
+- **Formulario de ejercicios (`ExercisePickerList`):** "Nuevo ejercicio" y "Editar" abren una hoja propia con los botones **Cancelar / Guardar** fijos abajo. Antes el formulario salía arriba de la lista (fuera de vista al editar un ejercicio lejano) y "Guardar" era un enlace pequeño al final de un formulario largo.
+- **Semana:** lista agrupada de los 7 días con "Hoy" marcado; hoja para elegir rutina con check en la actual.
+- **Objetivos:** secciones Pendientes / Cumplidos, círculo para marcar, días restantes (vencidos en rojo) y formulario solo al crear/editar.
+- **Análisis:** "Toca atender" pasa a "Llevan tiempo sin entrenarse" con su explicación (músculos con 7 días o más sin trabajarse).
+
+---
+
 ## 2026-11-02 — Historial, Rutinas, Progreso y Análisis rediseñados
 
 - **Historial:** entrenos agrupados por mes, tarjetas compactas (rutina, fecha, ejercicios/series/volumen) que se despliegan con el detalle por ejercicio (`summarizeByExercise`: el peso una vez y las reps en lista) y las acciones; resumen de los últimos 30 días; edición con las mismas filas que Sesión (`SetRow`, `SupersetBlock`).

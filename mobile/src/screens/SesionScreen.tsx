@@ -1494,11 +1494,11 @@ const useStyles = makeStyles(({ colors }) => ({
   optionText: {
     color: colors.label,
     fontSize: 16,
-    textAlign: "center",
+    textAlign: "left",
   },
   optionTextSelected: {
     fontSize: 16,
-    textAlign: "center",
+    textAlign: "left",
     fontWeight: "600",
     color: colors.success,
   },
@@ -1506,13 +1506,13 @@ const useStyles = makeStyles(({ colors }) => ({
   // seleccionable para uno nuevo, ver alreadyGroupedFreeExerciseIds.
   optionTextDisabled: {
     fontSize: 16,
-    textAlign: "center",
+    textAlign: "left",
     color: colors.labelTertiary,
   },
   optionHint: {
     fontSize: 12,
     color: colors.labelTertiary,
-    textAlign: "center",
+    textAlign: "left",
     marginTop: 2,
   },
   // "Entreno libre" es una opción especial (no una rutina), separada del resto

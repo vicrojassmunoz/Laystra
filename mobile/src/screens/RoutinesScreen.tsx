@@ -940,18 +940,18 @@ const useStyles = makeStyles(({ colors }) => ({
   },
   optionText: {
     fontSize: 16,
-    textAlign: "center",
+    textAlign: "left",
   },
   optionTextSelected: {
     fontSize: 16,
-    textAlign: "center",
+    textAlign: "left",
     fontWeight: "600",
     color: colors.success,
   },
   optionHint: {
     fontSize: 12,
     color: colors.labelTertiary,
-    textAlign: "center",
+    textAlign: "left",
     marginTop: 2,
   },
   cancelButton: {

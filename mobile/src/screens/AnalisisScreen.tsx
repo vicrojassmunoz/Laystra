@@ -29,6 +29,7 @@ const useStyles = makeStyles(() => ({
   volumeBar: { flex: 1 },
   volumeValue: { width: 62, textAlign: "right" },
   insight: { flexDirection: "row", alignItems: "center", gap: space.sm },
+  neglectedRow: { flexDirection: "row", justifyContent: "space-between" },
   value: { flexDirection: "row", alignItems: "center", gap: space.xs },
 }));
 
@@ -114,15 +115,25 @@ export default function AnalisisScreen() {
           <View style={styles.insight}>
             <Icon name="info" size={20} color={colors.warning} />
             <Txt variant="headline" style={{ flex: 1 }}>
-              Toca atender
+              Llevan tiempo sin entrenarse
             </Txt>
           </View>
           <Txt variant="subhead" tone="secondary">
-            {neglected
-              .slice(0, 3)
-              .map((g) => (g.days === null ? `${g.label} (nunca)` : `${g.label} (${g.days} d)`))
-              .join(" · ")}
+            Músculos que llevan {STALE_DAYS_THRESHOLD} días o más sin trabajarse:
           </Txt>
+          {neglected.slice(0, 4).map((g) => (
+            <View key={g.label} style={styles.neglectedRow}>
+              <Txt variant="body">{g.label}</Txt>
+              <Txt variant="body" tone="warning" numeric>
+                {g.days === null ? "nunca" : `${g.days} días`}
+              </Txt>
+            </View>
+          ))}
+          {neglected.length > 4 ? (
+            <Txt variant="footnote" tone="secondary">
+              y {neglected.length - 4} más, abajo en "Días sin entrenar".
+            </Txt>
+          ) : null}
         </Card>
       ) : null}
 

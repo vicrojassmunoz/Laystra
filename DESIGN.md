@@ -20,8 +20,8 @@ Semantic colors (`bg`, `surface`, `surfaceInset`, `label`, `labelSecondary`, `la
 `Txt`, `Screen` (+ `ScreenLoading` / `ScreenError`), `Card`, `Section`, `SectionHeader`, `Row`, `Button` (`filled` = the one primary action per screen, `tinted`, `plain`, `destructive`, `plainDestructive`, `iconOnly`), `Chip`, `TextField`, `ProgressBar`, `Icon` (SF Symbols on iOS, Ionicons stand-in on web). Domain pieces built on them: `SetRow`, `SupersetBlock`, `PrBadge`, `WeightUnitChips`, `SessionBar`, `SessionPill`.
 
 ## Migration status
-- **Redesigned by hand:** Home, Hoy, Sesión, Agua, Perfil, Historial, Rutinas, Progreso, Análisis, navigation shell.
-- **Themed via drop-ins (Dark Mode works, layout unchanged):** Semana, Objetivos, `ExercisePickerList`. They use `components/ui/compat` (`Text`, `TextInput`, `Button` with the old API but theme colors). Next candidates for a real redesign.
+- **All screens redesigned:** Home, Hoy, Sesión, Agua, Perfil, Historial, Rutinas, Progreso, Análisis, Semana, Objetivos, the exercise picker's form, and the navigation shell.
+- **Leftover:** the *option rows and bottom sheets* of the exercise pickers inside Sesión / Rutinas / Historial still use the old themed styles (`components/ui/compat`, hand-written sheet styles). They work in light and dark but could share one `Sheet` + `PickerOption` component.
 - `app.json` is `userInterfaceStyle: "automatic"`; the user can override in Perfil → Apariencia (Sistema / Claro / Oscuro, stored with AsyncStorage and applied with `Appearance.setColorScheme`).
 - **Titles are inline** in the native header (centered, next to the back arrow) -- no large titles, to save vertical space.
 

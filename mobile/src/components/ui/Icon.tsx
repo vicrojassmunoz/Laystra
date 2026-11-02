@@ -31,6 +31,7 @@ const ICONS = {
   expand: { sf: "chevron.down", ion: "chevron-down" },
   collapse: { sf: "chevron.up", ion: "chevron-up" },
   remove: { sf: "minus.circle", ion: "remove-circle-outline" },
+  circle: { sf: "circle", ion: "ellipse-outline" },
 } as const satisfies Record<string, { sf: SFSymbol; ion: keyof typeof Ionicons.glyphMap }>;
 
 export type IconName = keyof typeof ICONS;

@@ -1021,12 +1021,12 @@ const useStyles = makeStyles(({ colors }) => ({
   },
   optionText: {
     fontSize: 16,
-    textAlign: "center",
+    textAlign: "left",
   },
   optionHint: {
     fontSize: 12,
     color: colors.labelTertiary,
-    textAlign: "center",
+    textAlign: "left",
     marginTop: 2,
   },
   cancelButton: {
