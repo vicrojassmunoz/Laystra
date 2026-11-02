@@ -32,7 +32,7 @@ import { Routine } from "../types/routine";
 import { WorkoutSetCreate } from "../types/workout";
 import { secondaryHint } from "../utils/exercisePicker";
 import { parseDecimalInput } from "../utils/number";
-import { BestMark, parseReps, prFlags } from "../utils/pr";
+import { BestMark, NO_PR, PrFlags, computePrFlags } from "../utils/pr";
 import { tipFor } from "../utils/sessionTips";
 import { equalizeSupersetRounds, groupBySuperset, validSupersetGroups } from "../utils/superset";
 import { convertWeight, toKg } from "../utils/weightUnit";
@@ -898,6 +898,21 @@ export default function TodayScreen() {
       });
   }
 
+  // Badges de PR de toda la sesión a la vez (necesita ver todas las series para
+  // marcar solo la mejor por ejercicio, no cada una contra el histórico).
+  const prBySetId =
+    state.status === "ready"
+      ? computePrFlags(
+          formRows.map((row) => ({
+            exerciseId: row.exercise.exercise_id,
+            unit: row.exercise.unit,
+            sets: row.sets,
+          })),
+          state.bestWeights,
+          state.latestBodyWeight
+        )
+      : new Map<number, PrFlags>();
+
   // Siguiente ejercicio pendiente: el primero (en el orden del formulario) con
   // alguna serie sin reps. Super-series cuentan por ejercicio de la ronda.
   let nextExerciseLabel: string | null = null;
@@ -1038,16 +1053,7 @@ export default function TodayScreen() {
                       />
 
                       {row.sets.map((setDraft, setIndex) => {
-                        const typedWeight =
-                          row.exercise.unit === "bw"
-                            ? state.latestBodyWeight
-                            : parseDecimalInput(setDraft.weight);
-                        const flags = prFlags(
-                          typedWeight,
-                          row.exercise.unit,
-                          parseReps(setDraft.reps),
-                          state.bestWeights.get(row.exercise.exercise_id)
-                        );
+                        const flags = prBySetId.get(setDraft.id) ?? NO_PR;
 
                         return (
                           <View key={setDraft.id} style={styles.setRow}>
@@ -1125,7 +1131,7 @@ export default function TodayScreen() {
                     }
                     onAddRound={() => addRoundToGroup(indices)}
                     onRemoveRound={(roundIndex) => removeRoundFromGroup(indices, roundIndex)}
-                    bestWeights={state.bestWeights}
+                    prBySetId={prBySetId}
                     collapsed={isCollapsedAfterSave(`group-${entry.groupId}`)}
                     onToggleCollapse={
                       submitted ? () => toggleAfterSave(`group-${entry.groupId}`) : undefined

@@ -3,7 +3,7 @@ import { Button, Pressable, StyleSheet, Text, TextInput, View } from "react-nati
 import { LockedBodyweightLabel, WeightUnitChips } from "./WeightUnitChips";
 import PrBadge from "./PrBadge";
 import { parseDecimalInput } from "../utils/number";
-import { BestMark, parseReps, prFlags } from "../utils/pr";
+import { NO_PR, PrFlags } from "../utils/pr";
 import { WeightUnit } from "../types/exercise";
 
 // Forma compartida de una fila de serie editable -- misma forma que
@@ -37,7 +37,10 @@ type Props = {
   onRemoveRound: (roundIndex: number) => void;
   onChangeUnit?: (memberIndex: number, unit: WeightUnit) => void;
   latestBodyWeight?: number | null;
-  bestWeights?: Map<number, BestMark>;
+  // set.id -> badge de PR, calculado por TodayScreen (computePrFlags) porque
+  // depende de TODAS las series de la sesión, no solo de este bloque. Undefined
+  // en HistorialScreen: ahí nunca hay PR.
+  prBySetId?: Map<number, PrFlags>;
   // Tras guardar en Hoy: el bloque nace colapsado (solo nombres). Tocar el
   // header reexpande. Historial no pasa estas props y el bloque queda siempre
   // abierto, igual que antes.
@@ -67,7 +70,7 @@ export default function SupersetBlock({
   onRemoveRound,
   onChangeUnit,
   latestBodyWeight = null,
-  bestWeights,
+  prBySetId,
   collapsed = false,
   onToggleCollapse,
 }: Props) {
@@ -123,21 +126,7 @@ export default function SupersetBlock({
                 return null;
               }
 
-              // Badge de PR: mismo criterio que la rama "single" de
-              // TodayScreen -- compara solo contra el mejor peso histórico
-              // precargado (bestWeights), no contra otras series sin guardar
-              // de esta misma sesión. bestWeights es undefined en
-              // HistorialScreen, así que ahí nunca hay PR.
-              const typedWeight =
-                member.unit === "bw"
-                  ? latestBodyWeight
-                  : parseDecimalInput(setDraft.weight);
-              const flags = prFlags(
-                typedWeight,
-                member.unit,
-                parseReps(setDraft.reps),
-                bestWeights?.get(member.exerciseId)
-              );
+              const flags = prBySetId?.get(setDraft.id) ?? NO_PR;
 
               return (
                 <View key={member.key} style={styles.setRow}>
