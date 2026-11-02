@@ -4,6 +4,16 @@ Historial de ítems que empezaron en [ROADMAP.md](ROADMAP.md) y ya están hechos
 
 ---
 
+## 2026-11-02 — "Completar" sesión (guardar a medias)
+
+Nuevo botón **Completar** en la barra de Sesión, junto a Pausa y Terminar (Pausa y Terminar pasan a solo icono). Guarda lo hecho y cierra la sesión:
+- Entreno completo → guarda y termina.
+- A medias → aviso "Entreno incompleto: has hecho X de Y series (A de B ejercicios)"; si se confirma guarda **solo las series con reps** (`handleSave({ partial, finishAfter })`; los ejercicios sin ninguna serie hecha se omiten, como ya ocurría al quitar todas sus series) y termina.
+- Nada hecho → "No hay nada que guardar" con opción de terminar sin guardar.
+- Si ya estaba guardado, solo cierra la sesión. "Terminar" (icono de stop) sigue descartando lo no guardado, con su confirmación. Sin cambios de backend.
+
+---
+
 ## 2026-11-02 — Movimiento y hápticos (animate-expo)
 
 Reanimated 4 + `react-native-worklets` + `expo-haptics`. `PressableScale` (escala 0.97 / 120 ms) en botones, chips, tarjetas tocables y la píldora de sesión; barras de progreso con transición de ancho (380 ms); fundido de la píldora (180/120 ms) y del color de la barra de sesión al pausar (200 ms); fundido de 120 ms del contenido desplegado. Hápticos: tick al cambiar de opción en un chip, ligero al añadir agua / empezar o pausar sesión, medio al terminar sesión, éxito al guardar un entreno o cumplir un objetivo. Sin animar transiciones de pantalla, entradas de listas ni hojas. Verificado en el navegador (escala, transición, sin errores); el tacto hay que juzgarlo en el iPhone.

@@ -16,7 +16,9 @@ type Props = {
   // ms epoch de la pausa; null = corriendo.
   pausedAt: number | null;
   onTogglePause: () => void;
-  // Termina la sesión (el padre pide confirmación si hay un entreno sin guardar).
+  // Guarda lo hecho (avisa si está a medias) y termina la sesión.
+  onComplete: () => void;
+  // Termina la sesión descartando lo no guardado (el padre pide confirmación).
   onStop: () => void;
   // "Siguiente: X" ya formateado por quien conoce el formulario; null = nada pendiente.
   nextLabel: string | null;
@@ -58,6 +60,7 @@ export default function SessionBar({
   lastSetAt,
   pausedAt,
   onTogglePause,
+  onComplete,
   onStop,
   nextLabel,
   tip,
@@ -103,13 +106,22 @@ export default function SessionBar({
         </View>
         <View style={styles.buttons}>
           <Button
-            title={paused ? "Reanudar" : "Pausa"}
+            title={paused ? "Reanudar sesión" : "Pausar sesión"}
             icon={paused ? "play" : "pause"}
             variant={paused ? "filled" : "tinted"}
             size="compact"
+            iconOnly
             onPress={onTogglePause}
           />
-          <Button title="Terminar sesión" icon="stop" variant="destructive" size="compact" iconOnly onPress={onStop} />
+          <Button title="Completar" icon="check" variant="filled" size="compact" onPress={onComplete} />
+          <Button
+            title="Terminar sesión sin guardar"
+            icon="stop"
+            variant="destructive"
+            size="compact"
+            iconOnly
+            onPress={onStop}
+          />
         </View>
       </View>
 

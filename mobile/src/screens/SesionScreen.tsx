@@ -303,6 +303,66 @@ export default function SesionScreen() {
     setLastSetAt(null);
   }
 
+  // Cierra la sesión y vuelve a Hoy.
+  // Reset en vez de navigate("Hoy"): si se llegó a Sesión desde otra pantalla
+  // (la píldora flotante), navigate empujaba un Hoy NUEVO encima y el back
+  // rebotaba entre Hoy y una Sesión ya vacía. Así el stack queda Home → Hoy.
+  function finishSession() {
+    haptic.medium();
+    stopSession();
+    navigation.reset({ index: 1, routes: [{ name: "Home" }, { name: "Hoy" }] });
+  }
+
+  // "Completar": guarda lo que llevas y termina la sesión. Si el entreno está a
+  // medias (p. ej. solo hiciste la mitad del pecho) avisa y guarda SOLO las series
+  // con reps; si no hay nada hecho, ofrece terminar sin guardar.
+  function handleComplete() {
+    if (state.status !== "ready") {
+      return;
+    }
+
+    // Ya guardado (o descartado): solo queda cerrar la sesión.
+    if (submitted || skipped || !formTarget) {
+      finishSession();
+      return;
+    }
+
+    const filledOf = (row: ExerciseDraft) => row.sets.filter((s) => s.reps.trim() !== "").length;
+    const total = formRows.reduce((n, row) => n + row.sets.length, 0);
+    const filled = formRows.reduce((n, row) => n + filledOf(row), 0);
+    const exercisesTotal = formRows.filter((row) => row.sets.length > 0).length;
+    const exercisesTouched = formRows.filter((row) => filledOf(row) > 0).length;
+
+    if (filled === 0) {
+      showAlert(
+        "No hay nada que guardar",
+        "Todavía no has registrado ninguna serie. ¿Terminar la sesión sin guardar?",
+        [
+          { text: "Seguir", style: "cancel" },
+          { text: "Terminar sin guardar", style: "destructive", onPress: finishSession },
+        ]
+      );
+      return;
+    }
+
+    if (filled < total) {
+      showAlert(
+        "Entreno incompleto",
+        `Has hecho ${filled} de ${total} series (${exercisesTouched} de ${exercisesTotal} ejercicios). Se guardará solo lo que llevas y la sesión terminará.`,
+        [
+          { text: "Seguir entrenando", style: "cancel" },
+          {
+            text: "Guardar y terminar",
+            onPress: () => handleSave({ partial: true, finishAfter: true }),
+          },
+        ]
+      );
+      return;
+    }
+
+    handleSave({ finishAfter: true });
+  }
+
   function handleStopSession() {
     const hasUnsaved =
       !submitted &&
@@ -311,14 +371,7 @@ export default function SesionScreen() {
         row.sets.some((s) => s.reps.trim() !== "" || s.weight.trim() !== "")
       );
 
-    const finish = () => {
-      haptic.medium();
-      stopSession();
-      // Reset en vez de navigate("Hoy"): si se llegó a Sesión desde otra pantalla
-      // (la píldora flotante), navigate empujaba un Hoy NUEVO encima y el back
-      // rebotaba entre Hoy y una Sesión ya vacía. Así el stack queda Home → Hoy.
-      navigation.reset({ index: 1, routes: [{ name: "Home" }, { name: "Hoy" }] });
-    };
+    const finish = finishSession;
 
     if (!hasUnsaved) {
       finish();
@@ -820,12 +873,21 @@ export default function SesionScreen() {
     setExpandedAfterSave(new Set());
   }
 
-  function handleSave() {
+  // partial: ignora las series sin reps en vez de dar error (guardar a medias).
+  // finishAfter: tras guardar con éxito, cierra la sesión y vuelve a Hoy.
+  function handleSave(opts: { partial?: boolean; finishAfter?: boolean } = {}) {
     if (state.status !== "ready" || !formTarget) {
       return;
     }
 
     setFormError(null);
+
+    const rows = opts.partial
+      ? formRows.map((row) => ({
+          ...row,
+          sets: row.sets.filter((s) => s.reps.trim() !== ""),
+        }))
+      : formRows;
 
     // Red de seguridad: pese a equalizeSupersetRounds (en buildDraft) y al
     // picker de super-serie de entreno libre bloqueando solapes, cualquier
@@ -834,7 +896,7 @@ export default function SesionScreen() {
     // a null aquí en vez de dejar que el backend lo rechace con un 400 que el
     // usuario no sabría interpretar.
     const validGroups = validSupersetGroups(
-      formRows.map((row) => ({
+      rows.map((row) => ({
         exerciseId: row.exercise.exercise_id,
         group: row.exercise.superset_group,
         hasSets: row.sets.length > 0,
@@ -844,7 +906,7 @@ export default function SesionScreen() {
     const sets: WorkoutSetCreate[] = [];
     let order = 0;
 
-    for (const row of formRows) {
+    for (const row of rows) {
       // Un ejercicio se puede saltar del todo (máquina ocupada, etc.) quitando
       // todas sus series -- si no quedó ninguna, no hay nada que validar ni
       // que mandar por este ejercicio.
@@ -922,6 +984,12 @@ export default function SesionScreen() {
         setSubmitted(true);
         setExpandedAfterSave(new Set());
         lastSubmittedSnapshotRef.current = { formTarget, formRows, notes: trimmedNotes };
+
+        if (opts.finishAfter) {
+          // El háptico de éxito ya sonó; cierra la sesión sin el "medio" de Terminar.
+          stopSession();
+          navigation.reset({ index: 1, routes: [{ name: "Home" }, { name: "Hoy" }] });
+        }
       })
       .catch((error: Error) => {
         setFormError(error.message);
@@ -998,6 +1066,7 @@ export default function SesionScreen() {
                 resumeSession();
               }
             }}
+            onComplete={handleComplete}
             onStop={handleStopSession}
             nextLabel={!skipped && !submitted ? nextExerciseLabel : null}
             tip={!skipped && !submitted ? nextExerciseTip : null}
@@ -1209,7 +1278,7 @@ export default function SesionScreen() {
                       variant="filled"
                       size="large"
                       fullWidth
-                      onPress={handleSave}
+                      onPress={() => handleSave()}
                       disabled={saving}
                     />
                     {/* "Cancelar" (volver a lo último guardado) solo tiene
