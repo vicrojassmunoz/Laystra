@@ -6,9 +6,12 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { fetchSchedule } from "../api/schedule";
 import { todayIsoDate } from "../api/today";
 import { fetchWorkouts } from "../api/workouts";
+import { fetchWaterDay } from "../api/water";
 import MenuTile from "../components/MenuTile";
 import { ScheduleEntry } from "../types/schedule";
 import { Workout } from "../types/workout";
+import { WaterDay } from "../types/water";
+import { formatMl } from "../utils/water";
 
 const DAY_LABELS = ["L", "M", "X", "J", "V", "S", "D"];
 
@@ -24,7 +27,7 @@ type DayInfo = {
 type State =
   | { status: "loading" }
   | { status: "error"; message: string }
-  | { status: "ready"; days: DayInfo[] };
+  | { status: "ready"; days: DayInfo[]; water: WaterDay | null };
 
 // Construye las 7 fechas locales (YYYY-MM-DD, sin drift UTC) de la semana
 // que contiene "hoy", empezando en lunes -- mismo convenio de día que
@@ -83,10 +86,20 @@ export default function HomeScreen() {
       setState({ status: "loading" });
     }
 
-    Promise.all([fetchSchedule(), fetchWorkouts()])
-      .then(([schedule, workouts]) => {
+    // El agua es opcional en Home: si falla (p. ej. backend sin desplegar
+    // todavía), el hub sigue usable y el tile solo pierde el progreso.
+    Promise.all([
+      fetchSchedule(),
+      fetchWorkouts(),
+      fetchWaterDay(todayIsoDate()).catch(() => null),
+    ])
+      .then(([schedule, workouts, water]) => {
         hasDataRef.current = true;
-        setState({ status: "ready", days: deriveDays(schedule, workouts, todayIsoDate()) });
+        setState({
+          status: "ready",
+          days: deriveDays(schedule, workouts, todayIsoDate()),
+          water,
+        });
       })
       .catch((error: Error) => {
         if (!hasDataRef.current) {
@@ -124,7 +137,7 @@ export default function HomeScreen() {
     );
   }
 
-  const { days } = state;
+  const { days, water } = state;
 
   return (
     <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
@@ -155,6 +168,16 @@ export default function HomeScreen() {
           {/* Acceso diario principal: sin tab bar, Hoy se abre desde aquí
               (ROADMAP #10 — decisión: tile grande, app arranca en Home). */}
           <MenuTile label="Hoy" variant="fullWidth" onPress={() => navigation.navigate("Hoy")} />
+
+          <MenuTile
+            label={
+              water
+                ? `Agua · ${formatMl(water.total_ml)} / ${formatMl(water.goal_ml)}`
+                : "Agua"
+            }
+            variant="fullWidth"
+            onPress={() => navigation.navigate("Agua")}
+          />
 
           <View style={styles.menuRow}>
             <MenuTile

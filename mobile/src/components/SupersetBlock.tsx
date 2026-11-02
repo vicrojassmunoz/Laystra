@@ -3,7 +3,7 @@ import { Button, Pressable, StyleSheet, Text, TextInput, View } from "react-nati
 import { LockedBodyweightLabel, WeightUnitChips } from "./WeightUnitChips";
 import PrBadge from "./PrBadge";
 import { parseDecimalInput } from "../utils/number";
-import { toKg } from "../utils/weightUnit";
+import { BestMark, parseReps, prFlags } from "../utils/pr";
 import { WeightUnit } from "../types/exercise";
 
 // Forma compartida de una fila de serie editable -- misma forma que
@@ -37,7 +37,7 @@ type Props = {
   onRemoveRound: (roundIndex: number) => void;
   onChangeUnit?: (memberIndex: number, unit: WeightUnit) => void;
   latestBodyWeight?: number | null;
-  bestWeights?: Map<number, { weight: number; unit: string }>;
+  bestWeights?: Map<number, BestMark>;
   // Tras guardar en Hoy: el bloque nace colapsado (solo nombres). Tocar el
   // header reexpande. Historial no pasa estas props y el bloque queda siempre
   // abierto, igual que antes.
@@ -127,16 +127,17 @@ export default function SupersetBlock({
               // TodayScreen -- compara solo contra el mejor peso histórico
               // precargado (bestWeights), no contra otras series sin guardar
               // de esta misma sesión. bestWeights es undefined en
-              // HistorialScreen, así que ahí isPr siempre da false.
+              // HistorialScreen, así que ahí nunca hay PR.
               const typedWeight =
                 member.unit === "bw"
                   ? latestBodyWeight
                   : parseDecimalInput(setDraft.weight);
-              const bestWeight = bestWeights?.get(member.exerciseId);
-              const isPr =
-                typedWeight !== null &&
-                bestWeight !== undefined &&
-                toKg(typedWeight, member.unit) > toKg(bestWeight.weight, bestWeight.unit);
+              const flags = prFlags(
+                typedWeight,
+                member.unit,
+                parseReps(setDraft.reps),
+                bestWeights?.get(member.exerciseId)
+              );
 
               return (
                 <View key={member.key} style={styles.setRow}>
@@ -155,7 +156,7 @@ export default function SupersetBlock({
                       onChangeText={(text) => onChangeSet(memberIndex, roundIndex, { weight: text })}
                     />
                   )}
-                  {isPr && <PrBadge />}
+                  <PrBadge flags={flags} />
                   <TextInput
                     style={styles.repsInput}
                     placeholder="reps"

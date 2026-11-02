@@ -283,3 +283,33 @@ def test_progress_empty_for_exercise_with_no_workouts(client: TestClient) -> Non
 
     assert response.status_code == 200
     assert response.json()["points"] == []
+
+
+def test_progress_reports_best_set_volume_in_kg(client: TestClient) -> None:
+    exercise_id = client.get("/exercises").json()[0]["id"]
+    client.post(
+        "/workouts",
+        json={
+            "date": "2026-10-01",
+            "sets": [
+                {"exercise_id": exercise_id, "weight": 100, "reps": 3, "order": 0, "unit": "kg"},
+                {"exercise_id": exercise_id, "weight": 60, "reps": 10, "order": 1, "unit": "kg"},
+            ],
+        },
+    )
+    client.post(
+        "/workouts",
+        json={
+            "date": "2026-10-08",
+            "sets": [
+                {"exercise_id": exercise_id, "weight": 100, "reps": 10, "order": 0, "unit": "lb"}
+            ],
+        },
+    )
+
+    points = client.get(f"/exercises/{exercise_id}/progress").json()["points"]
+
+    # 100x3=300 vs 60x10=600 -> manda la serie de más volumen, no la de más peso.
+    assert points[0]["best_set_volume_kg"] == 600
+    # 100 lb x 10 reps, normalizado a kg.
+    assert abs(points[1]["best_set_volume_kg"] - 100 * 0.45359237 * 10) < 1e-6

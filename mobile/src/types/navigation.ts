@@ -10,6 +10,7 @@ export type RootStackParamList = {
   Objetivos: undefined;
   User: undefined;
   Analisis: undefined;
+  Agua: undefined;
 };
 
 // Patrón oficial de React Navigation: augmenta el tipo global para que

@@ -18,6 +18,8 @@ export type WorkoutSet = WorkoutSetCreate & {
 export type WorkoutCreate = {
   date: string;
   routine_id: number | null;
+  // Sensaciones (texto libre). null/omitido = sin nota. Un PUT sin `notes` la borra.
+  notes?: string | null;
   sets: WorkoutSetCreate[];
 };
 
@@ -25,5 +27,6 @@ export type Workout = {
   id: number;
   date: string;
   routine_id: number | null;
+  notes?: string | null;
   sets: WorkoutSet[];
 };

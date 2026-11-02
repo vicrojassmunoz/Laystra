@@ -14,6 +14,7 @@ from app.routers import (
     routines,
     schedule,
     today,
+    water,
     workouts,
 )
 from app.seed import seed_if_empty
@@ -49,3 +50,4 @@ app.include_router(workouts.router)
 app.include_router(body_metrics.router)
 app.include_router(goals.router)
 app.include_router(analytics.router)
+app.include_router(water.router)

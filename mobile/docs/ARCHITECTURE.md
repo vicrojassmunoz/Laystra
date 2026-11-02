@@ -25,7 +25,7 @@ Tipos: `src/types/navigation.ts` (`RootStackParamList` únicamente).
 
 | Pantalla | Módulos API |
 |----------|-------------|
-| `HomeScreen` | `schedule`, `today`, `workouts` |
+| `HomeScreen` | `schedule`, `today`, `workouts`, `water` (progreso del tile Agua; opcional, `.catch(() => null)`) |
 | `TodayScreen` | `today`, `exercises`, `routines`, `workouts`, `progress`, `bodyMetrics` (prefill de peso corporal) |
 | `RoutinesScreen` | `exercises`, `routines` |
 | `ScheduleScreen` | `schedule`, `routines` |
@@ -34,6 +34,7 @@ Tipos: `src/types/navigation.ts` (`RootStackParamList` únicamente).
 | `ObjetivosScreen` | `goals` |
 | `UserScreen` | `bodyMetrics`, `today` |
 | `AnalisisScreen` | `analytics` |
+| `AguaScreen` | `water` (`/water`, `/water/containers`, `/water/history`, `/water/settings`, `/water/export`) |
 
 ## Estructura de carpetas
 
@@ -58,6 +59,12 @@ Tipos: `src/types/navigation.ts` (`RootStackParamList` únicamente).
 ## Hoy e Historial
 
 **Hoy:** `buildDraft` pre-rellena el peso de ejercicios `bw` con el último `BodyMetric` (`latestBodyWeight`). `fetchBodyMetrics().catch(() => [])` hace este dato opcional: si falla `/body-metrics`, Hoy sigue usable con pesos vacíos. El `draftKeyRef` existente evita reconstruir y pisar el formulario al hacer refocus mientras la clave fecha/rutina/ejercicios no cambie. Tras guardar (`submitted`), las tarjetas sueltas y `SupersetBlock` nacen colapsadas (solo nombre; tap reexpande). Estado local `expandedAfterSave` (Set de keys; vacío = todo colapsado). Mientras se edita, abiertas como antes. Al hacer back a Home la pantalla se desmonta (stack) — un borrador sin guardar no sobrevive.
+
+**Sensaciones y sesión (Hoy):** `notes` (estado local) viaja en `POST /workouts`; Historial la muestra y la reenvía en `PUT` (omitirla la borraría). `SessionBar` (arriba de Hoy, solo mientras se edita) lleva cronómetro de sesión, descanso desde la última serie con reps escritas, "Siguiente: …" (primer ejercicio con alguna serie sin reps) y un tip estático (`utils/sessionTips.ts`). Estado `sessionStartedAt`/`lastSetAt` en `TodayScreen`; el tick de 1 s vive dentro de `SessionBar` para no re-renderizar toda la pantalla. `resetSession()` se llama cada vez que nace un formulario nuevo. Solo primer plano: la alarma real es ROADMAP #8.
+
+**PR:** `bestWeights` (`Map<exercise_id, BestMark>`, `utils/pr.ts`) guarda mejor peso + `volumeKg` (máx. de `best_set_volume_kg` de `/progress`, `null` si el backend no lo manda). `prFlags` decide 🏆 (peso) y 💪 (volumen peso×reps, requiere reps > 0); `PrBadge` pinta ambos. Se precarga solo para los ejercicios de la rutina del día.
+
+**Agua:** `AguaScreen` — toque en recipiente = añade su capacidad; "Ajustar" abre modal con ¼ ½ ¾ 1 y ±50 ml, y avisa si difiere de la capacidad; >1500 ml pide confirmación; editar la capacidad de un recipiente avisa (no reescribe lo registrado). CSV con `utils/shareCsv.ts`.
 
 **Historial:** en edición, "Añadir ejercicio" abre el mismo picker (puede crear uno). `PUT /workouts/{id}` ya aceptaba sets extra. Botón "Exportar CSV" arriba: `exportWorkoutsCsv()` → `new File(Paths.cache, "laystra-workouts.csv")` + `Sharing.shareAsync`.
 

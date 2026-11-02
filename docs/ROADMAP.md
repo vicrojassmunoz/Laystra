@@ -10,7 +10,7 @@ Entregado: [CHANGELOG.md](CHANGELOG.md). Spec de la última tanda cerrada: [V2.m
 
 ## Próxima tanda sugerida
 
-No hay tanda cohesiva fijada. Lo más barato que queda en "Ahora": PR por volumen (#1), `notes` (#6), asistencia en sesión (#7), registro de agua (#18).
+No hay tanda cohesiva fijada. Siguiente natural: **#8** (alarma de descanso real, primer salto a EAS): desbloquea #17 (HealthKit) y con él el contador de pasos completo (#19).
 
 ---
 
@@ -20,10 +20,6 @@ No hay tanda cohesiva fijada. Lo más barato que queda en "Ahora": PR por volume
 
 | # | Ítem | Capa | Expo Go | Depende de | Hecho cuando | Descripción |
 |---|------|------|---------|------------|--------------|-------------|
-| 1 | PR por **volumen** (peso×reps) | ambos | sí | — | Badge o indicador en Hoy al batir mejor serie por volumen, no solo por peso | El badge de PR por **peso máximo** ya está en v1 (ver CHANGELOG). Falta la segunda mitad del ítem original: mejor serie por volumen por ejercicio. |
-| 6 | Sensaciones en el registro (`notes`) | ambos | sí | — | Campo texto libre en workout o set; persiste y se muestra en Historial | Que una IA las lea es ítem #15; esto es solo captura. |
-| 7 | Asistencia en sesión (sin notificaciones) | mobile | sí | — | Timer de sesión + siguiente ejercicio + tips estáticos + log en descanso | Todo en Expo Go. Base para ítem #13. |
-| 18 | Registro de agua | ambos | sí | — | Añadir agua del día en ml o por recipiente (vaso, taza, botella…) con tamaño ajustable y aviso al cambiarlo; objetivo diario y progreso en Home | Atajos de recipiente con capacidad por defecto, editable (más/menos) con aviso porque altera el total. Recipientes propios (nombre + ml), deshacer última entrada, histórico por día. Backend: entradas (fecha, ml, recipiente) + recipientes; incluir en backup/CSV. Opcional futuro: escribir agua en Apple Salud (#17). |
 
 ### Después — coste medio
 
@@ -39,7 +35,7 @@ No hay tanda cohesiva fijada. Lo más barato que queda en "Ahora": PR por volume
 |---|------|------|---------|------------|--------------|-------------|
 | 11 | Tipos de sesión (fuerza / cardio / otro) | ambos | — | — | Modelo que soporte cardio (distancia/tiempo) sin romper fuerza | **`Goal` manual ya existe (v1)** — esto es otra cosa: generalizar `Workout`/`Session` con `session_type` y campos por tipo. **Decisión vigente: no hacerlo** hasta que cardio sea un plan real, no "por si acaso". |
 | 12 | Split/balance desacoplado del calendario | ambos | sí | — | Usuario define split propio; app prioriza por desfase muscular | Usa datos de "días sin entrenar" (ya en Análisis, v1). Reengancha con #11 si hay categorías no-fuerza. |
-| 13 | Análisis en directo durante la sesión | mobile | sí* | #7, #8 | Sugerencias reactivas al loguear cada set | Lógica en tiempo real, no post-sesión. *Alarma en background requiere #8 (EAS). Solo cuando #7+#8 estén maduros en uso real. |
+| 13 | Análisis en directo durante la sesión | mobile | sí* | #8 (#7 ya hecho) | Sugerencias reactivas al loguear cada set | Lógica en tiempo real, no post-sesión. *Alarma en background requiere #8 (EAS). Solo cuando #7+#8 estén maduros en uso real. |
 | 14 | Modos visuales (fitness / videojuego / minimalista) | mobile | sí | #11 o #12 | Tres pieles, preferencia local | Theming en cada pantalla. Pulido, no core. |
 | 15 | IA para analizar registro y planificar | ambos | — | histórico + #6 | Endpoint LLM con sugerencias útiles | Dificultad real = tener datos suficientes. `notes` (#6) alimentan esto. |
 | 16 | Integración Strava | ambos | — | — | OAuth + sync de actividades | Infraestructura OAuth, tokens, jobs. |
@@ -48,6 +44,8 @@ No hay tanda cohesiva fijada. Lo más barato que queda en "Ahora": PR por volume
 ---
 
 ## Ítems retirados del backlog
+
+PR por volumen (**#1**), `notes` (**#6**), asistencia en sesión (**#7**) y registro de agua (**#18**) están en [CHANGELOG.md](CHANGELOG.md) → entrada **2026-11-01**.
 
 Las unidades de peso por ejercicio (el **#10** posterior, kg/lb/PC) están en [CHANGELOG.md](CHANGELOG.md) → entrada **2026-09-14**.
 

@@ -3,6 +3,7 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
+import AguaScreen from "./src/screens/AguaScreen";
 import AnalisisScreen from "./src/screens/AnalisisScreen";
 import HistorialScreen from "./src/screens/HistorialScreen";
 import HomeScreen from "./src/screens/HomeScreen";
@@ -50,6 +51,7 @@ export default function App() {
             component={AnalisisScreen}
             options={{ title: "Análisis" }}
           />
+          <Stack.Screen name="Agua" component={AguaScreen} options={{ title: "Agua" }} />
         </Stack.Navigator>
       </NavigationContainer>
     </SafeAreaProvider>

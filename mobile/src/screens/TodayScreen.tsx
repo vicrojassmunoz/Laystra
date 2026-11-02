@@ -24,6 +24,7 @@ import { createWorkout } from "../api/workouts";
 import { fetchToday, TodayExercise, TodayResponse } from "../api/today";
 import ExercisePickerList from "../components/ExercisePickerList";
 import PrBadge from "../components/PrBadge";
+import SessionBar from "../components/SessionBar";
 import SupersetBlock, { SetDraft } from "../components/SupersetBlock";
 import { LockedBodyweightLabel, WeightUnitChips } from "../components/WeightUnitChips";
 import { Exercise, WeightUnit } from "../types/exercise";
@@ -31,6 +32,8 @@ import { Routine } from "../types/routine";
 import { WorkoutSetCreate } from "../types/workout";
 import { secondaryHint } from "../utils/exercisePicker";
 import { parseDecimalInput } from "../utils/number";
+import { BestMark, parseReps, prFlags } from "../utils/pr";
+import { tipFor } from "../utils/sessionTips";
 import { equalizeSupersetRounds, groupBySuperset, validSupersetGroups } from "../utils/superset";
 import { convertWeight, toKg } from "../utils/weightUnit";
 
@@ -46,7 +49,7 @@ type State =
       // Mejor peso histórico por ejercicio (exercise_id -> peso), precargado
       // solo para los ejercicios del día -- ver comentario en load() sobre
       // por qué no cubre destinos elegidos luego vía "Loguear otro entreno".
-      bestWeights: Map<number, { weight: number; unit: string }>;
+      bestWeights: Map<number, BestMark>;
     };
 
 // SetDraft (id + weight/reps como string) viene de SupersetBlock -- es la
@@ -230,6 +233,15 @@ export default function TodayScreen() {
   // submitted es false se ignora y las tarjetas se muestran abiertas.
   const [expandedAfterSave, setExpandedAfterSave] = useState<Set<string>>(new Set());
 
+  // Sensaciones del entreno en curso (ROADMAP #6); viajan en `notes` del workout.
+  const [notes, setNotes] = useState("");
+  // Asistencia en sesión (ROADMAP #7). startedAt arranca solo al escribir la
+  // primera serie (o con el botón); lastSetAt es la última serie completada
+  // (reps escritas) y ancla el contador de descanso. Se reinician cada vez que
+  // nace un formulario nuevo (ver resetSession).
+  const [sessionStartedAt, setSessionStartedAt] = useState<number | null>(null);
+  const [lastSetAt, setLastSetAt] = useState<number | null>(null);
+
   // Picker de dos pasos para "Loguear otro entreno": "target" (elegir otra
   // rutina o "entreno libre") y "exercises" (solo para entreno libre, elegir
   // qué ejercicios sueltos). Es un único estado de "paso" en vez de dos
@@ -269,6 +281,7 @@ export default function TodayScreen() {
   const lastSubmittedSnapshotRef = useRef<{
     formTarget: FormTarget;
     formRows: ExerciseDraft[];
+    notes: string;
   } | null>(null);
 
   // Identifica qué se está logueando (fecha + rutina + firma de ejercicios/sets/reps
@@ -286,6 +299,16 @@ export default function TodayScreen() {
   const nextSetIdRef = useRef(1);
   function nextSetId(): number {
     return nextSetIdRef.current++;
+  }
+
+  function resetSession() {
+    setNotes("");
+    setSessionStartedAt(null);
+    setLastSetAt(null);
+  }
+
+  function startSession() {
+    setSessionStartedAt((prev) => prev ?? Date.now());
   }
 
   function isCollapsedAfterSave(key: string): boolean {
@@ -380,7 +403,7 @@ export default function TodayScreen() {
           if (progressEpoch !== progressEpochRef.current) {
             return;
           }
-          const bestWeights = new Map<number, { weight: number; unit: string }>();
+          const bestWeights = new Map<number, BestMark>();
           for (const progress of progresses) {
             if (!progress || progress.points.length === 0) {
               continue;
@@ -391,9 +414,15 @@ export default function TodayScreen() {
                 ? point
                 : winner
             );
+            // Mejor serie por volumen (peso×reps, kg). null si el backend no
+            // manda el campo (versión vieja) -- entonces no hay PR de volumen.
+            const volumes = progress.points
+              .map((point) => point.best_set_volume_kg)
+              .filter((v): v is number => typeof v === "number");
             bestWeights.set(progress.exercise_id, {
               weight: best.best_weight,
               unit: best.unit ?? "kg",
+              volumeKg: volumes.length > 0 ? Math.max(...volumes) : null,
             });
           }
 
@@ -479,9 +508,20 @@ export default function TodayScreen() {
     setSubmitted(false);
     setSkipped(false);
     setSavedSummaries([]);
+    resetSession();
   }, [state]);
 
   function updateSet(exerciseIndex: number, setIndex: number, patch: Partial<SetDraft>) {
+    // Asistencia en sesión: la sesión arranca sola al tocar la primera serie, y
+    // el descanso se reinicia cuando una serie pasa de sin reps a con reps.
+    if (!submitted) {
+      startSession();
+    }
+    const prevReps = formRows[exerciseIndex]?.sets[setIndex]?.reps ?? "";
+    if (patch.reps !== undefined && prevReps.trim() === "" && patch.reps.trim() !== "") {
+      setLastSetAt(Date.now());
+    }
+
     setFormRows((prev) =>
       prev.map((row, i) => {
         if (i !== exerciseIndex) {
@@ -615,6 +655,7 @@ export default function TodayScreen() {
     setFormError(null);
     setSubmitted(false);
     setSkipped(false);
+    resetSession();
     setPickerStep(null);
   }
 
@@ -720,6 +761,7 @@ export default function TodayScreen() {
     setFormError(null);
     setSubmitted(false);
     setSkipped(false);
+    resetSession();
     setPickerStep(null);
   }
 
@@ -745,6 +787,7 @@ export default function TodayScreen() {
 
     setFormTarget(snapshot.formTarget);
     setFormRows(snapshot.formRows);
+    setNotes(snapshot.notes);
     setFormError(null);
     setSubmitted(true);
     setExpandedAfterSave(new Set());
@@ -828,16 +871,24 @@ export default function TodayScreen() {
     // de guardar) para que fecha y rutina no puedan desincronizarse si la app
     // queda abierta justo a caballo de medianoche. El routine_id, en cambio, sale
     // de formTarget -- puede ser distinto al de /today si esto es un "otro entreno".
-    createWorkout({ date: state.data.date, routine_id: formTarget.routineId, sets })
+    const trimmedNotes = notes.trim();
+    createWorkout({
+      date: state.data.date,
+      routine_id: formTarget.routineId,
+      notes: trimmedNotes === "" ? null : trimmedNotes,
+      sets,
+    })
       .then((workout) => {
         const distinctExercises = new Set(sets.map((s) => s.exercise_id)).size;
+        const minutes =
+          sessionStartedAt === null ? 0 : Math.round((Date.now() - sessionStartedAt) / 60000);
         const label = `${formTarget.routineName ?? "Entreno libre"} — ${distinctExercises} ejercicio${
           distinctExercises === 1 ? "" : "s"
-        }`;
+        }${minutes >= 1 ? ` · ${minutes} min` : ""}`;
         setSavedSummaries((prev) => [...prev, { workoutId: workout.id, label }]);
         setSubmitted(true);
         setExpandedAfterSave(new Set());
-        lastSubmittedSnapshotRef.current = { formTarget, formRows };
+        lastSubmittedSnapshotRef.current = { formTarget, formRows, notes: trimmedNotes };
       })
       .catch((error: Error) => {
         setFormError(error.message);
@@ -845,6 +896,34 @@ export default function TodayScreen() {
       .finally(() => {
         setSaving(false);
       });
+  }
+
+  // Siguiente ejercicio pendiente: el primero (en el orden del formulario) con
+  // alguna serie sin reps. Super-series cuentan por ejercicio de la ronda.
+  let nextExerciseLabel: string | null = null;
+  let nextExerciseTip: string | null = null;
+  if (state.status === "ready" && formRows.length > 0) {
+    let pending: { row: ExerciseDraft; setNumber: number } | null = null;
+    for (const row of formRows) {
+      const emptyIndex = row.sets.findIndex((s) => s.reps.trim() === "");
+      if (emptyIndex !== -1) {
+        pending = { row, setNumber: emptyIndex + 1 };
+        break;
+      }
+    }
+
+    if (pending) {
+      const inSuperset = pending.row.exercise.superset_group != null;
+      nextExerciseLabel = `Siguiente: ${pending.row.exercise.exercise_name} · serie ${pending.setNumber}${
+        inSuperset ? " (super-serie)" : ""
+      }`;
+      const muscle = state.exercises.find(
+        (e) => e.id === pending.row.exercise.exercise_id
+      )?.muscle_group_primary;
+      nextExerciseTip = tipFor(muscle, pending.row.exercise.exercise_id);
+    } else if (formRows.some((r) => r.sets.length > 0)) {
+      nextExerciseLabel = "Todo rellenado ✅ — guarda el entreno";
+    }
   }
 
   return (
@@ -864,6 +943,15 @@ export default function TodayScreen() {
           behavior={Platform.OS === "ios" ? "padding" : undefined}
           keyboardVerticalOffset={0}
         >
+          {!skipped && !submitted && formRows.length > 0 && (
+            <SessionBar
+              startedAt={sessionStartedAt}
+              lastSetAt={lastSetAt}
+              onStart={startSession}
+              nextLabel={nextExerciseLabel}
+              tip={nextExerciseTip}
+            />
+          )}
           <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
             <Text style={styles.title}>Hoy</Text>
             <Text style={styles.subtitle}>{headerRoutineName(formTarget, state.data)}</Text>
@@ -954,12 +1042,12 @@ export default function TodayScreen() {
                           row.exercise.unit === "bw"
                             ? state.latestBodyWeight
                             : parseDecimalInput(setDraft.weight);
-                        const best = state.bestWeights.get(row.exercise.exercise_id);
-                        const isPr =
-                          typedWeight !== null &&
-                          best !== undefined &&
-                          toKg(typedWeight, row.exercise.unit) >
-                            toKg(best.weight, best.unit);
+                        const flags = prFlags(
+                          typedWeight,
+                          row.exercise.unit,
+                          parseReps(setDraft.reps),
+                          state.bestWeights.get(row.exercise.exercise_id)
+                        );
 
                         return (
                           <View key={setDraft.id} style={styles.setRow}>
@@ -978,7 +1066,7 @@ export default function TodayScreen() {
                                 }
                               />
                             )}
-                            {isPr && <PrBadge />}
+                            <PrBadge flags={flags} />
                             <TextInput
                               style={styles.repsInput}
                               placeholder="reps"
@@ -1045,6 +1133,21 @@ export default function TodayScreen() {
                   />
                 );
               })}
+
+            {!skipped && formRows.length > 0 && (!submitted || notes.trim() !== "") && (
+              <View style={styles.notesBox}>
+                <Text style={styles.notesLabel}>Sensaciones</Text>
+                <TextInput
+                  style={styles.notesInput}
+                  multiline
+                  placeholder="¿Cómo te sentiste? (opcional)"
+                  value={notes}
+                  editable={!submitted && !saving}
+                  maxLength={2000}
+                  onChangeText={setNotes}
+                />
+              </View>
+            )}
 
             {formError && <Text style={styles.errorDetail}>{formError}</Text>}
 
@@ -1298,6 +1401,25 @@ export default function TodayScreen() {
 }
 
 const styles = StyleSheet.create({
+  notesBox: {
+    marginTop: 8,
+    marginBottom: 8,
+  },
+  notesLabel: {
+    fontSize: 15,
+    fontWeight: "600",
+    marginBottom: 4,
+  },
+  notesInput: {
+    minHeight: 64,
+    borderWidth: 1,
+    borderColor: "#ccc",
+    borderRadius: 6,
+    padding: 8,
+    fontSize: 16,
+    backgroundColor: "#fff",
+    textAlignVertical: "top",
+  },
   container: {
     flex: 1,
     backgroundColor: "#fff",

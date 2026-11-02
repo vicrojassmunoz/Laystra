@@ -132,6 +132,9 @@ export default function HistorialScreen() {
   const [editingWorkoutId, setEditingWorkoutId] = useState<number | null>(null);
   const [editRows, setEditRows] = useState<EditExerciseGroup[]>([]);
   const [editError, setEditError] = useState<string | null>(null);
+  // Sensaciones del entreno en edición (ROADMAP #6). Un PUT sin `notes` las borra,
+  // así que se reenvían siempre, también cuando no se tocan.
+  const [editNotes, setEditNotes] = useState("");
   const [editSaving, setEditSaving] = useState(false);
   // Error de borrado, separado de editError porque no está atado al formulario
   // de edición (puede pasar sobre cualquier tarjeta, esté o no en modo edición).
@@ -183,6 +186,7 @@ export default function HistorialScreen() {
         : new Map<number, Exercise>();
     setEditingWorkoutId(workout.id);
     setEditRows(buildEditGroups(workout.sets, nextEditId, exerciseById));
+    setEditNotes(workout.notes ?? "");
     setEditError(null);
     setAddExercisePickerVisible(false);
   }
@@ -190,6 +194,7 @@ export default function HistorialScreen() {
   function cancelEdit() {
     setEditingWorkoutId(null);
     setEditRows([]);
+    setEditNotes("");
     setEditError(null);
     setAddExercisePickerVisible(false);
   }
@@ -467,7 +472,13 @@ export default function HistorialScreen() {
     }
 
     setEditSaving(true);
-    updateWorkout(workout.id, { date: workout.date, routine_id: workout.routine_id, sets })
+    const trimmedNotes = editNotes.trim();
+    updateWorkout(workout.id, {
+      date: workout.date,
+      routine_id: workout.routine_id,
+      notes: trimmedNotes === "" ? null : trimmedNotes,
+      sets,
+    })
       .then(() => {
         setEditingWorkoutId(null);
         setEditRows([]);
@@ -647,6 +658,19 @@ export default function HistorialScreen() {
                       );
                     })}
 
+                    <View style={styles.notesBox}>
+                      <Text style={styles.notesLabel}>Sensaciones</Text>
+                      <TextInput
+                        style={styles.notesInput}
+                        multiline
+                        placeholder="¿Cómo te sentiste? (opcional)"
+                        value={editNotes}
+                        editable={!editSaving}
+                        maxLength={2000}
+                        onChangeText={setEditNotes}
+                      />
+                    </View>
+
                     {editError && <Text style={styles.errorDetail}>{editError}</Text>}
 
                     <View style={styles.addExerciseButton}>
@@ -676,6 +700,10 @@ export default function HistorialScreen() {
                         {group.name}: {group.entries.join(", ")}
                       </Text>
                     ))}
+
+                    {workout.notes ? (
+                      <Text style={styles.notesText}>📝 {workout.notes}</Text>
+                    ) : null}
 
                     <View style={styles.cardActions}>
                       <Button
@@ -743,6 +771,30 @@ export default function HistorialScreen() {
 }
 
 const styles = StyleSheet.create({
+  notesBox: {
+    marginTop: 8,
+  },
+  notesLabel: {
+    fontSize: 15,
+    fontWeight: "600",
+    marginBottom: 4,
+  },
+  notesInput: {
+    minHeight: 64,
+    borderWidth: 1,
+    borderColor: "#ccc",
+    borderRadius: 6,
+    padding: 8,
+    fontSize: 16,
+    backgroundColor: "#fff",
+    textAlignVertical: "top",
+  },
+  notesText: {
+    fontSize: 14,
+    color: "#555",
+    fontStyle: "italic",
+    marginTop: 6,
+  },
   container: {
     flex: 1,
     backgroundColor: "#fff",

@@ -95,6 +95,9 @@ class Workout(Base):
     routine_id: Mapped[int | None] = mapped_column(
         ForeignKey("routines.id", ondelete="SET NULL"), nullable=True
     )
+    # Sensaciones del entreno (texto libre). Nulo = sin nota. ADD COLUMN
+    # idempotente en app/db.py para la DB de producción.
+    notes: Mapped[str | None] = mapped_column(nullable=True, default=None)
 
     sets: Mapped[list["WorkoutSet"]] = relationship(
         back_populates="workout",
@@ -143,3 +146,34 @@ class Goal(Base):
     target_value: Mapped[float | None] = mapped_column(nullable=True, default=None)
     target_date: Mapped[date_ | None] = mapped_column(nullable=True, default=None)
     done: Mapped[bool] = mapped_column(default=False)
+
+
+class WaterContainer(Base):
+    """Recipiente con capacidad por defecto (vaso, botella...). Editable: cambiar
+    `ml` solo afecta a entradas futuras, WaterEntry guarda su propio ml."""
+
+    __tablename__ = "water_containers"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str]
+    ml: Mapped[int]
+
+
+class WaterEntry(Base):
+    __tablename__ = "water_entries"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    date: Mapped[date_]
+    ml: Mapped[int]
+    # Instantánea del nombre del recipiente usado (nulo = cantidad directa en ml).
+    # Texto y no FK: borrar o renombrar un recipiente no reescribe el histórico.
+    container_name: Mapped[str | None] = mapped_column(nullable=True, default=None)
+
+
+class WaterSettings(Base):
+    """Fila única (id=1) con el objetivo diario de agua, creada al primer uso."""
+
+    __tablename__ = "water_settings"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    goal_ml: Mapped[int] = mapped_column(default=2500)

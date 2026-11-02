@@ -3,7 +3,16 @@ import io
 
 from fastapi.testclient import TestClient
 
-_EXPORT_HEADER = ["date", "exercise", "weight", "reps", "set_order", "unit", "superset_group"]
+_EXPORT_HEADER = [
+    "date",
+    "exercise",
+    "weight",
+    "reps",
+    "set_order",
+    "unit",
+    "superset_group",
+    "notes",
+]
 
 
 def _parse_export_csv(content: bytes) -> list[list[str]]:
@@ -323,6 +332,7 @@ def test_export_one_workout_two_sets_distinct_exercises(client: TestClient) -> N
         "0",
         exercises[0]["unit"],
         "",
+        "",
     ]
     assert rows[2] == [
         "2026-08-09",
@@ -331,6 +341,7 @@ def test_export_one_workout_two_sets_distinct_exercises(client: TestClient) -> N
         "5",
         "1",
         exercises[1]["unit"],
+        "",
         "",
     ]
 
@@ -387,3 +398,53 @@ def test_export_orders_newest_workout_first(client: TestClient) -> None:
     rows = _parse_export_csv(client.get("/workouts/export").content)
     assert [row[0] for row in rows[1:]] == ["2026-08-15", "2026-08-09"]
     assert [row[2] for row in rows[1:]] == ["70.0", "60.0"]
+
+
+def test_workout_notes_roundtrip_and_blank_becomes_null(client: TestClient) -> None:
+    exercise_id = client.get("/exercises").json()[0]["id"]
+    sets = [{"exercise_id": exercise_id, "weight": 60, "reps": 8, "order": 0}]
+
+    created = client.post(
+        "/workouts", json={"date": "2026-10-01", "sets": sets, "notes": "  Me sentí fuerte  "}
+    )
+    assert created.status_code == 201
+    assert created.json()["notes"] == "Me sentí fuerte"
+
+    blank = client.post("/workouts", json={"date": "2026-10-02", "sets": sets, "notes": "   "})
+    assert blank.json()["notes"] is None
+
+    omitted = client.post("/workouts", json={"date": "2026-10-03", "sets": sets})
+    assert omitted.json()["notes"] is None
+
+
+def test_workout_notes_update_and_export(client: TestClient) -> None:
+    exercise_id = client.get("/exercises").json()[0]["id"]
+    sets = [{"exercise_id": exercise_id, "weight": 60, "reps": 8, "order": 0}]
+    workout = client.post("/workouts", json={"date": "2026-10-01", "sets": sets}).json()
+
+    updated = client.put(
+        f"/workouts/{workout['id']}",
+        json={"date": "2026-10-01", "sets": sets, "notes": "Hombro tocado"},
+    )
+    assert updated.status_code == 200
+    assert updated.json()["notes"] == "Hombro tocado"
+    assert client.get(f"/workouts/{workout['id']}").json()["notes"] == "Hombro tocado"
+
+    rows = _parse_export_csv(client.get("/workouts/export").content)
+    assert rows[1][7] == "Hombro tocado"
+
+    cleared = client.put(f"/workouts/{workout['id']}", json={"date": "2026-10-01", "sets": sets})
+    assert cleared.json()["notes"] is None
+
+
+def test_workout_notes_too_long_is_422(client: TestClient) -> None:
+    exercise_id = client.get("/exercises").json()[0]["id"]
+    response = client.post(
+        "/workouts",
+        json={
+            "date": "2026-10-01",
+            "notes": "x" * 2001,
+            "sets": [{"exercise_id": exercise_id, "weight": 60, "reps": 8, "order": 0}],
+        },
+    )
+    assert response.status_code == 422

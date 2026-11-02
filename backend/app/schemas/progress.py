@@ -9,6 +9,9 @@ class ProgressPoint(BaseModel):
     best_weight: float
     total_reps: int
     unit: str
+    # Mejor serie del día por volumen (peso×reps), normalizado a kg para poder
+    # comparar entre sesiones aunque la unidad cambie. "bw" cuenta como kg.
+    best_set_volume_kg: float = 0.0
 
 
 class ProgressResponse(BaseModel):
