@@ -1,22 +1,19 @@
 import { useFocusEffect } from "@react-navigation/native";
 import { useCallback, useRef, useState } from "react";
-import {
-  ActivityIndicator,
-  Alert,
-  Button,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { Pressable, View } from "react-native";
 
 import { createGoal, deleteGoal, fetchGoals, updateGoal } from "../api/goals";
+import { todayIsoDate } from "../api/today";
+import Button from "../components/ui/Button";
+import { Card, SectionHeader } from "../components/ui/Card";
+import Icon from "../components/ui/Icon";
+import Screen, { ScreenError, ScreenLoading } from "../components/ui/Screen";
+import TextField from "../components/ui/TextField";
+import Txt from "../components/ui/Txt";
+import { haptic } from "../motion/motion";
+import { makeStyles, space, useTheme } from "../theme/theme";
 import { Goal } from "../types/goal";
+import { showAlert } from "../utils/alert";
 import { parseDecimalInput } from "../utils/number";
 
 type State =
@@ -29,6 +26,8 @@ type State =
 // PUT de reemplazo total, así que el toggle de "hecho" reutiliza el mismo
 // updateGoal que editar texto/objetivo -- ver toggleDone.
 export default function ObjetivosScreen() {
+  const styles = useStyles();
+  const { colors } = useTheme();
   const [state, setState] = useState<State>({ status: "loading" });
   const hasDataRef = useRef(false);
 
@@ -42,6 +41,9 @@ export default function ObjetivosScreen() {
   // null = formulario en modo "Nuevo objetivo"; si tiene un id, está editando
   // ese objetivo (PUT en vez de POST al guardar), igual que en RoutinesScreen.
   const [editingId, setEditingId] = useState<number | null>(null);
+  // El formulario solo se muestra al crear (botón "Nuevo objetivo") o al editar.
+  const [creating, setCreating] = useState(false);
+  const formOpen = creating || editingId !== null;
 
   const load = useCallback(() => {
     if (!hasDataRef.current) {
@@ -68,6 +70,7 @@ export default function ObjetivosScreen() {
 
   function resetForm() {
     setEditingId(null);
+    setCreating(false);
     setText("");
     setTargetValue("");
     setTargetDate("");
@@ -83,7 +86,7 @@ export default function ObjetivosScreen() {
   }
 
   function confirmDelete(goal: Goal) {
-    Alert.alert("¿Borrar objetivo?", `Se borrará "${goal.text}" permanentemente.`, [
+    showAlert("¿Borrar objetivo?", `Se borrará "${goal.text}" permanentemente.`, [
       { text: "Cancelar", style: "cancel" },
       {
         text: "Borrar",
@@ -115,7 +118,12 @@ export default function ObjetivosScreen() {
       target_date: goal.target_date,
       done: !goal.done,
     })
-      .then(() => load())
+      .then(() => {
+        if (!goal.done) {
+          haptic.success();
+        }
+        load();
+      })
       .catch((error: Error) => setActionError(error.message));
   }
 
@@ -170,221 +178,184 @@ export default function ObjetivosScreen() {
   }
 
   if (state.status === "loading") {
-    return (
-      <SafeAreaView style={styles.container} edges={["bottom"]}>
-        <ActivityIndicator size="large" />
-      </SafeAreaView>
-    );
+    return <ScreenLoading />;
   }
-
   if (state.status === "error") {
-    return (
-      <SafeAreaView style={styles.container} edges={["bottom"]}>
-        <Text style={styles.title}>No se pudo conectar con el backend</Text>
-        <Text style={styles.errorDetail}>{state.message}</Text>
-      </SafeAreaView>
-    );
+    return <ScreenError message={state.message} />;
   }
 
   const { goals } = state;
+  const pending = goals.filter((g) => !g.done);
+  const done = goals.filter((g) => g.done);
+  const today = todayIsoDate();
+
+  // "en 12 días" / "hoy" / "hace 3 días": solo informativo, junto a la fecha.
+  function dueLabel(iso: string): { text: string; overdue: boolean } {
+    const [y, m, d] = iso.split("-").map(Number);
+    const [ty, tm, td] = today.split("-").map(Number);
+    const days = Math.round(
+      (new Date(y, m - 1, d).getTime() - new Date(ty, tm - 1, td).getTime()) / 86400000
+    );
+    if (days === 0) return { text: "vence hoy", overdue: false };
+    if (days > 0) return { text: `en ${days} día${days === 1 ? "" : "s"}`, overdue: false };
+    return { text: `venció hace ${-days} día${days === -1 ? "" : "s"}`, overdue: true };
+  }
+
+  function renderGoal(goal: Goal) {
+    const due = goal.target_date ? dueLabel(goal.target_date) : null;
+    return (
+      <Card key={goal.id}>
+        <View style={styles.goalRow}>
+          <Pressable
+            onPress={() => toggleDone(goal)}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: goal.done }}
+            accessibilityLabel={goal.done ? "Marcar como pendiente" : "Marcar como cumplido"}
+            style={styles.toggle}
+          >
+            <Icon
+              name={goal.done ? "check" : "circle"}
+              size={26}
+              color={goal.done ? colors.success : colors.labelTertiary}
+            />
+          </Pressable>
+          <View style={{ flex: 1, gap: 2 }}>
+            <Txt
+              variant="headline"
+              tone={goal.done ? "secondary" : "label"}
+              style={goal.done ? { textDecorationLine: "line-through" } : undefined}
+            >
+              {goal.text}
+            </Txt>
+            {goal.target_value !== null ? (
+              <Txt variant="subhead" tone="secondary" numeric>
+                Objetivo: {goal.target_value}
+              </Txt>
+            ) : null}
+            {goal.target_date !== null && due ? (
+              <Txt
+                variant="subhead"
+                tone={due.overdue && !goal.done ? "danger" : "secondary"}
+                numeric
+              >
+                {goal.target_date} · {goal.done ? "cumplido" : due.text}
+              </Txt>
+            ) : null}
+          </View>
+          <Button title="Editar" variant="plain" size="compact" onPress={() => startEdit(goal)} />
+        </View>
+      </Card>
+    );
+  }
 
   return (
-    <SafeAreaView style={styles.container} edges={["bottom"]}>
-      {/* Igual que UserScreen/AnalisisScreen: esta pantalla vive en el Stack
-          raíz (pusheada desde Home), no dentro del Tab.Navigator, así que no
-          hay tab bar debajo que compensar -- offset 0, sin
-          useBottomTabBarHeight(). */}
-      <KeyboardAvoidingView
-        style={styles.container}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        keyboardVerticalOffset={0}
-      >
-        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-          {/* Sin título propio: pantalla pusheada desde Home, header nativo ya
-              muestra "Objetivos" (ver App.tsx). Igual que UserScreen. */}
-          {goals.length === 0 && (
-            <Text style={styles.emptyText}>Todavía no hay objetivos.</Text>
-          )}
+    <Screen>
+      {!formOpen ? (
+        <Button
+          title="Nuevo objetivo"
+          icon="plus"
+          variant="filled"
+          size="large"
+          fullWidth
+          onPress={() => setCreating(true)}
+        />
+      ) : null}
 
-          {actionError && <Text style={styles.errorDetail}>{actionError}</Text>}
+      {formOpen ? (
+        <Card>
+          <Txt variant="title3">{editingId !== null ? "Editar objetivo" : "Nuevo objetivo"}</Txt>
+          <TextField
+            placeholder="Texto del objetivo"
+            value={text}
+            onChangeText={setText}
+            accessibilityLabel="Texto del objetivo"
+          />
+          <TextField
+            placeholder="Valor objetivo (opcional)"
+            keyboardType="decimal-pad"
+            value={targetValue}
+            onChangeText={setTargetValue}
+            accessibilityLabel="Valor objetivo"
+          />
+          <TextField
+            placeholder="Fecha AAAA-MM-DD (opcional)"
+            value={targetDate}
+            onChangeText={setTargetDate}
+            autoCapitalize="none"
+            autoCorrect={false}
+            accessibilityLabel="Fecha objetivo"
+          />
 
-          {goals.map((goal) => (
-            <View key={goal.id} style={styles.card}>
-              <TouchableOpacity style={styles.checkboxRow} onPress={() => toggleDone(goal)}>
-                <View style={[styles.checkbox, goal.done && styles.checkboxChecked]}>
-                  {goal.done && <Text style={styles.checkboxMark}>✓</Text>}
-                </View>
-                <View style={styles.checkboxTextWrap}>
-                  <Text style={[styles.goalText, goal.done && styles.goalTextDone]}>
-                    {goal.text}
-                  </Text>
-                  {(goal.target_value !== null || goal.target_date !== null) && (
-                    <Text style={styles.goalMeta}>
-                      {goal.target_value !== null ? `Objetivo: ${goal.target_value}` : ""}
-                      {goal.target_value !== null && goal.target_date !== null ? " · " : ""}
-                      {goal.target_date !== null ? `Fecha: ${goal.target_date}` : ""}
-                    </Text>
-                  )}
-                </View>
-              </TouchableOpacity>
-              <View style={styles.cardActions}>
-                <Button title="Editar" onPress={() => startEdit(goal)} />
-                <Button title="Borrar" color="#b00020" onPress={() => confirmDelete(goal)} />
-              </View>
-            </View>
-          ))}
+          {formError ? (
+            <Txt variant="subhead" tone="danger">
+              {formError}
+            </Txt>
+          ) : null}
 
-          <View style={styles.formCard}>
-            <Text style={styles.formTitle}>
-              {editingId !== null ? "Editar objetivo" : "Nuevo objetivo"}
-            </Text>
-
-            <TextInput
-              style={styles.input}
-              placeholder="Texto del objetivo"
-              value={text}
-              onChangeText={setText}
+          <Button
+            title={saving ? "Guardando..." : editingId !== null ? "Guardar cambios" : "Guardar objetivo"}
+            variant="filled"
+            size="large"
+            fullWidth
+            onPress={handleSave}
+            disabled={saving}
+          />
+          <Button
+            title={editingId !== null ? "Cancelar edición" : "Cancelar"}
+            variant="plain"
+            fullWidth
+            onPress={resetForm}
+            disabled={saving}
+          />
+          {editingId !== null ? (
+            <Button
+              title="Borrar objetivo"
+              variant="destructive"
+              fullWidth
+              disabled={saving}
+              onPress={() => {
+                const goal = goals.find((g) => g.id === editingId);
+                if (goal) confirmDelete(goal);
+              }}
             />
+          ) : null}
+        </Card>
+      ) : null}
 
-            <TextInput
-              style={styles.input}
-              placeholder="Valor objetivo (opcional)"
-              keyboardType="decimal-pad"
-              value={targetValue}
-              onChangeText={setTargetValue}
-            />
+      {actionError ? (
+        <Txt variant="subhead" tone="danger">
+          {actionError}
+        </Txt>
+      ) : null}
 
-            <TextInput
-              style={styles.input}
-              placeholder="Fecha objetivo AAAA-MM-DD (opcional)"
-              value={targetDate}
-              onChangeText={setTargetDate}
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
+      {goals.length === 0 && !formOpen ? (
+        <Card>
+          <Txt variant="headline">Todavía no hay objetivos</Txt>
+          <Txt variant="subhead" tone="secondary">
+            Apunta lo que quieres conseguir (un peso, una marca, una fecha) y márcalo cuando lo
+            cumplas.
+          </Txt>
+        </Card>
+      ) : null}
 
-            {formError && <Text style={styles.errorDetail}>{formError}</Text>}
+      {pending.length > 0 ? (
+        <View style={{ gap: space.md }}>
+          <SectionHeader>{`Pendientes (${pending.length})`}</SectionHeader>
+          {pending.map(renderGoal)}
+        </View>
+      ) : null}
 
-            <View style={styles.saveButton}>
-              <Button
-                title={
-                  saving ? "Guardando..." : editingId !== null ? "Guardar cambios" : "Guardar objetivo"
-                }
-                onPress={handleSave}
-                disabled={saving}
-              />
-            </View>
-
-            {editingId !== null && (
-              <View style={styles.cancelEditButton}>
-                <Button title="Cancelar edición" color="#666" onPress={resetForm} disabled={saving} />
-              </View>
-            )}
-          </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+      {done.length > 0 ? (
+        <View style={{ gap: space.md }}>
+          <SectionHeader>{`Cumplidos (${done.length})`}</SectionHeader>
+          {done.map(renderGoal)}
+        </View>
+      ) : null}
+    </Screen>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#fff",
-  },
-  content: {
-    padding: 16,
-    paddingBottom: 48,
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: "600",
-    marginBottom: 16,
-  },
-  emptyText: {
-    fontSize: 16,
-    color: "#555",
-    marginBottom: 16,
-  },
-  card: {
-    backgroundColor: "#f4f4f4",
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 12,
-  },
-  checkboxRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 10,
-  },
-  checkbox: {
-    width: 22,
-    height: 22,
-    borderRadius: 4,
-    borderWidth: 2,
-    borderColor: "#3b5bdb",
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: 2,
-  },
-  checkboxChecked: {
-    backgroundColor: "#3b5bdb",
-  },
-  checkboxMark: {
-    color: "#fff",
-    fontSize: 14,
-    fontWeight: "700",
-  },
-  checkboxTextWrap: {
-    flex: 1,
-  },
-  goalText: {
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  goalTextDone: {
-    textDecorationLine: "line-through",
-    color: "#888",
-  },
-  goalMeta: {
-    fontSize: 13,
-    color: "#777",
-    marginTop: 2,
-  },
-  cardActions: {
-    flexDirection: "row",
-    justifyContent: "flex-end",
-    gap: 12,
-    marginTop: 8,
-  },
-  formCard: {
-    marginTop: 16,
-    paddingTop: 16,
-    borderTopWidth: 1,
-    borderTopColor: "#ddd",
-  },
-  formTitle: {
-    fontSize: 20,
-    fontWeight: "600",
-    marginBottom: 12,
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 6,
-    padding: 10,
-    fontSize: 16,
-    marginBottom: 12,
-  },
-  saveButton: {
-    marginTop: 4,
-  },
-  cancelEditButton: {
-    marginTop: 8,
-  },
-  errorDetail: {
-    fontSize: 14,
-    color: "#b00020",
-    marginTop: 8,
-  },
-});
+const useStyles = makeStyles(() => ({
+  goalRow: { flexDirection: "row", alignItems: "center", gap: space.md },
+  toggle: { width: 44, height: 44, alignItems: "center", justifyContent: "center", marginLeft: -space.sm },
+}));

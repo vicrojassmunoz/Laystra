@@ -1,391 +1,330 @@
 import { useFocusEffect } from "@react-navigation/native";
 import { useCallback, useRef, useState } from "react";
-import {
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { View } from "react-native";
 
 import { fetchExercises } from "../api/exercises";
 import { fetchProgress } from "../api/progress";
-import ExercisePickerList from "../components/ExercisePickerList";
+import { fetchWorkouts } from "../api/workouts";
+import BarChart from "../components/BarChart";
+import Button from "../components/ui/Button";
+import { Card, Section, SectionHeader } from "../components/ui/Card";
+import Icon from "../components/ui/Icon";
+import Row from "../components/ui/Row";
+import Screen, { ScreenError, ScreenLoading } from "../components/ui/Screen";
+import Txt from "../components/ui/Txt";
+import { makeStyles, space, useTheme } from "../theme/theme";
 import { Exercise } from "../types/exercise";
 import { ProgressResponse } from "../types/progress";
-import { secondaryHint } from "../utils/exercisePicker";
+import { Workout } from "../types/workout";
+import { toKg } from "../utils/weightUnit";
+import { dayLabel } from "../utils/workoutSummary";
 import { formatWeightUnit } from "../utils/weightUnit";
 
-type ExercisesState =
+type State =
   | { status: "loading" }
   | { status: "error"; message: string }
-  | { status: "ready"; exercises: Exercise[] };
+  | { status: "ready"; exercises: Exercise[]; workouts: Workout[] };
 
-type ProgressState =
-  | { status: "idle" }
+type DetailState =
   | { status: "loading" }
   | { status: "error"; message: string }
   | { status: "ready"; data: ProgressResponse };
 
+// Resumen por ejercicio calculado en el cliente a partir del historial ya
+// cargado (una sola petición, sin pedir /progress de cada ejercicio).
+type Overview = {
+  exercise: Exercise;
+  sessions: number;
+  lastDate: string;
+  bestWeight: number;
+  bestUnit: string;
+};
+
+function weightText(weight: number, unit: string): string {
+  return unit === "bw" ? (weight > 0 ? `PC ${weight} kg` : "PC") : `${weight} ${formatWeightUnit(unit)}`;
+}
+
+function buildOverviews(exercises: Exercise[], workouts: Workout[]): Overview[] {
+  const exerciseById = new Map(exercises.map((e) => [e.id, e]));
+  const acc = new Map<
+    number,
+    { sessions: Set<number>; lastDate: string; bestKg: number; bestWeight: number; bestUnit: string }
+  >();
+
+  for (const workout of workouts) {
+    for (const set of workout.sets) {
+      const exercise = exerciseById.get(set.exercise_id);
+      if (!exercise) continue;
+      const unit = set.unit ?? exercise.unit;
+      const kg = toKg(set.weight, unit);
+      const entry = acc.get(set.exercise_id);
+      if (!entry) {
+        acc.set(set.exercise_id, {
+          sessions: new Set([workout.id]),
+          lastDate: workout.date,
+          bestKg: kg,
+          bestWeight: set.weight,
+          bestUnit: unit,
+        });
+      } else {
+        entry.sessions.add(workout.id);
+        if (workout.date > entry.lastDate) entry.lastDate = workout.date;
+        if (kg > entry.bestKg) {
+          entry.bestKg = kg;
+          entry.bestWeight = set.weight;
+          entry.bestUnit = unit;
+        }
+      }
+    }
+  }
+
+  return Array.from(acc.entries())
+    .map(([id, v]) => ({
+      exercise: exerciseById.get(id)!,
+      sessions: v.sessions.size,
+      lastDate: v.lastDate,
+      bestWeight: v.bestWeight,
+      bestUnit: v.bestUnit,
+    }))
+    .sort((a, b) => (a.lastDate < b.lastDate ? 1 : a.lastDate > b.lastDate ? -1 : 0));
+}
+
+const useStyles = makeStyles(() => ({
+  statsRow: { flexDirection: "row", justifyContent: "space-between", gap: space.lg },
+  stat: { flex: 1, gap: 2 },
+  trophyValue: { flexDirection: "row", alignItems: "center", gap: space.xs },
+}));
+
+// Progreso: primero tus ejercicios con datos (los más recientes arriba); al
+// tocar uno, su evolución en gráfico y sesión a sesión.
 export default function ProgressScreen() {
-  const [exercisesState, setExercisesState] = useState<ExercisesState>({ status: "loading" });
-  const hasExercisesRef = useRef(false);
+  const styles = useStyles();
+  const { colors } = useTheme();
+  const [state, setState] = useState<State>({ status: "loading" });
+  const hasDataRef = useRef(false);
 
-  const [selectedExercise, setSelectedExercise] = useState<Exercise | null>(null);
-  const selectedExerciseRef = useRef<Exercise | null>(null);
-  const [progressState, setProgressState] = useState<ProgressState>({ status: "idle" });
-  const [pickerVisible, setPickerVisible] = useState(false);
-  const [pickerQuery, setPickerQuery] = useState("");
-  const progressRequestRef = useRef(0);
+  const [selected, setSelected] = useState<Exercise | null>(null);
+  const selectedRef = useRef<Exercise | null>(null);
+  const [detail, setDetail] = useState<DetailState>({ status: "loading" });
+  const requestRef = useRef(0);
 
-  const loadExercises = useCallback(() => {
-    if (!hasExercisesRef.current) {
-      setExercisesState({ status: "loading" });
+  const load = useCallback(() => {
+    if (!hasDataRef.current) {
+      setState({ status: "loading" });
     }
 
-    fetchExercises()
-      .then((exercises) => {
-        hasExercisesRef.current = true;
-        setExercisesState({ status: "ready", exercises });
+    Promise.all([fetchExercises(), fetchWorkouts()])
+      .then(([exercises, workouts]) => {
+        hasDataRef.current = true;
+        setState({ status: "ready", exercises, workouts });
       })
       .catch((error: Error) => {
-        if (!hasExercisesRef.current) {
-          setExercisesState({ status: "error", message: error.message });
+        if (!hasDataRef.current) {
+          setState({ status: "error", message: error.message });
         }
       });
   }, []);
 
-  const loadProgress = useCallback((exerciseId: number) => {
-    const requestId = ++progressRequestRef.current;
-    setProgressState({ status: "loading" });
+  const loadDetail = useCallback((exerciseId: number) => {
+    const requestId = ++requestRef.current;
+    setDetail({ status: "loading" });
     fetchProgress(exerciseId)
       .then((data) => {
-        // Descarta respuestas viejas: otro ejercicio, otro refetch de foco, o
-        // un PUT de unidad que disparó un loadProgress más nuevo.
-        if (requestId !== progressRequestRef.current) {
-          return;
-        }
-        if (selectedExerciseRef.current?.id === data.exercise_id) {
-          setProgressState({ status: "ready", data });
+        // Descarta respuestas viejas (otro ejercicio o un refetch más nuevo).
+        if (requestId === requestRef.current && selectedRef.current?.id === data.exercise_id) {
+          setDetail({ status: "ready", data });
         }
       })
       .catch((error: Error) => {
-        if (requestId !== progressRequestRef.current) {
-          return;
-        }
-        if (selectedExerciseRef.current?.id === exerciseId) {
-          setProgressState({ status: "error", message: error.message });
+        if (requestId === requestRef.current && selectedRef.current?.id === exerciseId) {
+          setDetail({ status: "error", message: error.message });
         }
       });
   }, []);
 
-  // Corre cada vez que la pestaña "Progreso" gana foco (no solo al montar), para
-  // reflejar entrenos logueados desde "Hoy" desde la última visita a esta pestaña.
-  // Lee selectedExerciseRef (no el state) para tener el valor vigente al momento
-  // del foco sin que este useCallback quede atado a selectedExercise como dep.
+  // Corre cada vez que la pantalla gana foco (no solo al montar), para reflejar
+  // entrenos guardados desde la última visita. Lee selectedRef (no el state)
+  // para no atar este callback a `selected`.
   useFocusEffect(
     useCallback(() => {
-      loadExercises();
-      if (selectedExerciseRef.current) {
-        loadProgress(selectedExerciseRef.current.id);
+      load();
+      if (selectedRef.current) {
+        loadDetail(selectedRef.current.id);
       }
-    }, [loadExercises, loadProgress])
+    }, [load, loadDetail])
   );
 
-  function selectExercise(exercise: Exercise) {
-    setSelectedExercise(exercise);
-    selectedExerciseRef.current = exercise;
-    setPickerVisible(false);
-    loadProgress(exercise.id);
-  }
-
-  function openPicker() {
-    setPickerQuery("");
-    setPickerVisible(true);
-  }
-
-  function replaceUpdatedExercise(exercise: Exercise) {
-    setExercisesState((prev) =>
-      prev.status === "ready"
-        ? {
-            ...prev,
-            exercises: prev.exercises.map((item) =>
-              item.id === exercise.id ? exercise : item
-            ),
-          }
-        : prev
-    );
-    if (selectedExerciseRef.current?.id === exercise.id) {
-      selectedExerciseRef.current = exercise;
-      setSelectedExercise(exercise);
-      // El PUT puede haber convertido WorkoutSet.weight; los puntos cacheados
-      // seguirían en la unidad vieja junto a la etiqueta nueva.
-      loadProgress(exercise.id);
+  function select(exercise: Exercise | null) {
+    setSelected(exercise);
+    selectedRef.current = exercise;
+    if (exercise) {
+      loadDetail(exercise.id);
     }
   }
 
-  return (
-    <SafeAreaView style={styles.container} edges={["bottom"]}>
-      <ScrollView contentContainerStyle={styles.content}>
-        <Text style={styles.title}>Progreso</Text>
+  if (state.status === "loading") {
+    return <ScreenLoading />;
+  }
+  if (state.status === "error") {
+    return <ScreenError message={state.message} />;
+  }
 
-        {exercisesState.status === "loading" && <ActivityIndicator size="large" />}
-
-        {exercisesState.status === "error" && (
-          <>
-            <Text style={styles.errorTitle}>No se pudo conectar con el backend</Text>
-            <Text style={styles.errorDetail}>{exercisesState.message}</Text>
-          </>
-        )}
-
-        {exercisesState.status === "ready" && (
-          <>
-            <TouchableOpacity
-              style={styles.pickerButton}
-              onPress={openPicker}
-            >
-              <Text
-                style={selectedExercise ? styles.pickerButtonText : styles.pickerPlaceholderText}
-              >
-                {selectedExercise ? selectedExercise.name : "Elige un ejercicio"}
-              </Text>
-              {selectedExercise && <Text style={styles.pickerChangeText}>Cambiar</Text>}
-            </TouchableOpacity>
-
-            {selectedExercise === null && (
-              <Text style={styles.emptyText}>
-                Elige un ejercicio para ver su evolución.
-              </Text>
-            )}
-
-            {selectedExercise !== null && progressState.status === "loading" && (
-              <ActivityIndicator size="large" style={styles.progressLoading} />
-            )}
-
-            {selectedExercise !== null && progressState.status === "error" && (
-              <>
-                <Text style={styles.errorTitle}>No se pudo cargar el progreso</Text>
-                <Text style={styles.errorDetail}>{progressState.message}</Text>
-              </>
-            )}
-
-            {selectedExercise !== null && progressState.status === "ready" && (
-              <Text style={styles.subtitle}>{progressState.data.exercise_name}</Text>
-            )}
-
-            {selectedExercise !== null &&
-              progressState.status === "ready" &&
-              progressState.data.points.length === 0 && (
-                <Text style={styles.emptyText}>Sin entrenos registrados todavía.</Text>
-              )}
-
-            {selectedExercise !== null &&
-              progressState.status === "ready" &&
-              progressState.data.points.length > 0 &&
-              progressState.data.points
-                .slice()
-                .reverse()
-                .map((point) => (
-                  <View key={point.workout_id} style={styles.card}>
-                    <Text style={styles.date}>{point.date}</Text>
-                    <Text style={styles.pointLine}>
-                      Mejor peso: {point.best_weight}
-                      {formatWeightUnit(point.unit ?? selectedExercise.unit)}
-                    </Text>
-                    <Text style={styles.pointLine}>Reps totales: {point.total_reps}</Text>
-                  </View>
-                ))}
-          </>
-        )}
-      </ScrollView>
-
-      <Modal visible={pickerVisible} transparent animationType="slide">
-        <View style={styles.modalBackdrop}>
-          {/* Igual que en RoutinesScreen: este Modal se renderiza fuera del
-              navigator de tabs, así que no necesita useBottomTabBarHeight()
-              como offset -- no hay tab bar por encima que compensar aquí. Sin
-              este KeyboardAvoidingView, el teclado tapaba la mitad inferior
-              de la tarjeta (anclada al fondo con justifyContent: "flex-end")
-              y dejaba casi sin sitio visible los resultados del buscador. */}
-          <KeyboardAvoidingView
-            style={styles.avoider}
-            behavior={Platform.OS === "ios" ? "padding" : undefined}
-            keyboardVerticalOffset={0}
-          >
-            <View style={styles.modalCard}>
-              <Text style={styles.modalTitle}>Elige un ejercicio</Text>
-
-              {exercisesState.status === "ready" && (
-                <ExercisePickerList
-                  exercises={exercisesState.exercises}
-                  query={pickerQuery}
-                  onQueryChange={setPickerQuery}
-                  onCreated={(exercise) => {
-                    setExercisesState((prev) => {
-                      if (prev.status !== "ready") {
-                        return prev;
-                      }
-                      if (prev.exercises.some((e) => e.id === exercise.id)) {
-                        return prev;
-                      }
-                      return { ...prev, exercises: [...prev.exercises, exercise] };
-                    });
-                  }}
-                  onUpdated={replaceUpdatedExercise}
-                  renderItem={(exercise) => {
-                    const hint = secondaryHint(exercise);
-                    return (
-                      <TouchableOpacity
-                        style={styles.option}
-                        onPress={() => selectExercise(exercise)}
-                      >
-                        <Text style={styles.optionText}>{exercise.name}</Text>
-                        {hint && <Text style={styles.optionHint}>{hint}</Text>}
-                      </TouchableOpacity>
-                    );
-                  }}
-                />
-              )}
-
-              <TouchableOpacity style={styles.cancelButton} onPress={() => setPickerVisible(false)}>
-                <Text style={styles.cancelText}>Cancelar</Text>
-              </TouchableOpacity>
-            </View>
-          </KeyboardAvoidingView>
+  // ---------- Detalle de un ejercicio ----------
+  if (selected) {
+    const unit = selected.unit;
+    return (
+      <Screen>
+        <View style={{ alignSelf: "flex-start", marginLeft: -space.sm }}>
+          <Button title="Todos los ejercicios" variant="plain" size="compact" onPress={() => select(null)} />
         </View>
-      </Modal>
-    </SafeAreaView>
+        <Txt variant="title2">{selected.name}</Txt>
+
+        {detail.status === "loading" ? <ScreenLoadingInline /> : null}
+        {detail.status === "error" ? (
+          <Txt variant="subhead" tone="danger">
+            {detail.message}
+          </Txt>
+        ) : null}
+
+        {detail.status === "ready" && detail.data.points.length === 0 ? (
+          <Card>
+            <Txt variant="subhead" tone="secondary">
+              Sin entrenos registrados todavía.
+            </Txt>
+          </Card>
+        ) : null}
+
+        {detail.status === "ready" && detail.data.points.length > 0
+          ? (() => {
+              const points = detail.data.points; // de más antiguo a más reciente
+              const kgOf = (p: (typeof points)[number]) => toKg(p.best_weight, p.unit ?? unit);
+              const best = points.reduce((w, p) => (kgOf(p) > kgOf(w) ? p : w));
+              const last = points[points.length - 1];
+              const recent = points.slice(-16);
+              const bestUnit = best.unit ?? unit;
+              return (
+                <>
+                  <Card>
+                    <View style={styles.statsRow}>
+                      <View style={styles.stat}>
+                        <Txt variant="footnote" tone="secondary">
+                          Mejor peso
+                        </Txt>
+                        <View style={styles.trophyValue}>
+                          <Icon name="trophy" size={16} color={colors.gold} />
+                          <Txt variant="headline" numeric>
+                            {weightText(best.best_weight, bestUnit)}
+                          </Txt>
+                        </View>
+                      </View>
+                      <View style={styles.stat}>
+                        <Txt variant="footnote" tone="secondary">
+                          Último
+                        </Txt>
+                        <Txt variant="headline" numeric>
+                          {weightText(last.best_weight, last.unit ?? unit)}
+                        </Txt>
+                      </View>
+                      <View style={styles.stat}>
+                        <Txt variant="footnote" tone="secondary">
+                          Sesiones
+                        </Txt>
+                        <Txt variant="headline" numeric>
+                          {points.length}
+                        </Txt>
+                      </View>
+                    </View>
+                  </Card>
+
+                  <View>
+                    <SectionHeader>Mejor peso por sesión</SectionHeader>
+                    <Card>
+                      {points.length >= 3 ? (
+                        <BarChart
+                          bars={recent.map((p) => ({ value: kgOf(p), highlight: p === best }))}
+                          maxLabel={weightText(best.best_weight, bestUnit)}
+                          startLabel={dayLabel(recent[0].date)}
+                          endLabel={dayLabel(recent[recent.length - 1].date)}
+                          accessibilityLabel={`Gráfico de ${recent.length} sesiones. Mejor peso ${weightText(best.best_weight, bestUnit)}`}
+                        />
+                      ) : (
+                        <Txt variant="subhead" tone="secondary">
+                          Con 3 sesiones o más verás aquí la gráfica de tu evolución.
+                        </Txt>
+                      )}
+                    </Card>
+                  </View>
+
+                  <Section title="Sesiones">
+                    {points
+                      .slice()
+                      .reverse()
+                      .map((point) => (
+                        <Row
+                          key={point.workout_id}
+                          title={dayLabel(point.date)}
+                          subtitle={`${point.total_reps} reps en total`}
+                          value={
+                            <View style={styles.trophyValue}>
+                              {point === best ? (
+                                <Icon name="trophy" size={15} color={colors.gold} />
+                              ) : null}
+                              <Txt variant="body" tone="secondary" numeric>
+                                {weightText(point.best_weight, point.unit ?? unit)}
+                              </Txt>
+                            </View>
+                          }
+                        />
+                      ))}
+                  </Section>
+                </>
+              );
+            })()
+          : null}
+      </Screen>
+    );
+  }
+
+  // ---------- Lista de ejercicios con datos ----------
+  const overviews = buildOverviews(state.exercises, state.workouts);
+
+  return (
+    <Screen>
+      {overviews.length === 0 ? (
+        <Card>
+          <Txt variant="headline">Aún no hay datos</Txt>
+          <Txt variant="subhead" tone="secondary">
+            Cuando guardes entrenos verás aquí cada ejercicio con su mejor peso y su evolución.
+          </Txt>
+        </Card>
+      ) : (
+        <>
+          <Txt variant="subhead" tone="secondary">
+            Toca un ejercicio para ver su evolución.
+          </Txt>
+          <Section title={`Tus ejercicios (${overviews.length})`}>
+            {overviews.map((o) => (
+              <Row
+                key={o.exercise.id}
+                title={o.exercise.name}
+                subtitle={`${o.sessions} ${o.sessions === 1 ? "sesión" : "sesiones"} · último ${dayLabel(o.lastDate)}`}
+                value={weightText(o.bestWeight, o.bestUnit)}
+                onPress={() => select(o.exercise)}
+              />
+            ))}
+          </Section>
+        </>
+      )}
+    </Screen>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#fff",
-  },
-  content: {
-    padding: 16,
-    paddingBottom: 48,
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: "600",
-    marginBottom: 16,
-  },
-  emptyText: {
-    fontSize: 16,
-    color: "#555",
-    marginTop: 8,
-  },
-  subtitle: {
-    fontSize: 14,
-    color: "#777",
-    marginBottom: 8,
-  },
-  errorTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-  },
-  errorDetail: {
-    fontSize: 14,
-    color: "#b00020",
-    marginTop: 8,
-  },
-  pickerButton: {
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 6,
-    padding: 12,
-    marginBottom: 8,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  pickerButtonText: {
-    fontSize: 16,
-    color: "#000",
-    fontWeight: "600",
-  },
-  pickerPlaceholderText: {
-    fontSize: 16,
-    color: "#999",
-  },
-  pickerChangeText: {
-    fontSize: 14,
-    color: "#0066cc",
-  },
-  progressLoading: {
-    marginTop: 24,
-  },
-  card: {
-    backgroundColor: "#f4f4f4",
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 12,
-  },
-  date: {
-    fontSize: 14,
-    color: "#555",
-    marginBottom: 4,
-  },
-  pointLine: {
-    fontSize: 15,
-    color: "#333",
-    marginVertical: 2,
-  },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.4)",
-    justifyContent: "flex-end",
-  },
-  // Ver comentario equivalente en RoutinesScreen.tsx: el tope de altura debe
-  // vivir en el padre con altura definida (KeyboardAvoidingView, hijo directo
-  // de modalBackdrop que sí tiene flex: 1), no en modalCard -- ahí el % nunca
-  // se resolvía y la tarjeta crecía sin límite real.
-  avoider: {
-    maxHeight: "70%",
-  },
-  modalCard: {
-    backgroundColor: "#fff",
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    padding: 20,
-    flexShrink: 1,
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: "600",
-    marginBottom: 16,
-    textAlign: "center",
-  },
-  option: {
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: "#eee",
-  },
-  optionText: {
-    fontSize: 16,
-    textAlign: "center",
-  },
-  optionHint: {
-    fontSize: 12,
-    color: "#999",
-    textAlign: "center",
-    marginTop: 2,
-  },
-  cancelButton: {
-    paddingVertical: 14,
-    marginTop: 8,
-  },
-  cancelText: {
-    fontSize: 16,
-    textAlign: "center",
-    color: "#b00020",
-    fontWeight: "600",
-  },
-});
+function ScreenLoadingInline() {
+  return (
+    <Card>
+      <Txt variant="subhead" tone="secondary">
+        Cargando…
+      </Txt>
+    </Card>
+  );
+}

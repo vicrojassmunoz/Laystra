@@ -3,6 +3,7 @@
 export type RootStackParamList = {
   Home: undefined;
   Hoy: undefined;
+  Sesion: undefined;
   Rutinas: undefined;
   Semana: undefined;
   Historial: undefined;
@@ -10,6 +11,7 @@ export type RootStackParamList = {
   Objetivos: undefined;
   User: undefined;
   Analisis: undefined;
+  Agua: undefined;
 };
 
 // Patrón oficial de React Navigation: augmenta el tipo global para que

@@ -86,6 +86,9 @@ def get_exercise_progress(exercise_id: int, db: Session = Depends(get_db)) -> Pr
                 best_weight=best.weight,
                 total_reps=sum(s.reps for s in matching_sets),
                 unit=best.unit or exercise.unit,
+                best_set_volume_kg=max(
+                    to_kg(s.weight, s.unit or exercise.unit) * s.reps for s in matching_sets
+                ),
             )
         )
 

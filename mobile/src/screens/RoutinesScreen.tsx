@@ -1,17 +1,13 @@
 import { useFocusEffect } from "@react-navigation/native";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  ActivityIndicator,
-  Alert,
-  Button,
   Keyboard,
   KeyboardAvoidingView,
   Modal,
   Platform,
+  Pressable,
   ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
+  ScrollViewInstance,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -20,10 +16,20 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { fetchExercises } from "../api/exercises";
 import { createRoutine, deleteRoutine, fetchRoutines, updateRoutine } from "../api/routines";
 import ExercisePickerList from "../components/ExercisePickerList";
+import Button from "../components/ui/Button";
+import FadeInView from "../components/ui/FadeInView";
+import { Card } from "../components/ui/Card";
+import Icon from "../components/ui/Icon";
+import { ScreenError, ScreenLoading } from "../components/ui/Screen";
+import TextField from "../components/ui/TextField";
+import Txt from "../components/ui/Txt";
 import { Exercise } from "../types/exercise";
 import { Routine, RoutineExercise, RoutineExerciseCreate } from "../types/routine";
 import { secondaryHint } from "../utils/exercisePicker";
 import { groupBySuperset } from "../utils/superset";
+import { showAlert } from "../utils/alert";
+import { Text } from "../components/ui/compat";
+import { makeStyles, radius, space, useTheme } from "../theme/theme";
 
 type State =
   | { status: "loading" }
@@ -45,6 +51,7 @@ function makeEmptyRow(id: number): DraftRow {
 }
 
 export default function RoutinesScreen() {
+  const styles = useStyles();
   const [state, setState] = useState<State>({ status: "loading" });
   const hasDataRef = useRef(false);
 
@@ -55,7 +62,7 @@ export default function RoutinesScreen() {
   const [formError, setFormError] = useState<string | null>(null);
   const [pickerRowId, setPickerRowId] = useState<number | null>(null);
   const [pickerQuery, setPickerQuery] = useState("");
-  const scrollRef = useRef<ScrollView>(null);
+  const scrollRef = useRef<ScrollViewInstance>(null);
 
   // Contador de ids de bloque de super-serie, local a este formulario (no es
   // un id del backend -- el backend solo exige que el mismo entero se repita
@@ -68,6 +75,24 @@ export default function RoutinesScreen() {
   // null = formulario en modo "Nueva rutina"; si tiene un id, el formulario
   // está editando esa rutina existente (PUT en vez de POST al guardar).
   const [editingId, setEditingId] = useState<number | null>(null);
+  // El formulario solo se muestra al crear (botón "Nueva rutina") o al editar.
+  const [creating, setCreating] = useState(false);
+  const formOpen = creating || editingId !== null;
+  // Rutinas desplegadas (ids). Vacío = todas recogidas.
+  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
+  const { colors } = useTheme();
+
+  function toggleExpanded(id: number) {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }
   // Error de acciones sobre la lista (borrar), separado de formError porque
   // no está atado al formulario de creación/edición.
   const [actionError, setActionError] = useState<string | null>(null);
@@ -105,6 +130,15 @@ export default function RoutinesScreen() {
       load();
     }, [load])
   );
+
+  useEffect(() => {
+    if (!formOpen) {
+      return;
+    }
+    // El formulario vive al final del scroll: esperar a que se pinte y bajar.
+    const id = setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 150);
+    return () => clearTimeout(id);
+  }, [formOpen, editingId]);
 
   function appendCreatedExercise(exercise: Exercise) {
     setState((prev) => {
@@ -214,6 +248,7 @@ export default function RoutinesScreen() {
 
   function resetForm() {
     setEditingId(null);
+    setCreating(false);
     setName("");
     nextRowIdRef.current = 1;
     nextGroupIdRef.current = 1;
@@ -252,7 +287,7 @@ export default function RoutinesScreen() {
   }
 
   function confirmDelete(routine: Routine) {
-    Alert.alert("¿Borrar rutina?", `Se borrará "${routine.name}" permanentemente.`, [
+    showAlert("¿Borrar rutina?", `Se borrará "${routine.name}" permanentemente.`, [
       { text: "Cancelar", style: "cancel" },
       {
         text: "Borrar",
@@ -336,20 +371,11 @@ export default function RoutinesScreen() {
   }
 
   if (state.status === "loading") {
-    return (
-      <SafeAreaView style={styles.container} edges={["bottom"]}>
-        <ActivityIndicator size="large" />
-      </SafeAreaView>
-    );
+    return <ScreenLoading />;
   }
 
   if (state.status === "error") {
-    return (
-      <SafeAreaView style={styles.container} edges={["bottom"]}>
-        <Text style={styles.title}>No se pudo conectar con el backend</Text>
-        <Text style={styles.errorDetail}>{state.message}</Text>
-      </SafeAreaView>
-    );
+    return <ScreenError message={state.message} />;
   }
 
   const { routines, exercises } = state;
@@ -361,24 +387,43 @@ export default function RoutinesScreen() {
   function renderDraftRow(row: DraftRow) {
     const selectedExercise = exercises.find((e) => e.id === row.exerciseId);
     return (
-      <View key={row.id} style={styles.row}>
-        <TouchableOpacity style={styles.pickerButton} onPress={() => openExercisePicker(row.id)}>
-          <Text style={selectedExercise ? styles.pickerButtonText : styles.pickerPlaceholderText}>
-            {selectedExercise?.name ?? "Selecciona un ejercicio"}
-          </Text>
-        </TouchableOpacity>
+      <View key={row.id} style={styles.draftRow}>
+        <Pressable
+          style={styles.pickerField}
+          onPress={() => openExercisePicker(row.id)}
+          accessibilityRole="button"
+          accessibilityLabel="Elegir ejercicio"
+        >
+          <Txt
+            variant="body"
+            tone={selectedExercise ? "label" : "tertiary"}
+            numberOfLines={1}
+            style={{ flex: 1 }}
+          >
+            {selectedExercise?.name ?? "Elige un ejercicio"}
+          </Txt>
+          <Icon name="expand" size={13} color={colors.labelTertiary} />
+        </Pressable>
 
-        <TextInput
-          style={styles.numberInput}
-          placeholder="Sets"
+        <TextField
+          style={styles.setsField}
+          placeholder="Series"
           keyboardType="number-pad"
           value={row.sets}
           onChangeText={(text) => updateRow(row.id, { sets: text })}
+          accessibilityLabel="Número de series"
         />
 
-        {rows.length > 1 && (
-          <Button title="Quitar" color="#b00020" onPress={() => removeRow(row.id)} />
-        )}
+        {rows.length > 1 ? (
+          <Pressable
+            onPress={() => removeRow(row.id)}
+            accessibilityRole="button"
+            accessibilityLabel="Quitar ejercicio"
+            style={styles.removeButton}
+          >
+            <Icon name="remove" size={22} color={colors.labelSecondary} />
+          </Pressable>
+        ) : null}
       </View>
     );
   }
@@ -395,107 +440,193 @@ export default function RoutinesScreen() {
           contentContainerStyle={styles.content}
           keyboardShouldPersistTaps="handled"
         >
-          <Text style={styles.title}>Rutinas</Text>
 
-          {routines.length === 0 && (
-            <Text style={styles.emptyText}>Todavía no hay rutinas.</Text>
-          )}
+          {!formOpen ? (
+            <Button
+              title="Nueva rutina"
+              icon="plus"
+              variant="filled"
+              size="large"
+              fullWidth
+              onPress={() => setCreating(true)}
+            />
+          ) : null}
 
-          {actionError && <Text style={styles.errorDetail}>{actionError}</Text>}
+          {routines.length === 0 && !formOpen ? (
+            <Card>
+              <Txt variant="headline">Todavía no hay rutinas</Txt>
+              <Txt variant="subhead" tone="secondary">
+                Crea una rutina con sus ejercicios y series, y luego asígnala a un día en Semana.
+              </Txt>
+            </Card>
+          ) : null}
 
-          {routines.map((routine) => (
-            <View key={routine.id} style={styles.card}>
-              <Text style={styles.routineName}>{routine.name}</Text>
-              {groupBySuperset(
-                routine.exercises.slice().sort((a, b) => a.order - b.order),
-                (re: RoutineExercise) => re.superset_group
-              ).map((entry) => {
+          {actionError ? (
+            <Txt variant="subhead" tone="danger">
+              {actionError}
+            </Txt>
+          ) : null}
+
+          {routines
+            .filter((routine) => routine.id !== editingId)
+            .map((routine) => {
+            const isOpen = expandedIds.has(routine.id);
+            const totalSets = routine.exercises.reduce((sum, re) => sum + re.target_sets, 0);
+            const exerciseLine = (re: RoutineExercise) => {
+              const exercise = exercises.find((e) => e.id === re.exercise_id);
+              return (
+                <View key={re.id} style={styles.exLine}>
+                  <Txt variant="callout" style={{ flex: 1 }}>
+                    {exercise?.name ?? `Ejercicio #${re.exercise_id}`}
+                  </Txt>
+                  <Txt variant="subhead" tone="secondary" numeric>
+                    {re.target_sets} {re.target_sets === 1 ? "serie" : "series"}
+                  </Txt>
+                </View>
+              );
+            };
+
+            return (
+              <Card key={routine.id}>
+                <Pressable
+                  onPress={() => toggleExpanded(routine.id)}
+                  accessibilityRole="button"
+                  accessibilityState={{ expanded: isOpen }}
+                  style={styles.cardHeader}
+                >
+                  <View style={{ flex: 1, gap: 2 }}>
+                    <Txt variant="headline">{routine.name}</Txt>
+                    <Txt variant="subhead" tone="secondary" numeric>
+                      {routine.exercises.length} ejercicio{routine.exercises.length === 1 ? "" : "s"} ·{" "}
+                      {totalSets} series
+                    </Txt>
+                  </View>
+                  <Icon
+                    name={isOpen ? "collapse" : "expand"}
+                    size={14}
+                    color={colors.labelSecondary}
+                  />
+                </Pressable>
+
+                {isOpen ? (
+                  <FadeInView style={{ gap: space.sm }}>
+                    <View style={styles.exerciseList}>
+                      {groupBySuperset(
+                        routine.exercises.slice().sort((a, b) => a.order - b.order),
+                        (re: RoutineExercise) => re.superset_group
+                      ).map((entry) => {
+                        if (entry.type === "single") {
+                          return exerciseLine(entry.item);
+                        }
+                        return (
+                          <View key={`group-${entry.groupId}`} style={styles.groupBlock}>
+                            <View style={styles.tag}>
+                              <Txt variant="caption" tone="tint" weight="700">
+                                Super-serie
+                              </Txt>
+                            </View>
+                            {entry.items.map((re) => exerciseLine(re))}
+                          </View>
+                        );
+                      })}
+                    </View>
+
+                    <View style={styles.actions}>
+                      <Button
+                        title="Editar"
+                        variant="tinted"
+                        size="compact"
+                        onPress={() => startEdit(routine)}
+                      />
+                      <Button
+                        title="Borrar"
+                        variant="plainDestructive"
+                        size="compact"
+                        onPress={() => confirmDelete(routine)}
+                      />
+                    </View>
+                  </FadeInView>
+                ) : null}
+              </Card>
+            );
+            })}
+
+          {formOpen ? (
+            <Card>
+              <Txt variant="title3">{editingId !== null ? "Editar rutina" : "Nueva rutina"}</Txt>
+
+              <TextField
+                placeholder="Nombre de la rutina"
+                value={name}
+                onChangeText={setName}
+                accessibilityLabel="Nombre de la rutina"
+              />
+
+              {groupBySuperset(rows, (row) => row.supersetGroup).map((entry) => {
                 if (entry.type === "single") {
-                  const re = entry.item;
-                  const exercise = exercises.find((e) => e.id === re.exercise_id);
-                  return (
-                    <Text key={re.id} style={styles.exerciseLine}>
-                      {exercise?.name ?? `Ejercicio #${re.exercise_id}`} — {re.target_sets} series
-                    </Text>
-                  );
+                  return renderDraftRow(entry.item);
                 }
 
                 return (
-                  <View key={`group-${entry.groupId}`} style={styles.supersetGroupBoxReadOnly}>
-                    <Text style={styles.supersetGroupLabel}>Super-serie</Text>
-                    {entry.items.map((re) => {
-                      const exercise = exercises.find((e) => e.id === re.exercise_id);
-                      return (
-                        <Text key={re.id} style={styles.exerciseLine}>
-                          {exercise?.name ?? `Ejercicio #${re.exercise_id}`} — {re.target_sets} series
-                        </Text>
-                      );
-                    })}
+                  <View key={`group-${entry.groupId}`} style={styles.groupBlock}>
+                    <View style={styles.groupHeader}>
+                      <View style={styles.tag}>
+                        <Txt variant="caption" tone="tint" weight="700">
+                          Super-serie
+                        </Txt>
+                      </View>
+                      <Button
+                        title="Quitar bloque"
+                        variant="plainDestructive"
+                        size="compact"
+                        onPress={() => removeGroup(entry.groupId)}
+                      />
+                    </View>
+                    {entry.items.map((row) => renderDraftRow(row))}
                   </View>
                 );
               })}
-              <View style={styles.cardActions}>
-                <Button title="Editar" onPress={() => startEdit(routine)} />
-                <Button title="Borrar" color="#b00020" onPress={() => confirmDelete(routine)} />
-              </View>
-            </View>
-          ))}
 
-          <View style={styles.formCard}>
-            <Text style={styles.formTitle}>
-              {editingId !== null ? "Editar rutina" : "Nueva rutina"}
-            </Text>
-
-            <TextInput
-              style={styles.input}
-              placeholder="Nombre de la rutina"
-              value={name}
-              onChangeText={setName}
-            />
-
-            {groupBySuperset(rows, (row) => row.supersetGroup).map((entry) => {
-              if (entry.type === "single") {
-                return renderDraftRow(entry.item);
-              }
-
-              return (
-                <View key={`group-${entry.groupId}`} style={styles.supersetGroupBox}>
-                  <View style={styles.supersetGroupHeader}>
-                    <Text style={styles.supersetGroupLabel}>Super-serie</Text>
-                    <Button
-                      title="Quitar bloque"
-                      color="#b00020"
-                      onPress={() => removeGroup(entry.groupId)}
-                    />
-                  </View>
-                  {entry.items.map((row) => renderDraftRow(row))}
+              <View style={styles.addButtons}>
+                <View style={{ flex: 1 }}>
+                  <Button title="Ejercicio" icon="plus" variant="tinted" fullWidth onPress={addRow} />
                 </View>
-              );
-            })}
+                <View style={{ flex: 1 }}>
+                  <Button
+                    title="Super-serie"
+                    icon="plus"
+                    variant="tinted"
+                    fullWidth
+                    onPress={openSupersetPicker}
+                  />
+                </View>
+              </View>
 
-            <View style={styles.formButtonsRow}>
-              <Button title="Añadir ejercicio" onPress={addRow} />
-              <Button title="+ Super-serie" onPress={openSupersetPicker} />
-            </View>
+              {formError ? (
+                <Txt variant="subhead" tone="danger">
+                  {formError}
+                </Txt>
+              ) : null}
 
-            {formError && <Text style={styles.errorDetail}>{formError}</Text>}
-
-            <View style={styles.saveButton}>
               <Button
                 title={
                   saving ? "Guardando..." : editingId !== null ? "Guardar cambios" : "Guardar rutina"
                 }
+                variant="filled"
+                size="large"
+                fullWidth
                 onPress={handleSave}
                 disabled={saving}
               />
-            </View>
-
-            {editingId !== null && (
-              <View style={styles.cancelEditButton}>
-                <Button title="Cancelar edición" color="#666" onPress={resetForm} disabled={saving} />
-              </View>
-            )}
-          </View>
+              <Button
+                title={editingId !== null ? "Cancelar edición" : "Cancelar"}
+                variant="plain"
+                fullWidth
+                onPress={resetForm}
+                disabled={saving}
+              />
+            </Card>
+          ) : null}
         </ScrollView>
       </KeyboardAvoidingView>
 
@@ -607,14 +738,50 @@ export default function RoutinesScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles(({ colors }) => ({
+  cardHeader: { flexDirection: "row", alignItems: "center", gap: space.sm },
+  exerciseList: { gap: space.sm, paddingTop: space.xs },
+  exLine: { flexDirection: "row", alignItems: "baseline", gap: space.sm },
+  // Los miembros de una super-serie van sangrados con una línea fina a la izquierda.
+  groupBlock: {
+    gap: space.sm,
+    paddingLeft: space.md,
+    borderLeftWidth: 1,
+    borderLeftColor: colors.separator,
+  },
+  groupHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  tag: {
+    alignSelf: "flex-start",
+    paddingVertical: 3,
+    paddingHorizontal: space.sm,
+    borderRadius: radius.pill,
+    backgroundColor: colors.tintSoft,
+  },
+  actions: { flexDirection: "row", justifyContent: "flex-end", gap: space.sm },
+  draftRow: { flexDirection: "row", alignItems: "center", gap: space.sm },
+  pickerField: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space.sm,
+    paddingHorizontal: space.md,
+    borderRadius: radius.control,
+    borderCurve: "continuous",
+    backgroundColor: colors.surfaceInset,
+  },
+  setsField: { width: 76, textAlign: "center" },
+  removeButton: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
+  addButtons: { flexDirection: "row", gap: space.sm },
   container: {
     flex: 1,
-    backgroundColor: "#fff",
+    backgroundColor: colors.bg,
   },
   content: {
-    padding: 16,
-    paddingBottom: 48,
+    padding: space.lg,
+    paddingBottom: space.xxxl * 2,
+    gap: space.lg,
   },
   title: {
     fontSize: 24,
@@ -623,11 +790,11 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: 16,
-    color: "#555",
+    color: colors.labelSecondary,
     marginBottom: 16,
   },
   card: {
-    backgroundColor: "#f4f4f4",
+    backgroundColor: colors.surface,
     borderRadius: 8,
     padding: 12,
     marginBottom: 12,
@@ -639,7 +806,7 @@ const styles = StyleSheet.create({
   },
   exerciseLine: {
     fontSize: 15,
-    color: "#333",
+    color: colors.label,
     marginVertical: 2,
   },
   cardActions: {
@@ -653,14 +820,14 @@ const styles = StyleSheet.create({
   // supersetGroupBox del formulario, pero sin acciones.
   supersetGroupBoxReadOnly: {
     borderWidth: 1,
-    borderColor: "#8ab4f8",
+    borderColor: colors.tint,
     borderRadius: 6,
     padding: 8,
     marginVertical: 4,
   },
   supersetGroupBox: {
     borderWidth: 1,
-    borderColor: "#8ab4f8",
+    borderColor: colors.tint,
     borderRadius: 6,
     padding: 8,
     marginBottom: 8,
@@ -674,7 +841,7 @@ const styles = StyleSheet.create({
   supersetGroupLabel: {
     fontSize: 13,
     fontWeight: "700",
-    color: "#3b5bdb",
+    color: colors.tint,
     textTransform: "uppercase",
   },
   formButtonsRow: {
@@ -686,7 +853,7 @@ const styles = StyleSheet.create({
     marginTop: 16,
     paddingTop: 16,
     borderTopWidth: 1,
-    borderTopColor: "#ddd",
+    borderTopColor: colors.separator,
   },
   formTitle: {
     fontSize: 20,
@@ -695,7 +862,7 @@ const styles = StyleSheet.create({
   },
   input: {
     borderWidth: 1,
-    borderColor: "#ccc",
+    borderColor: colors.separator,
     borderRadius: 6,
     padding: 10,
     fontSize: 16,
@@ -706,22 +873,22 @@ const styles = StyleSheet.create({
   },
   pickerButton: {
     borderWidth: 1,
-    borderColor: "#ccc",
+    borderColor: colors.separator,
     borderRadius: 6,
     padding: 10,
     marginBottom: 4,
   },
   pickerButtonText: {
     fontSize: 16,
-    color: "#000",
+    color: colors.label,
   },
   pickerPlaceholderText: {
     fontSize: 16,
-    color: "#999",
+    color: colors.labelTertiary,
   },
   numberInput: {
     borderWidth: 1,
-    borderColor: "#ccc",
+    borderColor: colors.separator,
     borderRadius: 6,
     padding: 8,
     fontSize: 16,
@@ -735,7 +902,7 @@ const styles = StyleSheet.create({
   },
   errorDetail: {
     fontSize: 14,
-    color: "#b00020",
+    color: colors.danger,
     marginTop: 8,
   },
   modalBackdrop: {
@@ -755,7 +922,7 @@ const styles = StyleSheet.create({
     maxHeight: "70%",
   },
   modalCard: {
-    backgroundColor: "#fff",
+    backgroundColor: colors.surface,
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
     padding: 20,
@@ -770,22 +937,22 @@ const styles = StyleSheet.create({
   option: {
     paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: "#eee",
+    borderBottomColor: colors.separator,
   },
   optionText: {
     fontSize: 16,
-    textAlign: "center",
+    textAlign: "left",
   },
   optionTextSelected: {
     fontSize: 16,
-    textAlign: "center",
+    textAlign: "left",
     fontWeight: "600",
-    color: "#1b8a1b",
+    color: colors.success,
   },
   optionHint: {
     fontSize: 12,
-    color: "#999",
-    textAlign: "center",
+    color: colors.labelTertiary,
+    textAlign: "left",
     marginTop: 2,
   },
   cancelButton: {
@@ -795,7 +962,7 @@ const styles = StyleSheet.create({
   cancelText: {
     fontSize: 16,
     textAlign: "center",
-    color: "#b00020",
+    color: colors.danger,
     fontWeight: "600",
   },
   modalActions: {
@@ -814,13 +981,13 @@ const styles = StyleSheet.create({
   doneText: {
     fontSize: 16,
     textAlign: "center",
-    color: "#1b8a1b",
+    color: colors.success,
     fontWeight: "600",
   },
   doneTextDisabled: {
     fontSize: 16,
     textAlign: "center",
-    color: "#aaa",
+    color: colors.labelTertiary,
     fontWeight: "600",
   },
-});
+}));

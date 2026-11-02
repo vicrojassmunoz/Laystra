@@ -48,6 +48,7 @@ _COLUMNS_TO_ADD: dict[str, list[tuple[str, str]]] = {
     "routine_exercises": [("superset_group", "INTEGER")],
     "workout_sets": [("superset_group", "INTEGER"), ("unit", "TEXT")],
     "exercises": [("muscle_group_primary", "TEXT")],
+    "workouts": [("notes", "TEXT")],
 }
 
 

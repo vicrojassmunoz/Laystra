@@ -11,7 +11,7 @@ from app.services.superset import validate_superset_groups
 
 router = APIRouter(prefix="/workouts", tags=["workouts"])
 
-_EXPORT_HEADER = ["date", "exercise", "weight", "reps", "set_order", "unit", "superset_group"]
+_EXPORT_HEADER = ["date", "exercise", "weight", "reps", "set_order", "unit", "superset_group", "notes"]
 _EXPORT_FILENAME = "laystra-workouts.csv"
 
 
@@ -41,6 +41,7 @@ def create_workout(payload: WorkoutCreate, db: Session = Depends(get_db)) -> mod
     workout = models.Workout(
         date=payload.date,
         routine_id=payload.routine_id,
+        notes=payload.notes,
         sets=_sets_from_payload(payload.sets, db),
     )
     db.add(workout)
@@ -79,6 +80,7 @@ def export_workouts(db: Session = Depends(get_db)) -> Response:
                     workout_set.order,
                     unit,
                     superset,
+                    workout.notes or "",
                 ]
             )
 
@@ -112,6 +114,7 @@ def update_workout(
 
     workout.date = payload.date
     workout.routine_id = payload.routine_id
+    workout.notes = payload.notes
     workout.sets = _sets_from_payload(payload.sets, db)
     db.commit()
     db.refresh(workout)

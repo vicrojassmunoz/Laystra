@@ -1,0 +1,1658 @@
+import { useFocusEffect, useNavigation } from "@react-navigation/native";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+
+import { fetchBodyMetrics } from "../api/bodyMetrics";
+import { fetchExercises } from "../api/exercises";
+import { fetchProgress } from "../api/progress";
+import { fetchRoutines } from "../api/routines";
+import { createWorkout } from "../api/workouts";
+import { fetchToday, TodayExercise, TodayResponse } from "../api/today";
+import ExercisePickerList from "../components/ExercisePickerList";
+import SetRow from "../components/SetRow";
+import Button from "../components/ui/Button";
+import { Card } from "../components/ui/Card";
+import Icon from "../components/ui/Icon";
+import { ScreenError, ScreenLoading } from "../components/ui/Screen";
+import TextField from "../components/ui/TextField";
+import Txt from "../components/ui/Txt";
+import SessionBar from "../components/SessionBar";
+import SupersetBlock, { SetDraft } from "../components/SupersetBlock";
+import { WeightUnitChips } from "../components/WeightUnitChips";
+import { ExerciseDraft, FormTarget, useSession } from "../session/SessionContext";
+import { haptic } from "../motion/motion";
+import { makeStyles, space, useTheme } from "../theme/theme";
+import { Exercise, WeightUnit } from "../types/exercise";
+import { Routine } from "../types/routine";
+import { WorkoutSetCreate } from "../types/workout";
+import { secondaryHint } from "../utils/exercisePicker";
+import { parseDecimalInput } from "../utils/number";
+import { BestMark, NO_PR, PrFlags, computePrFlags } from "../utils/pr";
+import { tipFor } from "../utils/sessionTips";
+import { equalizeSupersetRounds, groupBySuperset, validSupersetGroups } from "../utils/superset";
+import { convertWeight, toKg } from "../utils/weightUnit";
+import { showAlert } from "../utils/alert";
+
+type State =
+  | { status: "loading" }
+  | { status: "error"; message: string }
+  | {
+      status: "ready";
+      data: TodayResponse;
+      routines: Routine[];
+      exercises: Exercise[];
+      latestBodyWeight: number | null;
+      // Mejor peso histórico por ejercicio (exercise_id -> peso), precargado
+      // solo para los ejercicios del día -- ver comentario en load() sobre
+      // por qué no cubre destinos elegidos luego vía "Loguear otro entreno".
+      bestWeights: Map<number, BestMark>;
+    };
+
+// ExerciseDraft / FormTarget / SavedSummary viven en session/SessionContext (el
+// borrador sobrevive a la navegación mientras la sesión está en curso).
+
+// `nextId` es un contador compartido (no uno distinto por ejercicio) que la
+// pantalla pasa desde un useRef, igual que `nextRowIdRef` en RoutinesScreen.
+// Da a cada fila de serie un id estable para usar como key en vez del índice
+// -- así, al quitar una fila del medio, React no reutiliza por error el
+// TextInput enfocado para otra serie distinta.
+function buildDraft(
+  exercises: TodayExercise[],
+  nextId: () => number,
+  bwKg: number | null = null
+): ExerciseDraft[] {
+  const drafts = exercises.map((exercise) => ({
+    exercise,
+    // Pre-rellena con `target_sets` filas vacías (el número de series objetivo
+    // de la rutina); "+ añadir serie"/"Quitar" siguen disponibles por si un día
+    // se hacen más o menos series de las planeadas.
+    sets: Array.from({ length: exercise.target_sets }, () => ({
+      id: nextId(),
+      weight: "",
+      reps: "",
+    })),
+  }));
+
+  // Si esta rutina agrupa ejercicios con distinto target_sets en el mismo
+  // bloque de super-serie, iguala las rondas al nacer -- ver comentario en
+  // equalizeSupersetRounds.
+  return equalizeSupersetRounds(
+    drafts,
+    (d) => d.exercise.superset_group,
+    (d) => d.sets,
+    (d, sets) => ({ ...d, sets }),
+    () => ({ id: nextId(), weight: "", reps: "" })
+  );
+}
+
+// Convierte los ejercicios de una rutina cualquiera (no necesariamente la de
+// hoy) al mismo shape que usa /today, para poder reusar buildDraft. Routine
+// solo trae exercise_id -- el nombre/unidad hay que resolverlos aparte con la
+// lista completa de ejercicios.
+function routineToExercises(routine: Routine, exerciseById: Map<number, Exercise>): TodayExercise[] {
+  return routine.exercises
+    .slice()
+    .sort((a, b) => a.order - b.order)
+    .map((re) => {
+      const exercise = exerciseById.get(re.exercise_id);
+      return {
+        exercise_id: re.exercise_id,
+        exercise_name: exercise?.name ?? `Ejercicio #${re.exercise_id}`,
+        unit: exercise?.unit ?? "kg",
+        target_sets: re.target_sets,
+        order: re.order,
+        superset_group: re.superset_group,
+      };
+    });
+}
+
+// Reordena los ids elegidos para un entreno libre de forma que los miembros
+// de un mismo bloque de super-serie queden contiguos -- necesario porque el
+// usuario puede haber elegido los ejercicios sueltos primero y agruparlos
+// después (o al revés), y tanto el render (groupBySuperset) como el backend
+// asumen que un bloque es un tramo contiguo, no ids salpicados.
+function buildOrderedFreeExerciseIds(
+  freeSelection: number[],
+  blocks: { groupId: number; exerciseIds: number[] }[]
+): number[] {
+  const groupOf = new Map<number, number>();
+  for (const block of blocks) {
+    for (const id of block.exerciseIds) {
+      groupOf.set(id, block.groupId);
+    }
+  }
+
+  const emitted = new Set<number>();
+  const ordered: number[] = [];
+
+  for (const id of freeSelection) {
+    if (emitted.has(id)) {
+      continue;
+    }
+
+    const groupId = groupOf.get(id);
+    if (groupId === undefined) {
+      ordered.push(id);
+      emitted.add(id);
+      continue;
+    }
+
+    const block = blocks.find((b) => b.groupId === groupId)!;
+    for (const memberId of block.exerciseIds) {
+      if (!emitted.has(memberId)) {
+        ordered.push(memberId);
+        emitted.add(memberId);
+      }
+    }
+  }
+
+  return ordered;
+}
+
+// Para un entreno libre no hay rutina que fije target_sets, así que se parte
+// de 1 serie por ejercicio elegido -- "+ añadir serie" cubre el resto.
+// `groupByExerciseId` viene de los bloques de super-serie armados en el
+// picker de "entreno libre" (ver confirmFreeSuperset) -- ninguno si no se
+// usó "+ Super-serie".
+function freeExercisesToDraftExercises(
+  selected: Exercise[],
+  groupByExerciseId: Map<number, number>
+): TodayExercise[] {
+  return selected.map((exercise, index) => ({
+    exercise_id: exercise.id,
+    exercise_name: exercise.name,
+    unit: exercise.unit,
+    target_sets: 1,
+    order: index,
+    superset_group: groupByExerciseId.get(exercise.id) ?? null,
+  }));
+}
+
+// Título que se muestra arriba del formulario: mientras no se ha elegido nada
+// (formTarget null, primer entreno del día) refleja la rutina de /today; en
+// cuanto el usuario elige otra rutina o "entreno libre" con "Loguear otro
+// entreno", tiene que reflejar ESO en vez de seguir mostrando la rutina de hoy.
+function headerRoutineName(formTarget: FormTarget | null, data: TodayResponse): string {
+  if (formTarget) {
+    return formTarget.routineId === null ? "Entreno libre" : formTarget.routineName ?? "Rutina";
+  }
+  return data.routine_name ?? "Día de descanso";
+}
+
+export default function SesionScreen() {
+  const [state, setState] = useState<State>({ status: "loading" });
+  // Recuerda si ya tenemos datos en pantalla para no tapar la vista con un
+  // spinner cada vez que el usuario vuelve a esta pestaña.
+  const hasDataRef = useRef(false);
+
+  const navigation = useNavigation();
+  const styles = useStyles();
+  const { colors } = useTheme();
+  // Sesión + borrador viven en el provider (SessionContext): al salir de esta
+  // pantalla a otra parte de la app el entreno a medias y los cronómetros
+  // siguen ahí hasta "Terminar sesión".
+  const {
+    startedAt: sessionStartedAt,
+    lastSetAt,
+    setLastSetAt,
+    pausedAt,
+    pauseSession,
+    resumeSession,
+    stopSession,
+    touch,
+    formTarget,
+    setFormTarget,
+    formRows,
+    setFormRows,
+    formError,
+    setFormError,
+    submitted,
+    setSubmitted,
+    skipped,
+    setSkipped,
+    savedSummaries,
+    setSavedSummaries,
+    expandedAfterSave,
+    setExpandedAfterSave,
+    notes,
+    setNotes,
+    draftKeyRef,
+    snapshotRef: lastSubmittedSnapshotRef,
+    segmentStartRef,
+    nextSetId,
+  } = useSession();
+  const [saving, setSaving] = useState(false);
+  // El usuario descartó el entreno pre-rellenado de hoy (rutina asignada, o el
+  // que dejó abierto "Loguear otro entreno") sin llegar a guardarlo -- no
+  // quiere loguear nada ahora mismo, ni ese ni ningún otro por el momento.
+  // Distinto de "Cancelar" (que solo aplica si ya hay algo guardado hoy al
+  // que volver): esto es para el caso en que todavía no se ha guardado nada.
+  // Entrenos ya guardados hoy en esta pantalla (el de /today más los que se
+  // vayan añadiendo con "Loguear otro entreno"), para mostrarlos de forma
+  // resumida mientras se rellena el siguiente. Se reinicia cuando cambia el
+  // día (ver el useEffect de más abajo).
+  // Tras guardar, las tarjetas nacen colapsadas. Las keys de este Set son las
+  // que el usuario ha reexpandido (tap). Vacío = todo colapsado. Mientras
+  // submitted es false se ignora y las tarjetas se muestran abiertas.
+
+
+  // Picker de dos pasos para "Loguear otro entreno": "target" (elegir otra
+  // rutina o "entreno libre") y "exercises" (solo para entreno libre, elegir
+  // qué ejercicios sueltos). Es un único estado de "paso" en vez de dos
+  // booleanos de dos <Modal> hermanos -- montar un segundo Modal en el mismo
+  // tick en que se cierra el primero (setTargetPickerVisible(false) +
+  // setExercisePickerVisible(true) juntos) es un patrón conocido por dar
+  // glitches en iOS/RN (el segundo modal no aparece, o queda el backdrop del
+  // primero). Con un solo <Modal visible={pickerStep !== null}> solo hay uno
+  // montado/desmontado a la vez; lo que cambia es el contenido de dentro.
+  // "free-superset" es un tercer paso anidado dentro de "exercises": desde
+  // ahí se elige qué ejercicios (de los que existen, no necesariamente ya
+  // marcados) forman un bloque de super-serie para el entreno libre. Al
+  // confirmar, vuelve a "exercises" (no cierra todo el picker).
+  const [pickerStep, setPickerStep] = useState<"target" | "exercises" | "free-superset" | null>(
+    null
+  );
+  const [freeSelection, setFreeSelection] = useState<number[]>([]);
+  // Búsqueda del picker de ejercicios de entreno libre, aparte de la del
+  // picker de super-serie anidado -- cada uno se resetea al abrirse, no al
+  // cerrarse, para no perder lo escrito si el usuario cierra sin querer.
+  const [freeExerciseQuery, setFreeExerciseQuery] = useState("");
+  const [freeSupersetQuery, setFreeSupersetQuery] = useState("");
+  // Bloques de super-serie armados para el entreno libre en curso -- viven
+  // aparte de freeSelection porque un ejercicio puede estar "seleccionado"
+  // sin pertenecer a ningún bloque (ejercicio suelto). Local a este picker,
+  // se resetea cada vez que se vuelve a abrir "Entreno libre".
+  const [freeSupersetBlocks, setFreeSupersetBlocks] = useState<
+    { groupId: number; exerciseIds: number[] }[]
+  >([]);
+  const [freeSupersetSelection, setFreeSupersetSelection] = useState<number[]>([]);
+  const nextFreeGroupIdRef = useRef(1);
+
+  // Instantánea de formTarget/formRows justo tras el último guardado exitoso,
+  // para poder volver a ella si el usuario pulsa "Loguear otro entreno", elige
+  // un destino, y luego se arrepiente -- sin esto no había forma de salir de
+  // ese formulario en blanco salvo guardarlo o cambiar de pestaña.
+
+  // Identifica qué se está logueando (fecha + rutina + firma de ejercicios/sets/reps
+  // objetivo). Mientras esta clave no cambie, el formulario no se reconstruye en
+  // cada focus -- si no, volver de "Historial" a "Hoy" borraría lo ya escrito (o,
+  // peor, invitaría a re-guardar un entreno ya guardado como si fuera nuevo).
+  // Invalida /progress en vuelo: un PUT de unidad no debe dejar que un load()
+  // anterior pise bestWeights ya convertidos.
+  const progressEpochRef = useRef(0);
+  // Contador compartido para los ids de fila de serie (ver comentario en
+  // buildDraft). Empieza en 1 y nunca se resetea entre reconstrucciones del
+  // draft -- no hace falta, solo importa que cada id sea único dentro de la
+  // vida de la pantalla.
+  // (nextSetId, draftKeyRef y la instantánea del último guardado vienen del provider.)
+
+  // Cada formulario nuevo parte sin notas y con el descanso a cero. El cronómetro
+  // de la SESIÓN no se toca: una sesión puede abarcar varios entrenos.
+  function resetSession() {
+    setNotes("");
+    setLastSetAt(null);
+  }
+
+  // Cierra la sesión y vuelve a Hoy.
+  // Reset en vez de navigate("Hoy"): si se llegó a Sesión desde otra pantalla
+  // (la píldora flotante), navigate empujaba un Hoy NUEVO encima y el back
+  // rebotaba entre Hoy y una Sesión ya vacía. Así el stack queda Home → Hoy.
+  function finishSession() {
+    haptic.medium();
+    stopSession();
+    navigation.reset({ index: 1, routes: [{ name: "Home" }, { name: "Hoy" }] });
+  }
+
+  // "Completar": guarda lo que llevas y termina la sesión. Si el entreno está a
+  // medias (p. ej. solo hiciste la mitad del pecho) avisa y guarda SOLO las series
+  // con reps; si no hay nada hecho, ofrece terminar sin guardar.
+  function handleComplete() {
+    if (state.status !== "ready") {
+      return;
+    }
+
+    // Ya guardado (o descartado): solo queda cerrar la sesión.
+    if (submitted || skipped || !formTarget) {
+      finishSession();
+      return;
+    }
+
+    const filledOf = (row: ExerciseDraft) => row.sets.filter((s) => s.reps.trim() !== "").length;
+    const total = formRows.reduce((n, row) => n + row.sets.length, 0);
+    const filled = formRows.reduce((n, row) => n + filledOf(row), 0);
+    const exercisesTotal = formRows.filter((row) => row.sets.length > 0).length;
+    const exercisesTouched = formRows.filter((row) => filledOf(row) > 0).length;
+
+    if (filled === 0) {
+      showAlert(
+        "No hay nada que guardar",
+        "Todavía no has registrado ninguna serie. ¿Terminar la sesión sin guardar?",
+        [
+          { text: "Seguir", style: "cancel" },
+          { text: "Terminar sin guardar", style: "destructive", onPress: finishSession },
+        ]
+      );
+      return;
+    }
+
+    if (filled < total) {
+      showAlert(
+        "Entreno incompleto",
+        `Has hecho ${filled} de ${total} series (${exercisesTouched} de ${exercisesTotal} ejercicios). Se guardará solo lo que llevas y la sesión terminará.`,
+        [
+          { text: "Seguir entrenando", style: "cancel" },
+          {
+            text: "Guardar y terminar",
+            onPress: () => handleSave({ partial: true, finishAfter: true }),
+          },
+        ]
+      );
+      return;
+    }
+
+    handleSave({ finishAfter: true });
+  }
+
+  function handleStopSession() {
+    const hasUnsaved =
+      !submitted &&
+      !skipped &&
+      formRows.some((row) =>
+        row.sets.some((s) => s.reps.trim() !== "" || s.weight.trim() !== "")
+      );
+
+    const finish = finishSession;
+
+    if (!hasUnsaved) {
+      finish();
+      return;
+    }
+
+    showAlert(
+      "Terminar sesión",
+      "Tienes un entreno sin guardar. Si terminas la sesión se descarta.",
+      [
+        { text: "Seguir", style: "cancel" },
+        { text: "Terminar y descartar", style: "destructive", onPress: finish },
+      ]
+    );
+  }
+
+  function isCollapsedAfterSave(key: string): boolean {
+    return submitted && !expandedAfterSave.has(key);
+  }
+
+  function toggleAfterSave(key: string) {
+    if (!submitted) {
+      return;
+    }
+    setExpandedAfterSave((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  }
+
+  function appendCreatedExercise(exercise: Exercise) {
+    setState((prev) => {
+      if (prev.status !== "ready") {
+        return prev;
+      }
+      if (prev.exercises.some((e) => e.id === exercise.id)) {
+        return prev;
+      }
+      return { ...prev, exercises: [...prev.exercises, exercise] };
+    });
+  }
+
+  function replaceUpdatedExercise(exercise: Exercise) {
+    setState((prev) =>
+      prev.status === "ready"
+        ? {
+            ...prev,
+            exercises: prev.exercises.map((item) =>
+              item.id === exercise.id ? exercise : item
+            ),
+          }
+        : prev
+    );
+  }
+
+  const load = useCallback(() => {
+    if (!hasDataRef.current) {
+      setState({ status: "loading" });
+    }
+
+    // Se piden rutinas y ejercicios junto con /today -- no solo para el
+    // formulario de hoy, sino porque "Loguear otro entreno" necesita elegir
+    // entre todas las rutinas (no solo la de hoy) o ejercicios sueltos.
+    Promise.all([
+      fetchToday(),
+      fetchRoutines(),
+      fetchExercises(),
+      // Prefill de ejercicios bw; si falla, Hoy sigue usable con el peso vacío.
+      fetchBodyMetrics().catch(() => []),
+    ])
+      .then(([data, routines, exercises, bodyMetrics]) => {
+        hasDataRef.current = true;
+        // La pantalla pasa a "ready" en cuanto today/routines/exercises resuelven,
+        // con bestWeights vacío -- el spinner ya no depende de precargar los
+        // PR (ver más abajo). Antes, /today+/routines+/exercises resueltas no
+        // bastaban: la pantalla seguía en "loading" hasta que TODAS las
+        // llamadas a /progress (una por ejercicio del día, encadenadas antes
+        // de este setState) también resolvían, y fetch no tiene timeout -- una
+        // sola colgada dejaba la pantalla principal cargando indefinidamente
+        // aunque /today ya hubiera respondido.
+        setState({
+          status: "ready",
+          data,
+          routines,
+          exercises,
+          latestBodyWeight: bodyMetrics[0]?.weight ?? null,
+          bestWeights: new Map(),
+        });
+
+        // Precarga el mejor peso histórico de cada ejercicio del día (para el
+        // badge de PR al loguear una serie) llamando a /progress una vez por
+        // ejercicio, en paralelo y SIN bloquear el setState de arriba. Si
+        // alguna llamada falla, no tira abajo la pantalla -- ese ejercicio
+        // simplemente se queda sin badge de PR.
+        const progressEpoch = ++progressEpochRef.current;
+        Promise.all(
+          data.exercises.map((exercise) =>
+            fetchProgress(exercise.exercise_id).catch(() => null)
+          )
+        ).then((progresses) => {
+          if (progressEpoch !== progressEpochRef.current) {
+            return;
+          }
+          const bestWeights = new Map<number, BestMark>();
+          for (const progress of progresses) {
+            if (!progress || progress.points.length === 0) {
+              continue;
+            }
+            const best = progress.points.reduce((winner, point) =>
+              toKg(point.best_weight, point.unit ?? "kg") >
+              toKg(winner.best_weight, winner.unit ?? "kg")
+                ? point
+                : winner
+            );
+            // Mejor serie por volumen (peso×reps, kg). null si el backend no
+            // manda el campo (versión vieja) -- entonces no hay PR de volumen.
+            const volumes = progress.points
+              .map((point) => point.best_set_volume_kg)
+              .filter((v): v is number => typeof v === "number");
+            bestWeights.set(progress.exercise_id, {
+              weight: best.best_weight,
+              unit: best.unit ?? "kg",
+              volumeKg: volumes.length > 0 ? Math.max(...volumes) : null,
+            });
+          }
+
+          // Segundo setState, solo para bestWeights, aplicado sobre el estado
+          // "ready" ya construido (updater function, no un objeto nuevo desde
+          // cero) -- si para cuando /progress termina el estado ya avanzó a
+          // otro día/rutina (p.ej. un refocus disparó otro load() de por
+          // medio), no pisa esos datos más nuevos con un bestWeights que ya
+          // no les corresponde. No toca `data`/`routines`/`exercises`, así
+          // que la firma que usa el useEffect de más abajo para decidir si
+          // reconstruir el formulario no cambia y el draft no se resetea.
+          setState((prev) =>
+            prev.status === "ready" &&
+            prev.data.date === data.date &&
+            prev.data.routine_id === data.routine_id
+              ? { ...prev, bestWeights }
+              : prev
+          );
+        });
+      })
+      .catch((error: Error) => {
+        // Si ya había datos visibles, los dejamos y simplemente no se refrescan
+        // esta vez, en vez de reemplazar una pantalla buena por un error.
+        if (!hasDataRef.current) {
+          setState({ status: "error", message: error.message });
+        }
+      });
+  }, []);
+
+  // useFocusEffect (de @react-navigation/native) corre cada vez que esta pantalla
+  // gana el foco dentro del Tab.Navigator, no solo al montarse. Un Tab.Navigator
+  // mantiene las pantallas montadas al cambiar de pestaña, así que un useEffect
+  // normal solo se ejecutaría una vez y nunca vería datos creados en otra pestaña.
+  useFocusEffect(
+    useCallback(() => {
+      load();
+    }, [load])
+  );
+
+  // /today se vuelve a pedir en cada focus (ver useFocusEffect de arriba), pero eso
+  // NO debe implicar reconstruir el formulario en cada focus: si lo hiciera, entrar
+  // a "Historial" a comprobar algo y volver a "Hoy" borraría lo que el usuario ya
+  // había escrito (o, tras guardar, el formulario "olvidaría" que ya se guardó y
+  // dejaría loguear el mismo día dos veces -- el backend no bloquea duplicados).
+  // En vez de eso, el draft solo se reconstruye cuando cambia lo que realmente se
+  // está logueando: la fecha, la rutina asignada, o la propia rutina (ejercicios
+  // o series objetivo editados desde la pestaña "Rutinas"/"Semana").
+  useEffect(() => {
+    if (state.status !== "ready") {
+      return;
+    }
+
+    const key = [
+      state.data.date,
+      state.data.routine_id,
+      // superset_group entra en la firma para que agrupar/desagrupar
+      // ejercicios ya existentes desde "Rutinas" (sin tocar ejercicios ni
+      // sets) también invalide el draft cacheado -- si no, volver a "Hoy"
+      // seguía mostrando la agrupación vieja, y guardar así persistía el
+      // entreno con esa agrupación desactualizada en silencio.
+      ...state.data.exercises.map(
+        (e) => `${e.exercise_id}:${e.target_sets}:${e.superset_group}`
+      ),
+    ].join("|");
+
+    if (draftKeyRef.current === key) {
+      // Mismo día, misma rutina: conserva lo que haya en pantalla, tanto si
+      // el usuario sigue rellenando como si ya se guardó (submitted=true) --
+      // si no, volver de otra pestaña "olvidaría" que ya se guardó hoy.
+      return;
+    }
+
+    // Cambió el día (o la rutina de hoy): es un día nuevo, así que también se
+    // olvidan los resúmenes de entrenos guardados anteriormente.
+    draftKeyRef.current = key;
+    setFormTarget({
+      routineId: state.data.routine_id,
+      routineName: state.data.routine_name,
+      exercises: state.data.exercises,
+    });
+    setFormRows(buildDraft(state.data.exercises, nextSetId, state.latestBodyWeight));
+    setFormError(null);
+    setSubmitted(false);
+    setSkipped(false);
+    setSavedSummaries([]);
+    resetSession();
+  }, [state]);
+
+  function updateSet(exerciseIndex: number, setIndex: number, patch: Partial<SetDraft>) {
+    // Asistencia en sesión: cualquier edición cuenta como actividad (reprograma
+    // el aviso de inactividad), y el descanso se reinicia cuando una serie pasa
+    // de sin reps a con reps.
+    if (!submitted) {
+      touch();
+    }
+    const prevReps = formRows[exerciseIndex]?.sets[setIndex]?.reps ?? "";
+    if (patch.reps !== undefined && prevReps.trim() === "" && patch.reps.trim() !== "") {
+      setLastSetAt(Date.now());
+    }
+
+    setFormRows((prev) =>
+      prev.map((row, i) => {
+        if (i !== exerciseIndex) {
+          return row;
+        }
+
+        const updatedSets = row.sets.map((s, j) => (j === setIndex ? { ...s, ...patch } : s));
+
+        // Autorrelleno: al escribir el peso de una serie, se propaga a las demás
+        // series del mismo ejercicio que sigan vacías (mismo ejercicio suele
+        // pesar lo mismo en todas sus series). El usuario solo corrige a mano
+        // las que difieran; si ya escribió algo distinto en una, esa deja de
+        // tocarse porque ya no está vacía.
+        if (patch.weight !== undefined && patch.weight.trim() !== "") {
+          for (let j = 0; j < updatedSets.length; j++) {
+            if (j !== setIndex && row.sets[j].weight.trim() === "") {
+              updatedSets[j] = { ...updatedSets[j], weight: patch.weight };
+            }
+          }
+        }
+
+        return { ...row, sets: updatedSets };
+      })
+    );
+  }
+
+  function addSet(exerciseIndex: number) {
+    touch();
+    setFormRows((prev) =>
+      prev.map((row, i) => {
+        if (i !== exerciseIndex) {
+          return row;
+        }
+
+        // La fila nueva hereda el peso de la última serie existente (si la
+        // hay y no está vacía) -- el mismo ejercicio suele pesar lo mismo en
+        // todas sus series, así que ahorra tener que volver a escribirlo.
+        const lastWeight = row.sets.length > 0 ? row.sets[row.sets.length - 1].weight : "";
+
+        return {
+          ...row,
+          sets: [...row.sets, { id: nextSetId(), weight: lastWeight, reps: "" }],
+        };
+      })
+    );
+  }
+
+  function removeSet(exerciseIndex: number, setIndex: number) {
+    touch();
+    setFormRows((prev) =>
+      prev.map((row, i) =>
+        i === exerciseIndex ? { ...row, sets: row.sets.filter((_, j) => j !== setIndex) } : row
+      )
+    );
+  }
+
+  function changeRowUnit(exerciseIndex: number, nextUnit: WeightUnit) {
+    const bodyKg = state.status === "ready" ? state.latestBodyWeight : null;
+    setFormRows((prev) =>
+      prev.map((row, i) => {
+        if (i !== exerciseIndex) {
+          return row;
+        }
+        const fromUnit = row.exercise.unit;
+        if (fromUnit === nextUnit) {
+          return row;
+        }
+        return {
+          ...row,
+          exercise: { ...row.exercise, unit: nextUnit },
+          sets:
+            nextUnit === "bw"
+              ? row.sets
+              : row.sets.map((set) => {
+                  if (fromUnit === "bw") {
+                    return {
+                      ...set,
+                      weight: bodyKg != null ? String(bodyKg) : "",
+                    };
+                  }
+                  const parsed = parseDecimalInput(set.weight);
+                  if (parsed === null) {
+                    return set;
+                  }
+                  return {
+                    ...set,
+                    weight: String(convertWeight(parsed, fromUnit, nextUnit)),
+                  };
+                }),
+        };
+      })
+    );
+  }
+
+  // Variantes de addSet/removeSet para un bloque de super-serie: en vez de
+  // tocar un solo ejercicio, añaden/quitan la misma "ronda" (posición de
+  // serie) en TODOS los ejercicios del bloque a la vez -- exerciseIndices son
+  // las posiciones dentro de formRows de los miembros de ese bloque.
+  function addRoundToGroup(exerciseIndices: number[]) {
+    for (const index of exerciseIndices) {
+      addSet(index);
+    }
+  }
+
+  function removeRoundFromGroup(exerciseIndices: number[], roundIndex: number) {
+    setFormRows((prev) =>
+      prev.map((row, i) =>
+        exerciseIndices.includes(i)
+          ? { ...row, sets: row.sets.filter((_, j) => j !== roundIndex) }
+          : row
+      )
+    );
+  }
+
+  // "Loguear otro entreno" ya no reutiliza directamente la rutina de hoy --
+  // abre el picker para elegir otra rutina o un entreno libre. El formulario
+  // solo se reconstruye cuando el usuario termina de elegir (ver
+  // chooseRoutineForAnother / confirmFreeSelection).
+  function handleLogAnother() {
+    setPickerStep("target");
+  }
+
+  function chooseRoutineForAnother(routine: Routine) {
+    if (state.status !== "ready") {
+      return;
+    }
+
+    const exerciseById = new Map(state.exercises.map((e) => [e.id, e]));
+    const exercises = routineToExercises(routine, exerciseById);
+
+    setFormTarget({ routineId: routine.id, routineName: routine.name, exercises });
+    setFormRows(buildDraft(exercises, nextSetId, state.latestBodyWeight));
+    setFormError(null);
+    setSubmitted(false);
+    setSkipped(false);
+    resetSession();
+    setPickerStep(null);
+  }
+
+  function chooseFreeForAnother() {
+    setFreeSelection([]);
+    setFreeSupersetBlocks([]);
+    setFreeExerciseQuery("");
+    setPickerStep("exercises");
+  }
+
+  // Si el ejercicio que se desmarca pertenecía a un bloque, se le quita del
+  // bloque; si eso deja el bloque con menos de 2 miembros, se disuelve del
+  // todo (el miembro que quede, si queda uno, pasa a suelto sin más pasos --
+  // no hace falta "desagruparlo" a mano porque ya no hay bloque que lo
+  // referencie). Al marcar un ejercicio (no desmarcarlo) esto no tiene efecto,
+  // ya que un ejercicio recién marcado nunca pertenece todavía a ningún bloque.
+  function toggleFreeExercise(id: number) {
+    setFreeSelection((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+    setFreeSupersetBlocks((prev) =>
+      prev
+        .map((block) =>
+          block.exerciseIds.includes(id)
+            ? { ...block, exerciseIds: block.exerciseIds.filter((x) => x !== id) }
+            : block
+        )
+        .filter((block) => block.exerciseIds.length >= 2)
+    );
+  }
+
+  function openFreeSupersetPicker() {
+    setFreeSupersetSelection([]);
+    setFreeSupersetQuery("");
+    setPickerStep("free-superset");
+  }
+
+  // Ids que ya pertenecen a un bloque de super-serie armado anteriormente en
+  // este entreno libre -- no pueden volver a elegirse para un bloque nuevo.
+  // Sin esto, elegir un ejercicio ya agrupado para un segundo bloque
+  // sobrescribía a qué grupo pertenecía (el Map de abajo se construye por
+  // ejercicio, no por bloque) y dejaba el bloque viejo con un solo miembro,
+  // que el backend rechaza con 400 al guardar.
+  function alreadyGroupedFreeExerciseIds(): Set<number> {
+    const ids = new Set<number>();
+    for (const block of freeSupersetBlocks) {
+      for (const id of block.exerciseIds) {
+        ids.add(id);
+      }
+    }
+    return ids;
+  }
+
+  function toggleFreeSupersetExercise(id: number) {
+    if (alreadyGroupedFreeExerciseIds().has(id)) {
+      return;
+    }
+    setFreeSupersetSelection((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  }
+
+  // Confirma un bloque de super-serie para el entreno libre: los ejercicios
+  // elegidos aquí se añaden también a freeSelection si no lo estaban ya --
+  // agruparlos implica que forman parte del entreno, igual que en Rutinas.
+  function confirmFreeSuperset() {
+    if (freeSupersetSelection.length < 2) {
+      return;
+    }
+
+    const groupId = nextFreeGroupIdRef.current++;
+    setFreeSupersetBlocks((prev) => [...prev, { groupId, exerciseIds: freeSupersetSelection }]);
+    setFreeSelection((prev) => {
+      const merged = new Set(prev);
+      for (const id of freeSupersetSelection) {
+        merged.add(id);
+      }
+      return Array.from(merged);
+    });
+    setPickerStep("exercises");
+  }
+
+  function confirmFreeSelection() {
+    if (state.status !== "ready" || freeSelection.length === 0) {
+      return;
+    }
+
+    const exerciseById = new Map(state.exercises.map((e) => [e.id, e]));
+    const orderedIds = buildOrderedFreeExerciseIds(freeSelection, freeSupersetBlocks);
+    const selected = orderedIds
+      .map((id) => exerciseById.get(id))
+      .filter((e): e is Exercise => e !== undefined);
+
+    const groupByExerciseId = new Map<number, number>();
+    for (const block of freeSupersetBlocks) {
+      for (const id of block.exerciseIds) {
+        groupByExerciseId.set(id, block.groupId);
+      }
+    }
+
+    const exercises = freeExercisesToDraftExercises(selected, groupByExerciseId);
+
+    setFormTarget({ routineId: null, routineName: null, exercises });
+    setFormRows(buildDraft(exercises, nextSetId, state.latestBodyWeight));
+    setFormError(null);
+    setSubmitted(false);
+    setSkipped(false);
+    resetSession();
+    setPickerStep(null);
+  }
+
+  // Descarta el entreno pre-rellenado de hoy (o el que se estuviera montando
+  // tras "Loguear otro entreno") sin haberlo guardado -- para cuando el
+  // usuario no quiere loguear nada ahora mismo, ni siquiera lo que ya había en
+  // pantalla. Deja la puerta abierta a elegir algo después con el mismo picker
+  // que usa "Loguear otro entreno" (reutiliza handleLogAnother).
+  function handleSkipToday() {
+    setSkipped(true);
+    setFormError(null);
+  }
+
+  // Abandona el formulario en blanco abierto tras "Loguear otro entreno" y
+  // vuelve a mostrar el último entreno guardado como si no se hubiera pulsado
+  // ese botón. Solo tiene sentido si ya hay una instantánea previa (siempre la
+  // hay en cuanto savedSummaries no está vacío, ver dónde se guarda el ref).
+  function handleCancelAnother() {
+    const snapshot = lastSubmittedSnapshotRef.current;
+    if (!snapshot) {
+      return;
+    }
+
+    setFormTarget(snapshot.formTarget);
+    setFormRows(snapshot.formRows);
+    setNotes(snapshot.notes);
+    setFormError(null);
+    setSubmitted(true);
+    setExpandedAfterSave(new Set());
+  }
+
+  // partial: ignora las series sin reps en vez de dar error (guardar a medias).
+  // finishAfter: tras guardar con éxito, cierra la sesión y vuelve a Hoy.
+  function handleSave(opts: { partial?: boolean; finishAfter?: boolean } = {}) {
+    if (state.status !== "ready" || !formTarget) {
+      return;
+    }
+
+    setFormError(null);
+
+    const rows = opts.partial
+      ? formRows.map((row) => ({
+          ...row,
+          sets: row.sets.filter((s) => s.reps.trim() !== ""),
+        }))
+      : formRows;
+
+    // Red de seguridad: pese a equalizeSupersetRounds (en buildDraft) y al
+    // picker de super-serie de entreno libre bloqueando solapes, cualquier
+    // superset_group que en este momento cubra menos de 2 exercise_id
+    // distintos (entre las filas que de verdad van a mandar series) se anula
+    // a null aquí en vez de dejar que el backend lo rechace con un 400 que el
+    // usuario no sabría interpretar.
+    const validGroups = validSupersetGroups(
+      rows.map((row) => ({
+        exerciseId: row.exercise.exercise_id,
+        group: row.exercise.superset_group,
+        hasSets: row.sets.length > 0,
+      }))
+    );
+
+    const sets: WorkoutSetCreate[] = [];
+    let order = 0;
+
+    for (const row of rows) {
+      // Un ejercicio se puede saltar del todo (máquina ocupada, etc.) quitando
+      // todas sus series -- si no quedó ninguna, no hay nada que validar ni
+      // que mandar por este ejercicio.
+      if (row.sets.length === 0) {
+        continue;
+      }
+
+      for (let i = 0; i < row.sets.length; i++) {
+        const draft = row.sets[i];
+        const unit = row.exercise.unit;
+        const weight =
+          unit === "bw"
+            ? (state.latestBodyWeight ?? 0)
+            : parseDecimalInput(draft.weight);
+        const reps = Number(draft.reps);
+
+        if (unit !== "bw" && weight === null) {
+          setFormError(
+            `Peso inválido en "${row.exercise.exercise_name}", serie ${i + 1}.`
+          );
+          return;
+        }
+
+        if (draft.reps.trim() === "" || !Number.isInteger(reps) || reps < 0) {
+          setFormError(
+            `Reps inválidas en "${row.exercise.exercise_name}", serie ${i + 1}.`
+          );
+          return;
+        }
+
+        const group = row.exercise.superset_group;
+
+        sets.push({
+          exercise_id: row.exercise.exercise_id,
+          weight: weight ?? 0,
+          reps,
+          order: order++,
+          unit,
+          superset_group: group != null && validGroups.has(group) ? group : null,
+        });
+      }
+    }
+
+    if (sets.length === 0) {
+      setFormError("Añade al menos una serie antes de guardar.");
+      return;
+    }
+
+    setSaving(true);
+    // Se usa la fecha que ya devolvió /today (no se recalcula "hoy" en el momento
+    // de guardar) para que fecha y rutina no puedan desincronizarse si la app
+    // queda abierta justo a caballo de medianoche. El routine_id, en cambio, sale
+    // de formTarget -- puede ser distinto al de /today si esto es un "otro entreno".
+    touch();
+    const trimmedNotes = notes.trim();
+    createWorkout({
+      date: state.data.date,
+      routine_id: formTarget.routineId,
+      notes: trimmedNotes === "" ? null : trimmedNotes,
+      sets,
+    })
+      .then((workout) => {
+        haptic.success();
+        const distinctExercises = new Set(sets.map((s) => s.exercise_id)).size;
+        // Duración de ESTE entreno: desde que empezó la sesión o desde el
+        // guardado anterior, no desde el inicio de la sesión entera.
+        const segmentStart = segmentStartRef.current ?? sessionStartedAt;
+        const minutes =
+          segmentStart === null ? 0 : Math.round((Date.now() - segmentStart) / 60000);
+        segmentStartRef.current = Date.now();
+        const label = `${formTarget.routineName ?? "Entreno libre"} — ${distinctExercises} ejercicio${
+          distinctExercises === 1 ? "" : "s"
+        }${minutes >= 1 ? ` · ${minutes} min` : ""}`;
+        setSavedSummaries((prev) => [...prev, { workoutId: workout.id, label }]);
+        setSubmitted(true);
+        setExpandedAfterSave(new Set());
+        lastSubmittedSnapshotRef.current = { formTarget, formRows, notes: trimmedNotes };
+
+        if (opts.finishAfter) {
+          // El háptico de éxito ya sonó; cierra la sesión sin el "medio" de Terminar.
+          stopSession();
+          navigation.reset({ index: 1, routes: [{ name: "Home" }, { name: "Hoy" }] });
+        }
+      })
+      .catch((error: Error) => {
+        setFormError(error.message);
+      })
+      .finally(() => {
+        setSaving(false);
+      });
+  }
+
+  // Badges de PR de toda la sesión a la vez (necesita ver todas las series para
+  // marcar solo la mejor por ejercicio, no cada una contra el histórico).
+  const prBySetId =
+    state.status === "ready"
+      ? computePrFlags(
+          formRows.map((row) => ({
+            exerciseId: row.exercise.exercise_id,
+            unit: row.exercise.unit,
+            sets: row.sets,
+          })),
+          state.bestWeights,
+          state.latestBodyWeight
+        )
+      : new Map<number, PrFlags>();
+
+  // Siguiente ejercicio pendiente: el primero (en el orden del formulario) con
+  // alguna serie sin reps. Super-series cuentan por ejercicio de la ronda.
+  let nextExerciseLabel: string | null = null;
+  let nextExerciseTip: string | null = null;
+  if (state.status === "ready" && formRows.length > 0) {
+    let pending: { row: ExerciseDraft; setNumber: number } | null = null;
+    for (const row of formRows) {
+      const emptyIndex = row.sets.findIndex((s) => s.reps.trim() === "");
+      if (emptyIndex !== -1) {
+        pending = { row, setNumber: emptyIndex + 1 };
+        break;
+      }
+    }
+
+    if (pending) {
+      const inSuperset = pending.row.exercise.superset_group != null;
+      nextExerciseLabel = `Siguiente: ${pending.row.exercise.exercise_name} · serie ${pending.setNumber}${
+        inSuperset ? " (super-serie)" : ""
+      }`;
+      const muscle = state.exercises.find(
+        (e) => e.id === pending.row.exercise.exercise_id
+      )?.muscle_group_primary;
+      nextExerciseTip = tipFor(muscle, pending.row.exercise.exercise_id);
+    } else if (formRows.some((r) => r.sets.length > 0)) {
+      nextExerciseLabel = "Todo rellenado ✅ — guarda el entreno";
+    }
+  }
+
+  return (
+    <SafeAreaView style={styles.container} edges={["bottom"]}>
+      {state.status === "loading" && <ScreenLoading />}
+
+      {state.status === "error" && <ScreenError message={state.message} />}
+
+      {state.status === "ready" && (
+        <KeyboardAvoidingView
+          style={styles.container}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          keyboardVerticalOffset={0}
+        >
+          <SessionBar
+            startedAt={sessionStartedAt}
+            lastSetAt={lastSetAt}
+            pausedAt={pausedAt}
+            onTogglePause={() => {
+              haptic.light();
+              if (pausedAt === null) {
+                pauseSession();
+              } else {
+                resumeSession();
+              }
+            }}
+            onComplete={handleComplete}
+            onStop={handleStopSession}
+            nextLabel={!skipped && !submitted ? nextExerciseLabel : null}
+            tip={!skipped && !submitted ? nextExerciseTip : null}
+          />
+          <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+            <Txt variant="title2">{headerRoutineName(formTarget, state.data)}</Txt>
+
+            {state.data.exercises.length === 0 && (
+              <Txt variant="subhead" tone="secondary">
+                No hay rutina asignada para hoy. Aprovecha para descansar.
+              </Txt>
+            )}
+
+            {/* Resumen de entrenos ya guardados hoy. Se muestra siempre que haya
+                alguno -- también tras guardar el último, no solo mientras se
+                rellena el siguiente -- si no, guardar un segundo entreno hacía
+                desaparecer de la pantalla la constancia del primero. */}
+            {savedSummaries.length > 0 && (
+              <Card>
+                {savedSummaries.map((s) => (
+                  <View key={s.workoutId} style={styles.summaryRow}>
+                    <Icon name="check" size={18} color={colors.success} />
+                    <Txt variant="subhead" style={{ flex: 1 }}>
+                      {s.label}
+                    </Txt>
+                  </View>
+                ))}
+              </Card>
+            )}
+
+            {/* El usuario descartó explícitamente el entreno pre-rellenado (o el
+                que estaba montando) sin guardarlo -- en vez del formulario, solo
+                un aviso y la puerta abierta a elegir algo con el mismo picker de
+                "Loguear otro entreno". */}
+            {skipped && (
+              <Card>
+                <Txt variant="subhead" tone="secondary">
+                  No vas a loguear ningún entreno ahora mismo.
+                </Txt>
+                <Button
+                  title="Elegir un entreno"
+                  variant="filled"
+                  size="large"
+                  fullWidth
+                  onPress={handleLogAnother}
+                />
+              </Card>
+            )}
+
+            {!skipped &&
+              groupBySuperset(
+                formRows.map((row, index) => ({ row, index })),
+                (entry) => entry.row.exercise.superset_group
+              ).map((entry) => {
+                if (entry.type === "single") {
+                  const { row, index: exerciseIndex } = entry.item;
+                  const collapseKey = `ex-${row.exercise.exercise_id}-${exerciseIndex}`;
+                  const collapsed = isCollapsedAfterSave(collapseKey);
+                  return (
+                    // Una rutina puede repetir el mismo ejercicio (p.ej. press
+                    // banca pesado + press banca ligero), así que exercise_id
+                    // solo no es una key única -- se combina con la posición.
+                    <Card key={`${row.exercise.exercise_id}-${exerciseIndex}`}>
+                      <Pressable
+                        onPress={() => toggleAfterSave(collapseKey)}
+                        disabled={!submitted}
+                        accessibilityRole={submitted ? "button" : undefined}
+                        accessibilityState={submitted ? { expanded: !collapsed } : undefined}
+                        style={styles.cardHeader}
+                      >
+                        <Txt variant="headline" style={{ flex: 1 }}>
+                          {row.exercise.exercise_name}
+                        </Txt>
+                        {submitted ? (
+                          <Icon
+                            name={collapsed ? "expand" : "collapse"}
+                            size={14}
+                            color={colors.labelSecondary}
+                          />
+                        ) : null}
+                      </Pressable>
+
+                      {!collapsed && (
+                        <>
+                          {/* En entreno libre no hay rutina que fije target_sets --
+                              se le pone 1 de relleno (ver freeExercisesToDraftExercises)
+                              pero no significa nada real, así que no tiene sentido
+                              mostrarlo. */}
+                          {formTarget?.routineId !== null && (
+                            <Txt variant="footnote" tone="secondary" style={{ marginTop: -space.xs }}>
+                              Objetivo: {row.exercise.target_sets} serie
+                              {row.exercise.target_sets === 1 ? "" : "s"}
+                            </Txt>
+                          )}
+
+                          <WeightUnitChips
+                            value={row.exercise.unit}
+                            onChange={(unit) => changeRowUnit(exerciseIndex, unit)}
+                            disabled={submitted || saving}
+                          />
+
+                          {row.sets.map((setDraft, setIndex) => (
+                            <SetRow
+                              key={setDraft.id}
+                              label={`Serie ${setIndex + 1}`}
+                              unit={row.exercise.unit}
+                              weight={setDraft.weight}
+                              reps={setDraft.reps}
+                              bodyWeightKg={state.latestBodyWeight}
+                              editable={!submitted && !saving}
+                              onChangeWeight={(text) =>
+                                updateSet(exerciseIndex, setIndex, { weight: text })
+                              }
+                              onChangeReps={(text) =>
+                                updateSet(exerciseIndex, setIndex, { reps: text })
+                              }
+                              onRemove={
+                                submitted ? undefined : () => removeSet(exerciseIndex, setIndex)
+                              }
+                              flags={prBySetId.get(setDraft.id) ?? NO_PR}
+                            />
+                          ))}
+
+                          {!submitted && (
+                            <Button
+                              title="Añadir serie"
+                              icon="plus"
+                              variant="tinted"
+                              fullWidth
+                              disabled={saving}
+                              onPress={() => addSet(exerciseIndex)}
+                            />
+                          )}
+                        </>
+                      )}
+                    </Card>
+                  );
+                }
+
+                const indices = entry.items.map((it) => it.index);
+                const members = entry.items.map((it) => ({
+                  key: `${it.row.exercise.exercise_id}-${it.index}`,
+                  exerciseId: it.row.exercise.exercise_id,
+                  name: it.row.exercise.exercise_name,
+                  unit: it.row.exercise.unit,
+                  sets: it.row.sets,
+                }));
+
+                return (
+                  <SupersetBlock
+                    key={`group-${entry.groupId}`}
+                    members={members}
+                    disabled={submitted || saving}
+                    latestBodyWeight={state.latestBodyWeight}
+                    onChangeUnit={(memberIndex, unit) =>
+                      changeRowUnit(indices[memberIndex], unit)
+                    }
+                    onChangeSet={(memberIndex, roundIndex, patch) =>
+                      updateSet(indices[memberIndex], roundIndex, patch)
+                    }
+                    onAddRound={() => addRoundToGroup(indices)}
+                    onRemoveRound={(roundIndex) => removeRoundFromGroup(indices, roundIndex)}
+                    prBySetId={prBySetId}
+                    collapsed={isCollapsedAfterSave(`group-${entry.groupId}`)}
+                    onToggleCollapse={
+                      submitted ? () => toggleAfterSave(`group-${entry.groupId}`) : undefined
+                    }
+                  />
+                );
+              })}
+
+            {!skipped && formRows.length > 0 && (!submitted || notes.trim() !== "") && (
+              <Card>
+                <Txt variant="headline">Sensaciones</Txt>
+                <TextField
+                  multiline
+                  placeholder="¿Cómo te sentiste? (opcional)"
+                  value={notes}
+                  editable={!submitted && !saving}
+                  maxLength={2000}
+                  onChangeText={setNotes}
+                />
+              </Card>
+            )}
+
+            {formError && (
+              <Txt variant="subhead" tone="danger" style={{ textAlign: "center" }}>
+                {formError}
+              </Txt>
+            )}
+
+            {!skipped && formRows.length > 0 && (
+              <View style={styles.actions}>
+                {submitted ? (
+                  // El resumen de arriba (savedSummaries) ya deja constancia de que
+                  // este entreno se guardó, como último ítem de la lista -- no hace
+                  // falta repetirlo aquí también.
+                  <Button
+                    title="Loguear otro entreno"
+                    variant="filled"
+                    size="large"
+                    fullWidth
+                    onPress={handleLogAnother}
+                  />
+                ) : (
+                  <>
+                    <Button
+                      title={saving ? "Guardando..." : "Guardar entreno"}
+                      variant="filled"
+                      size="large"
+                      fullWidth
+                      onPress={() => handleSave()}
+                      disabled={saving}
+                    />
+                    {/* "Cancelar" (volver a lo último guardado) solo tiene
+                        sentido si ya hay algo guardado hoy a lo que volver;
+                        si es el primer entreno del día, en su lugar se ofrece
+                        "Quitar" para descartarlo sin más. Mutuamente
+                        excluyentes, nunca se muestran los dos a la vez. */}
+                    {savedSummaries.length > 0 ? (
+                      <Button
+                        title="Cancelar"
+                        variant="plain"
+                        fullWidth
+                        onPress={handleCancelAnother}
+                        disabled={saving}
+                      />
+                    ) : (
+                      <Button
+                        title="Quitar entreno de hoy"
+                        variant="destructive"
+                        fullWidth
+                        onPress={handleSkipToday}
+                        disabled={saving}
+                      />
+                    )}
+                  </>
+                )}
+              </View>
+            )}
+          </ScrollView>
+
+          {/* Un único Modal para los dos pasos de "Loguear otro entreno" -- ver
+              comentario en la declaración de pickerStep sobre por qué no son
+              dos <Modal> hermanos alternando visibilidad. El fondo es un
+              Pressable que cierra el picker al tocar fuera de la tarjeta --
+              salida rápida sin depender de llegar hasta el botón "Cancelar"
+              (que puede quedar más abajo si la lista de rutinas/ejercicios es
+              larga). La tarjeta en sí es otro Pressable con onPress vacío: en
+              RN, el toque lo capta el Pressable más interno bajo el dedo, así
+              que tocar dentro de la tarjeta nunca llega a "burbujear" hasta el
+              del fondo. */}
+          <Modal
+            visible={pickerStep !== null}
+            transparent
+            animationType="slide"
+            onRequestClose={() => setPickerStep(null)}
+          >
+            <Pressable style={styles.modalBackdrop} onPress={() => setPickerStep(null)}>
+              {/* Este Modal se renderiza fuera del navigator de tabs (por eso
+                  el KeyboardAvoidingView de más abajo, el que envuelve toda
+                  la pantalla, no llega hasta aquí dentro) -- así que no usa
+                  useBottomTabBarHeight() como offset, eso solo aplica al de
+                  la pantalla normal. Aquí no hay nada por encima de la
+                  tarjeta que compensar, offset 0 le basta. */}
+              <KeyboardAvoidingView
+                style={styles.avoider}
+                behavior={Platform.OS === "ios" ? "padding" : undefined}
+                keyboardVerticalOffset={0}
+              >
+                <Pressable style={styles.modalCard} onPress={() => {}}>
+                  {pickerStep === "target" && (
+                    <>
+                      <Text style={styles.modalTitle}>¿Qué quieres loguear?</Text>
+
+                      <ScrollView style={styles.list}>
+                        <TouchableOpacity style={styles.freeOption} onPress={chooseFreeForAnother}>
+                          <Text style={styles.freeOptionText}>Entreno libre (ejercicios sueltos)</Text>
+                        </TouchableOpacity>
+
+                        {state.routines.map((routine) => (
+                          <TouchableOpacity
+                            key={routine.id}
+                            style={styles.option}
+                            onPress={() => chooseRoutineForAnother(routine)}
+                          >
+                            <Text style={styles.optionText}>{routine.name}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
+
+                      <TouchableOpacity
+                        style={styles.cancelButton}
+                        onPress={() => setPickerStep(null)}
+                      >
+                        <Text style={styles.cancelText}>Cancelar</Text>
+                      </TouchableOpacity>
+                    </>
+                  )}
+
+                  {pickerStep === "exercises" && (
+                    <>
+                      <Text style={styles.modalTitle}>Elige ejercicios</Text>
+
+                      <ExercisePickerList
+                        exercises={state.exercises}
+                        query={freeExerciseQuery}
+                        onQueryChange={setFreeExerciseQuery}
+                        onCreated={appendCreatedExercise}
+                        onUpdated={replaceUpdatedExercise}
+                        renderItem={(exercise) => {
+                          const selected = freeSelection.includes(exercise.id);
+                          // Solo indicativo (no afecta la selección): si este
+                          // ejercicio ya forma parte de un bloque de
+                          // super-serie armado con "+ Super-serie" más abajo.
+                          const inBlock = freeSupersetBlocks.some((b) =>
+                            b.exerciseIds.includes(exercise.id)
+                          );
+                          const hint = secondaryHint(exercise);
+                          return (
+                            <TouchableOpacity
+                              style={styles.option}
+                              onPress={() => toggleFreeExercise(exercise.id)}
+                            >
+                              <Text style={selected ? styles.optionTextSelected : styles.optionText}>
+                                {selected ? "✓ " : ""}
+                                {exercise.name}
+                                {inBlock ? " · Super-serie" : ""}
+                              </Text>
+                              {hint && <Text style={styles.optionHint}>{hint}</Text>}
+                            </TouchableOpacity>
+                          );
+                        }}
+                      />
+
+                      <TouchableOpacity style={styles.supersetOption} onPress={openFreeSupersetPicker}>
+                        <Text style={styles.supersetOptionText}>+ Super-serie</Text>
+                      </TouchableOpacity>
+
+                      <View style={styles.modalActions}>
+                        <TouchableOpacity
+                          style={styles.cancelButton}
+                          onPress={() => setPickerStep(null)}
+                        >
+                          <Text style={styles.cancelText}>Cancelar</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={styles.doneButton}
+                          onPress={confirmFreeSelection}
+                          disabled={freeSelection.length === 0}
+                        >
+                          <Text
+                            style={
+                              freeSelection.length === 0 ? styles.doneTextDisabled : styles.doneText
+                            }
+                          >
+                            Listo ({freeSelection.length})
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    </>
+                  )}
+
+                  {/* Paso anidado dentro de "exercises": elige qué ejercicios
+                      (de todos los existentes, no solo los ya marcados) forman
+                      un bloque de super-serie para este entreno libre. Al
+                      confirmar vuelve a "exercises", no cierra el picker. */}
+                  {pickerStep === "free-superset" && (
+                    <>
+                      <Text style={styles.modalTitle}>Elige ejercicios para la super-serie</Text>
+
+                      <ExercisePickerList
+                        exercises={state.exercises}
+                        query={freeSupersetQuery}
+                        onQueryChange={setFreeSupersetQuery}
+                        onCreated={appendCreatedExercise}
+                        onUpdated={replaceUpdatedExercise}
+                        renderItem={(exercise) => {
+                          const selected = freeSupersetSelection.includes(exercise.id);
+                          // Un ejercicio que ya pertenece a un bloque anterior
+                          // no puede elegirse para uno nuevo -- ver comentario
+                          // en alreadyGroupedFreeExerciseIds.
+                          const alreadyGrouped =
+                            !selected && alreadyGroupedFreeExerciseIds().has(exercise.id);
+                          const hint = secondaryHint(exercise);
+                          return (
+                            <TouchableOpacity
+                              style={styles.option}
+                              onPress={() => toggleFreeSupersetExercise(exercise.id)}
+                              disabled={alreadyGrouped}
+                            >
+                              <Text
+                                style={
+                                  alreadyGrouped
+                                    ? styles.optionTextDisabled
+                                    : selected
+                                    ? styles.optionTextSelected
+                                    : styles.optionText
+                                }
+                              >
+                                {selected ? "✓ " : ""}
+                                {exercise.name}
+                                {alreadyGrouped ? " · ya en otro bloque" : ""}
+                              </Text>
+                              {hint && <Text style={styles.optionHint}>{hint}</Text>}
+                            </TouchableOpacity>
+                          );
+                        }}
+                      />
+
+                      <View style={styles.modalActions}>
+                        <TouchableOpacity
+                          style={styles.cancelButton}
+                          onPress={() => setPickerStep("exercises")}
+                        >
+                          <Text style={styles.cancelText}>Cancelar</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={styles.doneButton}
+                          onPress={confirmFreeSuperset}
+                          disabled={freeSupersetSelection.length < 2}
+                        >
+                          <Text
+                            style={
+                              freeSupersetSelection.length < 2
+                                ? styles.doneTextDisabled
+                                : styles.doneText
+                            }
+                          >
+                            Listo ({freeSupersetSelection.length})
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    </>
+                  )}
+                </Pressable>
+              </KeyboardAvoidingView>
+            </Pressable>
+          </Modal>
+        </KeyboardAvoidingView>
+      )}
+    </SafeAreaView>
+  );
+}
+
+const useStyles = makeStyles(({ colors }) => ({
+  container: {
+    flex: 1,
+    backgroundColor: colors.bg,
+  },
+  content: {
+    padding: space.lg,
+    paddingBottom: space.xxxl * 2,
+    gap: space.lg,
+  },
+  summaryRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space.sm,
+  },
+  cardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: space.sm,
+  },
+  actions: {
+    gap: space.sm,
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.4)",
+    justifyContent: "flex-end",
+  },
+  // Ver comentario equivalente en RoutinesScreen.tsx: el tope de altura debe
+  // vivir en el padre con altura definida (KeyboardAvoidingView, hijo directo
+  // de modalBackdrop que sí tiene flex: 1), no en modalCard -- ahí el % nunca
+  // se resolvía y la tarjeta crecía sin límite real.
+  avoider: {
+    maxHeight: "70%",
+  },
+  modalCard: {
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    padding: 20,
+    flexShrink: 1,
+  },
+  list: {
+    flexShrink: 1,
+  },
+  modalTitle: {
+    color: colors.label,
+    fontSize: 20,
+    fontWeight: "600",
+    marginBottom: 16,
+    textAlign: "center",
+  },
+  option: {
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.separator,
+  },
+  optionText: {
+    color: colors.label,
+    fontSize: 16,
+    textAlign: "left",
+  },
+  optionTextSelected: {
+    fontSize: 16,
+    textAlign: "left",
+    fontWeight: "600",
+    color: colors.success,
+  },
+  // Ejercicio ya perteneciente a otro bloque de super-serie -- no
+  // seleccionable para uno nuevo, ver alreadyGroupedFreeExerciseIds.
+  optionTextDisabled: {
+    fontSize: 16,
+    textAlign: "left",
+    color: colors.labelTertiary,
+  },
+  optionHint: {
+    fontSize: 12,
+    color: colors.labelTertiary,
+    textAlign: "left",
+    marginTop: 2,
+  },
+  // "Entreno libre" es una opción especial (no una rutina), separada del resto
+  // con más peso visual y un borde algo más marcado para que no se confunda
+  // con una rutina más de la lista.
+  freeOption: {
+    paddingVertical: 14,
+    borderBottomWidth: 2,
+    borderBottomColor: colors.separator,
+    marginBottom: 4,
+  },
+  freeOptionText: {
+    color: colors.label,
+    fontSize: 16,
+    fontWeight: "600",
+    textAlign: "center",
+  },
+  // Abre el paso anidado "free-superset" -- separado visualmente del listado
+  // de ejercicios con un borde superior, ya que no es un ejercicio más de la
+  // lista sino una acción distinta.
+  supersetOption: {
+    paddingVertical: 12,
+    borderTopWidth: 2,
+    borderTopColor: colors.separator,
+    marginTop: 4,
+  },
+  supersetOptionText: {
+    fontSize: 15,
+    fontWeight: "600",
+    textAlign: "center",
+    color: colors.tint,
+  },
+  modalActions: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 8,
+  },
+  cancelButton: {
+    flex: 1,
+    paddingVertical: 14,
+  },
+  cancelText: {
+    fontSize: 16,
+    textAlign: "center",
+    color: colors.danger,
+    fontWeight: "600",
+  },
+  doneButton: {
+    flex: 1,
+    paddingVertical: 14,
+  },
+  doneText: {
+    fontSize: 16,
+    textAlign: "center",
+    color: colors.success,
+    fontWeight: "600",
+  },
+  doneTextDisabled: {
+    fontSize: 16,
+    textAlign: "center",
+    color: colors.labelTertiary,
+    fontWeight: "600",
+  },
+}));

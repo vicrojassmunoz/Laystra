@@ -1,6 +1,6 @@
 from datetime import date as date_
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.units import WeightUnit
 
@@ -33,6 +33,16 @@ class WorkoutSet(WorkoutSetBase):
 class WorkoutBase(BaseModel):
     date: date_
     routine_id: int | None = None
+    # Sensaciones del entreno, texto libre. Vacío/solo espacios se guarda como None.
+    notes: str | None = Field(default=None, max_length=2000)
+
+    @field_validator("notes")
+    @classmethod
+    def _blank_notes_to_none(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
 
 
 class WorkoutCreate(WorkoutBase):
