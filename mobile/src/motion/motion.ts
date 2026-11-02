@@ -1,9 +1,13 @@
 import * as Haptics from "expo-haptics";
 import { ViewStyle } from "react-native";
+import { cubicBezier } from "react-native-reanimated";
 
 // Curvas del skill animate-expo (Emil Kowalski). Nada de ease-in en UI.
-export const EASE_OUT = "cubic-bezier(0.23, 1, 0.32, 1)"; // entradas / feedback
-export const EASE_IN_OUT = "cubic-bezier(0.77, 0, 0.175, 1)"; // movimiento en pantalla
+// OJO: en nativo Reanimated solo acepta como TEXTO las curvas con nombre
+// (ease, ease-out...). Una curva propia hay que construirla con cubicBezier();
+// el texto "cubic-bezier(...)" funciona en web pero lanza error en el iPhone.
+export const EASE_OUT = cubicBezier(0.23, 1, 0.32, 1); // entradas / feedback
+export const EASE_IN_OUT = cubicBezier(0.77, 0, 0.175, 1); // movimiento en pantalla
 
 export const PRESS_MS = 120; // feedback de pulsación: 100–150 ms
 export const STATE_MS = 200; // cambios de estado pequeños: 150–200 ms
@@ -14,11 +18,11 @@ export const VALUE_MS = 380; // una barra de progreso que cambia de valor
 export function transition(
   properties: string | string[],
   durationMs: number,
-  easing: string = EASE_OUT
+  easing: ReturnType<typeof cubicBezier> = EASE_OUT
 ): ViewStyle {
   return {
     transitionProperty: properties,
-    transitionDuration: `${durationMs}ms`,
+    transitionDuration: durationMs,
     transitionTimingFunction: easing,
   } as unknown as ViewStyle;
 }
