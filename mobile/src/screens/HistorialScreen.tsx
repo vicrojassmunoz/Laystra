@@ -1,10 +1,10 @@
 import { useFocusEffect } from "@react-navigation/native";
 import { useCallback, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   KeyboardAvoidingView,
   Modal,
   Platform,
+  Pressable,
   ScrollView,
   TouchableOpacity,
   View,
@@ -13,10 +13,18 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { fetchExercises } from "../api/exercises";
 import { fetchRoutines } from "../api/routines";
+import { todayIsoDate } from "../api/today";
 import { deleteWorkout, exportWorkoutsCsv, fetchWorkouts, updateWorkout } from "../api/workouts";
 import ExercisePickerList from "../components/ExercisePickerList";
 import SupersetBlock, { SetDraft } from "../components/SupersetBlock";
-import { LockedBodyweightLabel, WeightUnitChips, formatSetLine } from "../components/WeightUnitChips";
+import SetRow from "../components/SetRow";
+import Button from "../components/ui/Button";
+import { Card, SectionHeader } from "../components/ui/Card";
+import Icon from "../components/ui/Icon";
+import { ScreenError, ScreenLoading } from "../components/ui/Screen";
+import TextField from "../components/ui/TextField";
+import Txt from "../components/ui/Txt";
+import { WeightUnitChips } from "../components/WeightUnitChips";
 import { Exercise, WeightUnit } from "../types/exercise";
 import { Routine } from "../types/routine";
 import { Workout, WorkoutSet, WorkoutSetCreate } from "../types/workout";
@@ -26,45 +34,20 @@ import { groupBySuperset, validSupersetGroups } from "../utils/superset";
 import { convertWeight } from "../utils/weightUnit";
 import { showAlert } from "../utils/alert";
 import { shareCsv } from "../utils/shareCsv";
-import { Text, TextInput, Button } from "../components/ui/compat";
-import { makeStyles } from "../theme/theme";
+import {
+  dayLabel,
+  formatVolume,
+  monthLabel,
+  summarizeByExercise,
+  workoutStats,
+} from "../utils/workoutSummary";
+import { Text } from "../components/ui/compat";
+import { makeStyles, space, useTheme } from "../theme/theme";
 
 type State =
   | { status: "loading" }
   | { status: "error"; message: string }
   | { status: "ready"; workouts: Workout[]; exercises: Exercise[]; routines: Routine[] };
-
-type ExerciseGroup = {
-  exerciseId: number;
-  name: string;
-  entries: string[];
-};
-
-// Los sets de un workout ya vienen ordenados por "order" desde el backend, así
-// que las series del mismo ejercicio quedan contiguas -- agrupamos por eso en
-// vez de repetir el nombre del ejercicio en cada línea.
-function groupSetsByExercise(
-  sets: WorkoutSet[],
-  exerciseById: Map<number, Exercise>
-): ExerciseGroup[] {
-  const groups: ExerciseGroup[] = [];
-
-  for (const set of sets) {
-    const exercise = exerciseById.get(set.exercise_id);
-    const name = exercise?.name ?? `Ejercicio #${set.exercise_id}`;
-    const unit = set.unit ?? exercise?.unit ?? "kg";
-    const entry = formatSetLine(set.weight, unit, set.reps);
-
-    const last = groups[groups.length - 1];
-    if (last && last.exerciseId === set.exercise_id) {
-      last.entries.push(entry);
-    } else {
-      groups.push({ exerciseId: set.exercise_id, name, entries: [entry] });
-    }
-  }
-
-  return groups;
-}
 
 // SetDraft (id + weight/reps como string) viene de SupersetBlock -- mismo
 // tipo que usa TodayScreen, así se reusa uno solo en vez de declararlo dos
@@ -142,6 +125,21 @@ export default function HistorialScreen() {
   const [addExercisePickerVisible, setAddExercisePickerVisible] = useState(false);
   const [addExerciseQuery, setAddExerciseQuery] = useState("");
   const [exporting, setExporting] = useState(false);
+  // Entrenos desplegados (ids). Vacío = todos recogidos; el que se edita siempre va abierto.
+  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
+  const { colors } = useTheme();
+
+  function toggleExpanded(id: number) {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }
   // Contador compartido para ids de fila de serie en el formulario de edición,
   // igual que nextSetIdRef en TodayScreen -- da a cada fila una key estable.
   const nextEditIdRef = useRef(1);
@@ -475,25 +473,37 @@ export default function HistorialScreen() {
   }
 
   if (state.status === "loading") {
-    return (
-      <SafeAreaView style={styles.container} edges={["bottom"]}>
-        <ActivityIndicator size="large" />
-      </SafeAreaView>
-    );
+    return <ScreenLoading />;
   }
 
   if (state.status === "error") {
-    return (
-      <SafeAreaView style={styles.container} edges={["bottom"]}>
-        <Text style={styles.title}>No se pudo conectar con el backend</Text>
-        <Text style={styles.errorDetail}>{state.message}</Text>
-      </SafeAreaView>
-    );
+    return <ScreenError message={state.message} />;
   }
 
   const { workouts, exercises, routines } = state;
   const exerciseById = new Map(exercises.map((e) => [e.id, e]));
   const routineById = new Map(routines.map((r) => [r.id, r]));
+
+  // Resumen de los últimos 30 días (fechas ISO se comparan como texto).
+  const cutoffDate = new Date();
+  cutoffDate.setDate(cutoffDate.getDate() - 30);
+  const cutoffIso = `${cutoffDate.getFullYear()}-${String(cutoffDate.getMonth() + 1).padStart(2, "0")}-${String(cutoffDate.getDate()).padStart(2, "0")}`;
+  const recent = workouts.filter((w) => w.date >= cutoffIso && w.date <= todayIsoDate());
+  const recentVolumeKg = recent.reduce((sum, w) => sum + workoutStats(w).volumeKg, 0);
+
+  // Agrupa por mes (los entrenos ya vienen ordenados de más nuevo a más viejo).
+  const months: { key: string; label: string; items: Workout[] }[] = [];
+  for (const workout of workouts) {
+    const key = workout.date.slice(0, 7);
+    const last = months[months.length - 1];
+    if (last && last.key === key) {
+      last.items.push(workout);
+    } else {
+      months.push({ key, label: monthLabel(workout.date), items: [workout] });
+    }
+  }
+
+  const busy = editingWorkoutId !== null || deletingWorkoutId !== null;
 
   return (
     <SafeAreaView style={styles.container} edges={["bottom"]}>
@@ -503,207 +513,299 @@ export default function HistorialScreen() {
         keyboardVerticalOffset={0}
       >
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-
-          <View style={styles.exportButton}>
-            <Button
-              title={exporting ? "Exportando..." : "Exportar CSV"}
-              onPress={handleExportCsv}
-              disabled={exporting}
-            />
-          </View>
-
-          {workouts.length === 0 && (
-            <Text style={styles.emptyText}>Aún no has logueado ningún entreno.</Text>
+          {workouts.length === 0 ? (
+            <Card>
+              <Txt variant="headline">Aún no hay entrenos</Txt>
+              <Txt variant="subhead" tone="secondary">
+                Cuando guardes tu primera sesión aparecerá aquí, agrupada por mes.
+              </Txt>
+            </Card>
+          ) : (
+            <Card>
+              <Txt variant="footnote" tone="secondary" weight="600">
+                Últimos 30 días
+              </Txt>
+              <View style={styles.statsRow}>
+                <View>
+                  <Txt variant="title2" numeric>
+                    {recent.length}
+                  </Txt>
+                  <Txt variant="footnote" tone="secondary">
+                    {recent.length === 1 ? "entreno" : "entrenos"}
+                  </Txt>
+                </View>
+                <View>
+                  <Txt variant="title2" numeric>
+                    {formatVolume(recentVolumeKg)}
+                  </Txt>
+                  <Txt variant="footnote" tone="secondary">
+                    de volumen
+                  </Txt>
+                </View>
+              </View>
+            </Card>
           )}
 
-          {actionError && <Text style={styles.errorDetail}>{actionError}</Text>}
+          {actionError ? (
+            <Txt variant="subhead" tone="danger">
+              {actionError}
+            </Txt>
+          ) : null}
 
-          {workouts.map((workout) => {
-            const routineName =
-              workout.routine_id != null
-                ? routineById.get(workout.routine_id)?.name ?? `Rutina #${workout.routine_id}`
-                : "Entreno libre";
+          {months.map((month) => (
+            <View key={month.key} style={styles.monthBlock}>
+              <SectionHeader>{month.label}</SectionHeader>
 
-            const isEditing = editingWorkoutId === workout.id;
+              {month.items.map((workout) => {
+                const routineName =
+                  workout.routine_id != null
+                    ? routineById.get(workout.routine_id)?.name ?? `Rutina #${workout.routine_id}`
+                    : "Entreno libre";
+                const isEditing = editingWorkoutId === workout.id;
+                const isOpen = expandedIds.has(workout.id);
+                const stats = workoutStats(workout);
 
-            return (
-              <View
-                key={workout.id}
-                style={[styles.card, isEditing && styles.cardEditing]}
-              >
-                <Text style={styles.date}>{workout.date}</Text>
-                <Text style={styles.routineName}>{routineName}</Text>
+                if (isEditing) {
+                  // Edición: una tarjeta por ejercicio / super-serie (mismo formato
+                  // que Sesión), sin tarjetas anidadas dentro de la del entreno.
+                  return (
+                    <View key={workout.id} style={styles.editBlock}>
+                      <View style={styles.editHeader}>
+                        <Txt variant="headline" style={{ flex: 1 }}>
+                          {routineName}
+                        </Txt>
+                        <Txt variant="subhead" tone="secondary" numeric>
+                          {dayLabel(workout.date)}
+                        </Txt>
+                      </View>
 
-                {isEditing ? (
-                  <>
-                    {groupBySuperset(
-                      editRows.map((group, index) => ({ group, index })),
-                      (entry) => entry.group.supersetGroup
-                    ).map((entry) => {
-                      if (entry.type === "single") {
-                        const { group, index: groupIndex } = entry.item;
-                        const exercise = exerciseById.get(group.exerciseId);
-                        const name = exercise?.name ?? `Ejercicio #${group.exerciseId}`;
-                        return (
-                          // buildEditGroups agrupa por tramos contiguos del mismo
-                          // ejercicio -- un entreno con el mismo ejercicio en dos
-                          // tramos separados (ej. superserie A-B-A) genera dos
-                          // grupos con el mismo exerciseId, así que hace falta
-                          // combinarlo con el índice del tramo para que la key
-                          // sea única.
-                          <View key={`${group.exerciseId}-${groupIndex}`} style={styles.editGroup}>
-                            <Text style={styles.exerciseName}>{name}</Text>
-                            <WeightUnitChips
-                              value={group.unit}
-                              onChange={(unit) => changeEditUnit(groupIndex, unit)}
-                              disabled={editSaving}
-                            />
-
-                            {group.sets.map((setDraft, setIndex) => (
-                              <View key={setDraft.id} style={styles.setRow}>
-                                <Text style={styles.setLabel}>Serie {setIndex + 1}</Text>
-                                {group.unit === "bw" ? (
-                                  <LockedBodyweightLabel
-                                    bodyWeightKg={parseDecimalInput(setDraft.weight)}
-                                  />
-                                ) : (
-                                  <TextInput
-                                    style={styles.weightInput}
-                                    placeholder={group.unit}
-                                    keyboardType="decimal-pad"
-                                    value={setDraft.weight}
-                                    editable={!editSaving}
-                                    onChangeText={(text) =>
-                                      updateEditSet(groupIndex, setIndex, { weight: text })
-                                    }
-                                  />
-                                )}
-                                <TextInput
-                                  style={styles.repsInput}
-                                  placeholder="reps"
-                                  keyboardType="number-pad"
-                                  value={setDraft.reps}
-                                  editable={!editSaving}
-                                  onChangeText={(text) =>
-                                    updateEditSet(groupIndex, setIndex, { reps: text })
-                                  }
-                                />
-                                <Button
-                                  title="Quitar"
-                                  color="#b00020"
-                                  onPress={() => removeEditSet(groupIndex, setIndex)}
-                                  disabled={editSaving}
-                                />
-                              </View>
-                            ))}
-
-                            <View style={styles.addSetButton}>
-                              <Button
-                                title="+ añadir serie"
-                                onPress={() => addEditSet(groupIndex)}
+                      {groupBySuperset(
+                        editRows.map((group, index) => ({ group, index })),
+                        (entry) => entry.group.supersetGroup
+                      ).map((entry) => {
+                        if (entry.type === "single") {
+                          const { group, index: groupIndex } = entry.item;
+                          const exercise = exerciseById.get(group.exerciseId);
+                          const name = exercise?.name ?? `Ejercicio #${group.exerciseId}`;
+                          return (
+                            // buildEditGroups agrupa por tramos contiguos del mismo
+                            // ejercicio -- un entreno con el mismo ejercicio en dos
+                            // tramos separados (ej. superserie A-B-A) genera dos
+                            // grupos con el mismo exerciseId, así que hace falta
+                            // combinarlo con el índice del tramo para que la key
+                            // sea única.
+                            <Card key={`${group.exerciseId}-${groupIndex}`}>
+                              <Txt variant="headline">{name}</Txt>
+                              <WeightUnitChips
+                                value={group.unit}
+                                onChange={(unit) => changeEditUnit(groupIndex, unit)}
                                 disabled={editSaving}
                               />
-                            </View>
-                          </View>
+
+                              {group.sets.map((setDraft, setIndex) => (
+                                <SetRow
+                                  key={setDraft.id}
+                                  label={`Serie ${setIndex + 1}`}
+                                  unit={group.unit}
+                                  weight={setDraft.weight}
+                                  reps={setDraft.reps}
+                                  bodyWeightKg={parseDecimalInput(setDraft.weight)}
+                                  editable={!editSaving}
+                                  onChangeWeight={(text) =>
+                                    updateEditSet(groupIndex, setIndex, { weight: text })
+                                  }
+                                  onChangeReps={(text) =>
+                                    updateEditSet(groupIndex, setIndex, { reps: text })
+                                  }
+                                  onRemove={() => removeEditSet(groupIndex, setIndex)}
+                                />
+                              ))}
+
+                              <Button
+                                title="Añadir serie"
+                                icon="plus"
+                                variant="tinted"
+                                fullWidth
+                                disabled={editSaving}
+                                onPress={() => addEditSet(groupIndex)}
+                              />
+                            </Card>
+                          );
+                        }
+
+                        const indices = entry.items.map((it) => it.index);
+                        const members = entry.items.map((it) => {
+                          const exercise = exerciseById.get(it.group.exerciseId);
+                          return {
+                            key: `${it.group.exerciseId}-${it.index}`,
+                            exerciseId: it.group.exerciseId,
+                            name: exercise?.name ?? `Ejercicio #${it.group.exerciseId}`,
+                            unit: it.group.unit,
+                            sets: it.group.sets,
+                          };
+                        });
+
+                        return (
+                          <SupersetBlock
+                            key={`group-${entry.groupId}`}
+                            members={members}
+                            disabled={editSaving}
+                            onChangeUnit={(memberIndex, unit) =>
+                              changeEditUnit(indices[memberIndex], unit)
+                            }
+                            onChangeSet={(memberIndex, roundIndex, patch) =>
+                              updateEditSet(indices[memberIndex], roundIndex, patch)
+                            }
+                            onAddRound={() => addEditRoundToGroup(indices)}
+                            onRemoveRound={(roundIndex) =>
+                              removeEditRoundFromGroup(indices, roundIndex)
+                            }
+                          />
                         );
-                      }
+                      })}
 
-                      const indices = entry.items.map((it) => it.index);
-                      const members = entry.items.map((it) => {
-                        const exercise = exerciseById.get(it.group.exerciseId);
-                        return {
-                          key: `${it.group.exerciseId}-${it.index}`,
-                          exerciseId: it.group.exerciseId,
-                          name: exercise?.name ?? `Ejercicio #${it.group.exerciseId}`,
-                          unit: it.group.unit,
-                          sets: it.group.sets,
-                        };
-                      });
-
-                      return (
-                        <SupersetBlock
-                          key={`group-${entry.groupId}`}
-                          members={members}
-                          disabled={editSaving}
-                          onChangeUnit={(memberIndex, unit) =>
-                            changeEditUnit(indices[memberIndex], unit)
-                          }
-                          onChangeSet={(memberIndex, roundIndex, patch) =>
-                            updateEditSet(indices[memberIndex], roundIndex, patch)
-                          }
-                          onAddRound={() => addEditRoundToGroup(indices)}
-                          onRemoveRound={(roundIndex) =>
-                            removeEditRoundFromGroup(indices, roundIndex)
-                          }
+                      <Card>
+                        <Txt variant="headline">Sensaciones</Txt>
+                        <TextField
+                          multiline
+                          placeholder="¿Cómo te sentiste? (opcional)"
+                          value={editNotes}
+                          editable={!editSaving}
+                          maxLength={2000}
+                          onChangeText={setEditNotes}
                         />
-                      );
-                    })}
+                      </Card>
 
-                    <View style={styles.notesBox}>
-                      <Text style={styles.notesLabel}>Sensaciones</Text>
-                      <TextInput
-                        style={styles.notesInput}
-                        multiline
-                        placeholder="¿Cómo te sentiste? (opcional)"
-                        value={editNotes}
-                        editable={!editSaving}
-                        maxLength={2000}
-                        onChangeText={setEditNotes}
-                      />
-                    </View>
+                      {editError ? (
+                        <Txt variant="subhead" tone="danger" style={{ textAlign: "center" }}>
+                          {editError}
+                        </Txt>
+                      ) : null}
 
-                    {editError && <Text style={styles.errorDetail}>{editError}</Text>}
-
-                    <View style={styles.addExerciseButton}>
                       <Button
                         title="Añadir ejercicio"
+                        icon="plus"
+                        variant="tinted"
+                        fullWidth
+                        disabled={editSaving}
                         onPress={() => {
                           setAddExerciseQuery("");
                           setAddExercisePickerVisible(true);
                         }}
-                        disabled={editSaving}
                       />
-                    </View>
 
-                    <View style={styles.cardActions}>
-                      <Button title="Cancelar" color="#666" onPress={cancelEdit} disabled={editSaving} />
-                      <Button
-                        title={editSaving ? "Guardando..." : "Guardar cambios"}
-                        onPress={() => handleSaveEdit(workout, exerciseById)}
-                        disabled={editSaving}
-                      />
+                      <View style={styles.editActions}>
+                        <View style={{ flex: 1 }}>
+                          <Button
+                            title="Cancelar"
+                            variant="tinted"
+                            size="large"
+                            fullWidth
+                            disabled={editSaving}
+                            onPress={cancelEdit}
+                          />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Button
+                            title={editSaving ? "Guardando..." : "Guardar"}
+                            variant="filled"
+                            size="large"
+                            fullWidth
+                            disabled={editSaving}
+                            onPress={() => handleSaveEdit(workout, exerciseById)}
+                          />
+                        </View>
+                      </View>
                     </View>
-                  </>
-                ) : (
-                  <>
-                    {groupSetsByExercise(workout.sets, exerciseById).map((group, index) => (
-                      <Text key={`${group.exerciseId}-${index}`} style={styles.setLine}>
-                        {group.name}: {group.entries.join(", ")}
-                      </Text>
-                    ))}
+                  );
+                }
+
+                return (
+                  <Card key={workout.id}>
+                    <Pressable
+                      onPress={() => toggleExpanded(workout.id)}
+                      accessibilityRole="button"
+                      accessibilityState={{ expanded: isOpen }}
+                      style={styles.cardHeader}
+                    >
+                      <View style={{ flex: 1, gap: 2 }}>
+                        <Txt variant="headline">{routineName}</Txt>
+                        <Txt variant="subhead" tone="secondary" numeric>
+                          {dayLabel(workout.date)} · {stats.exercises} ejercicio
+                          {stats.exercises === 1 ? "" : "s"}
+                        </Txt>
+                        <Txt variant="footnote" tone="secondary" numeric>
+                          {stats.sets} serie{stats.sets === 1 ? "" : "s"} ·{" "}
+                          {formatVolume(stats.volumeKg)} de volumen
+                        </Txt>
+                      </View>
+                      <Icon
+                        name={isOpen ? "collapse" : "expand"}
+                        size={14}
+                        color={colors.labelSecondary}
+                      />
+                    </Pressable>
 
                     {workout.notes ? (
-                      <Text style={styles.notesText}>📝 {workout.notes}</Text>
+                      <View style={styles.notesRow}>
+                        <Icon name="note" size={15} color={colors.labelSecondary} />
+                        <Txt
+                          variant="subhead"
+                          tone="secondary"
+                          numberOfLines={isOpen ? undefined : 1}
+                          style={{ flex: 1 }}
+                        >
+                          {workout.notes}
+                        </Txt>
+                      </View>
                     ) : null}
 
-                    <View style={styles.cardActions}>
-                      <Button
-                        title="Editar"
-                        onPress={() => startEdit(workout)}
-                        disabled={editingWorkoutId !== null || deletingWorkoutId !== null}
-                      />
-                      <Button
-                        title={deletingWorkoutId === workout.id ? "Borrando..." : "Borrar"}
-                        color="#b00020"
-                        onPress={() => confirmDelete(workout, routineName)}
-                        disabled={editingWorkoutId !== null || deletingWorkoutId !== null}
-                      />
-                    </View>
-                  </>
-                )}
-              </View>
-            );
-          })}
+                    {isOpen ? (
+                      <>
+                        {summarizeByExercise(workout.sets, exerciseById).map((exercise) => (
+                          <View key={exercise.exerciseId} style={styles.exerciseBlock}>
+                            <Txt variant="callout" weight="600">
+                              {exercise.name}
+                            </Txt>
+                            <Txt variant="subhead" tone="secondary" numeric>
+                              {exercise.line}
+                            </Txt>
+                          </View>
+                        ))}
+
+                        <View style={styles.actions}>
+                          <Button
+                            title="Editar"
+                            variant="tinted"
+                            size="compact"
+                            disabled={busy}
+                            onPress={() => startEdit(workout)}
+                          />
+                          <Button
+                            title={deletingWorkoutId === workout.id ? "Borrando..." : "Borrar"}
+                            variant="plainDestructive"
+                            size="compact"
+                            disabled={busy}
+                            onPress={() => confirmDelete(workout, routineName)}
+                          />
+                        </View>
+                      </>
+                    ) : null}
+                  </Card>
+                );
+              })}
+            </View>
+          ))}
+
+          {workouts.length > 0 ? (
+            <Button
+              title={exporting ? "Exportando..." : "Exportar CSV"}
+              variant="plain"
+              icon="note"
+              disabled={exporting}
+              onPress={handleExportCsv}
+            />
+          ) : null}
         </ScrollView>
       </KeyboardAvoidingView>
 
@@ -752,6 +854,20 @@ export default function HistorialScreen() {
 }
 
 const useStyles = makeStyles(({ colors }) => ({
+  statsRow: { flexDirection: "row", gap: space.xxxl },
+  monthBlock: { gap: space.md },
+  cardHeader: { flexDirection: "row", alignItems: "center", gap: space.sm },
+  notesRow: { flexDirection: "row", alignItems: "flex-start", gap: space.sm },
+  exerciseBlock: {
+    paddingTop: space.md,
+    borderTopWidth: 1,
+    borderTopColor: colors.separator,
+    gap: 2,
+  },
+  actions: { flexDirection: "row", justifyContent: "flex-end", gap: space.sm },
+  editBlock: { gap: space.md },
+  editHeader: { flexDirection: "row", alignItems: "baseline", gap: space.sm },
+  editActions: { flexDirection: "row", gap: space.md },
   notesBox: {
     marginTop: 8,
   },
@@ -781,8 +897,9 @@ const useStyles = makeStyles(({ colors }) => ({
     backgroundColor: colors.bg,
   },
   content: {
-    padding: 16,
-    paddingBottom: 48,
+    padding: space.lg,
+    paddingBottom: space.xxxl * 2,
+    gap: space.lg,
   },
   title: {
     fontSize: 24,

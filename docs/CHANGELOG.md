@@ -4,6 +4,15 @@ Historial de ítems que empezaron en [ROADMAP.md](ROADMAP.md) y ya están hechos
 
 ---
 
+## 2026-11-02 — Historial, Rutinas, Progreso y Análisis rediseñados
+
+- **Historial:** entrenos agrupados por mes, tarjetas compactas (rutina, fecha, ejercicios/series/volumen) que se despliegan con el detalle por ejercicio (`summarizeByExercise`: el peso una vez y las reps en lista) y las acciones; resumen de los últimos 30 días; edición con las mismas filas que Sesión (`SetRow`, `SupersetBlock`).
+- **Rutinas:** tarjetas plegables ("9 ejercicios · 33 series"), botón "Nueva rutina" y formulario solo al crear/editar, super-series con etiqueta y sangría.
+- **Progreso:** ya no es un selector vacío: lista tus ejercicios con datos (calculada en el cliente desde el historial, sin peticiones extra) con mejor peso y sesiones; el detalle trae resumen, gráfico de barras (`BarChart`, desde 3 sesiones), récord marcado y sesión a sesión.
+- **Análisis:** volumen de la semana, "Toca atender" (músculos olvidados), volumen por músculo ordenado, y días sin entrenar con los más abandonados arriba.
+
+---
+
 ## 2026-11-02 — Rediseño "Native Calm"
 
 Sistema de diseño nuevo (ver [DESIGN.md](../DESIGN.md)): tokens claro/oscuro, componentes `ui/`, SF Symbols (`expo-symbols`; Ionicons en web), títulos en línea. Rediseñadas a mano: Home (listas agrupadas), Hoy, Sesión (`SetRow`, `SupersetBlock`, `PrBadge` nuevos), Agua y **Perfil** (resumen de peso con variación, alta de medición, ajustes y exportación). El resto de pantallas usa tokens vía `ui/compat`.

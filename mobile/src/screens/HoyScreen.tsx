@@ -21,8 +21,7 @@ import { Routine } from "../types/routine";
 import { WaterDay } from "../types/water";
 import { Workout } from "../types/workout";
 import { formatMl } from "../utils/water";
-import { toKg } from "../utils/weightUnit";
-import { summarizeByExercise } from "../utils/workoutSummary";
+import { summarizeByExercise, workoutStats } from "../utils/workoutSummary";
 
 type State =
   | { status: "loading" }
@@ -44,15 +43,6 @@ function longDate(iso: string): string {
     month: "long",
   });
   return text.charAt(0).toUpperCase() + text.slice(1);
-}
-
-function workoutStats(workout: Workout): { exercises: number; sets: number; volumeKg: number } {
-  const exercises = new Set(workout.sets.map((s) => s.exercise_id)).size;
-  const volumeKg = workout.sets.reduce(
-    (sum, s) => sum + toKg(s.weight, s.unit ?? "kg") * s.reps,
-    0
-  );
-  return { exercises, sets: workout.sets.length, volumeKg };
 }
 
 const useStyles = makeStyles(({ colors }) => ({
@@ -278,7 +268,7 @@ export default function HoyScreen() {
                             {exercise.name}
                           </Txt>
                           <Txt variant="subhead" tone="secondary" numeric>
-                            {exercise.entries.join("  ·  ")}
+                            {exercise.line}
                           </Txt>
                         </View>
                       ))

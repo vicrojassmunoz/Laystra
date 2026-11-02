@@ -1,17 +1,18 @@
 import { useFocusEffect } from "@react-navigation/native";
 import { useCallback, useRef, useState } from "react";
-import {
-  ActivityIndicator,
-  ScrollView,
-  View,
-} from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { View } from "react-native";
 
 import { fetchAnalyticsSummary } from "../api/analytics";
+import { Card, Section, SectionHeader } from "../components/ui/Card";
+import Icon from "../components/ui/Icon";
+import ProgressBar from "../components/ui/ProgressBar";
+import Row from "../components/ui/Row";
+import Screen, { ScreenError, ScreenLoading } from "../components/ui/Screen";
+import Txt from "../components/ui/Txt";
+import { makeStyles, space, useTheme } from "../theme/theme";
 import { AnalyticsSummary } from "../types/analytics";
 import { MUSCLE_GROUP_ORDER } from "../utils/exercisePicker";
-import { Text } from "../components/ui/compat";
-import { makeStyles } from "../theme/theme";
+import { formatVolume } from "../utils/workoutSummary";
 
 type State =
   | { status: "loading" }
@@ -22,8 +23,18 @@ type State =
 // puramente visual (resalta la fila), no afecta a ningún cálculo.
 const STALE_DAYS_THRESHOLD = 7;
 
+const useStyles = makeStyles(() => ({
+  volumeRow: { flexDirection: "row", alignItems: "center", gap: space.md, minHeight: 28 },
+  volumeLabel: { width: 96 },
+  volumeBar: { flex: 1 },
+  volumeValue: { width: 62, textAlign: "right" },
+  insight: { flexDirection: "row", alignItems: "center", gap: space.sm },
+  value: { flexDirection: "row", alignItems: "center", gap: space.xs },
+}));
+
 export default function AnalisisScreen() {
   const styles = useStyles();
+  const { colors } = useTheme();
   const [state, setState] = useState<State>({ status: "loading" });
   const hasDataRef = useRef(false);
 
@@ -51,162 +62,108 @@ export default function AnalisisScreen() {
   );
 
   if (state.status === "loading") {
-    return (
-      <SafeAreaView style={styles.container} edges={["bottom"]}>
-        <ActivityIndicator size="large" />
-      </SafeAreaView>
-    );
+    return <ScreenLoading />;
   }
-
   if (state.status === "error") {
-    return (
-      <SafeAreaView style={styles.container} edges={["bottom"]}>
-        <Text style={styles.title}>No se pudo conectar con el backend</Text>
-        <Text style={styles.errorDetail}>{state.message}</Text>
-      </SafeAreaView>
-    );
+    return <ScreenError message={state.message} />;
   }
 
   const { data } = state;
 
-  // El backend ya devuelve las dos listas en el orden de MUSCLE_GROUPS, pero
-  // se reordena aquí igualmente por MUSCLE_GROUP_ORDER -- así el frontend no
-  // depende silenciosamente de un orden que solo "da la casualidad" que
-  // coincide, mismo catálogo que usa el picker de ejercicios.
+  // El backend devuelve las listas en el orden de MUSCLE_GROUPS; se indexa por
+  // etiqueta y se recorre MUSCLE_GROUP_ORDER para no depender de ese orden.
   const volumeByLabel = new Map(data.volume_by_muscle.map((v) => [v.muscle_group, v.tonnage]));
-  const gapByLabel = new Map(data.days_since_trained.map((g) => [g.muscle_group, g.days_since_trained]));
+  const gapByLabel = new Map(
+    data.days_since_trained.map((g) => [g.muscle_group, g.days_since_trained])
+  );
   const maxTonnage = Math.max(0, ...data.volume_by_muscle.map((v) => v.tonnage));
 
+  // Volumen: de más a menos (los que no se han trabajado, al final, en el orden del catálogo).
+  const volumeRows = MUSCLE_GROUP_ORDER.map((label) => ({
+    label,
+    tonnage: volumeByLabel.get(label) ?? 0,
+  })).sort((a, b) => b.tonnage - a.tonnage);
+
+  // Días sin entrenar: el más abandonado primero (nunca = el que más).
+  const gapRows = MUSCLE_GROUP_ORDER.map((label) => ({
+    label,
+    days: gapByLabel.get(label) ?? null,
+  })).sort((a, b) => {
+    const av = a.days === null ? Number.POSITIVE_INFINITY : a.days;
+    const bv = b.days === null ? Number.POSITIVE_INFINITY : b.days;
+    return bv - av;
+  });
+  const neglected = gapRows.filter((g) => g.days === null || g.days >= STALE_DAYS_THRESHOLD);
+
   return (
-    <SafeAreaView style={styles.container} edges={["bottom"]}>
-      <ScrollView contentContainerStyle={styles.content}>
-        {/* Sin título propio: pantalla pusheada desde Home, header nativo ya
-            muestra "Análisis" (ver App.tsx). Igual que UserScreen/Objetivos. */}
-        <View style={styles.tonnageCard}>
-          <Text style={styles.tonnageLabel}>Tonelaje esta semana</Text>
-          <Text style={styles.tonnageValue}>{Math.round(data.week_tonnage)} kg</Text>
-        </View>
+    <Screen>
+      <Card>
+        <Txt variant="footnote" tone="secondary" weight="600">
+          Volumen esta semana
+        </Txt>
+        <Txt variant="largeTitle" numeric>
+          {formatVolume(data.week_tonnage)}
+        </Txt>
+        <Txt variant="subhead" tone="secondary">
+          Suma de peso × repeticiones de los últimos 7 días.
+        </Txt>
+      </Card>
 
-        <Text style={styles.sectionTitle}>Volumen por músculo (últimos 7 días)</Text>
-        {MUSCLE_GROUP_ORDER.map((label) => {
-          const tonnage = volumeByLabel.get(label) ?? 0;
-          const widthPct = maxTonnage > 0 ? (tonnage / maxTonnage) * 100 : 0;
-          return (
+      {neglected.length > 0 ? (
+        <Card>
+          <View style={styles.insight}>
+            <Icon name="info" size={20} color={colors.warning} />
+            <Txt variant="headline" style={{ flex: 1 }}>
+              Toca atender
+            </Txt>
+          </View>
+          <Txt variant="subhead" tone="secondary">
+            {neglected
+              .slice(0, 3)
+              .map((g) => (g.days === null ? `${g.label} (nunca)` : `${g.label} (${g.days} d)`))
+              .join(" · ")}
+          </Txt>
+        </Card>
+      ) : null}
+
+      <View>
+        <SectionHeader>Volumen por músculo · últimos 7 días</SectionHeader>
+        <Card>
+          {volumeRows.map(({ label, tonnage }) => (
             <View key={label} style={styles.volumeRow}>
-              <Text style={styles.volumeLabel}>{label}</Text>
-              <View style={styles.barTrack}>
-                <View style={[styles.barFill, { width: `${widthPct}%` }]} />
+              <Txt variant="subhead" tone={tonnage > 0 ? "label" : "secondary"} style={styles.volumeLabel}>
+                {label}
+              </Txt>
+              <View style={styles.volumeBar}>
+                <ProgressBar value={maxTonnage > 0 ? tonnage / maxTonnage : 0} height={8} />
               </View>
-              <Text style={styles.volumeValue}>{Math.round(tonnage)}</Text>
+              <Txt variant="subhead" tone="secondary" numeric style={styles.volumeValue}>
+                {tonnage > 0 ? formatVolume(tonnage) : "—"}
+              </Txt>
             </View>
-          );
-        })}
+          ))}
+        </Card>
+      </View>
 
-        <Text style={styles.sectionTitle}>Días sin entrenar</Text>
-        {MUSCLE_GROUP_ORDER.map((label) => {
-          const days = gapByLabel.get(label) ?? null;
-          const isStale = days !== null && days >= STALE_DAYS_THRESHOLD;
+      <Section title="Días sin entrenar">
+        {gapRows.map(({ label, days }) => {
+          const stale = days === null || days >= STALE_DAYS_THRESHOLD;
           return (
-            <View key={label} style={styles.gapRow}>
-              <Text style={styles.gapLabel}>{label}</Text>
-              <Text style={[styles.gapValue, isStale && styles.gapValueStale]}>
-                {days === null ? "Nunca" : `${days} día${days === 1 ? "" : "s"}`}
-              </Text>
-            </View>
+            <Row
+              key={label}
+              title={label}
+              value={
+                <View style={styles.value}>
+                  {stale ? <Icon name="info" size={15} color={colors.warning} /> : null}
+                  <Txt variant="body" tone={stale ? "warning" : "secondary"} numeric>
+                    {days === null ? "Nunca" : `${days} ${days === 1 ? "día" : "días"}`}
+                  </Txt>
+                </View>
+              }
+            />
           );
         })}
-      </ScrollView>
-    </SafeAreaView>
+      </Section>
+    </Screen>
   );
 }
-
-const useStyles = makeStyles(({ colors }) => ({
-  container: {
-    flex: 1,
-    backgroundColor: colors.bg,
-  },
-  content: {
-    padding: 16,
-    paddingBottom: 48,
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: "600",
-    marginBottom: 16,
-  },
-  tonnageCard: {
-    backgroundColor: colors.surface,
-    borderRadius: 8,
-    padding: 16,
-    alignItems: "center",
-    marginBottom: 20,
-  },
-  tonnageLabel: {
-    fontSize: 14,
-    color: colors.labelSecondary,
-    marginBottom: 4,
-  },
-  tonnageValue: {
-    fontSize: 36,
-    fontWeight: "700",
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: "700",
-    marginTop: 8,
-    marginBottom: 10,
-  },
-  volumeRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 10,
-    gap: 8,
-  },
-  volumeLabel: {
-    fontSize: 14,
-    color: colors.label,
-    width: 90,
-  },
-  barTrack: {
-    flex: 1,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: colors.fill,
-    overflow: "hidden",
-  },
-  barFill: {
-    height: "100%",
-    borderRadius: 6,
-    backgroundColor: colors.tint,
-  },
-  volumeValue: {
-    fontSize: 13,
-    color: colors.labelSecondary,
-    width: 48,
-    textAlign: "right",
-  },
-  gapRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.separator,
-  },
-  gapLabel: {
-    fontSize: 15,
-    color: colors.label,
-  },
-  gapValue: {
-    fontSize: 15,
-    color: colors.labelSecondary,
-  },
-  gapValueStale: {
-    color: colors.danger,
-    fontWeight: "600",
-  },
-  errorDetail: {
-    fontSize: 14,
-    color: colors.danger,
-    marginTop: 8,
-  },
-}));

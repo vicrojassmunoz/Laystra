@@ -90,7 +90,7 @@ export function LockedBodyweightLabel({ bodyWeightKg }: LockedProps) {
 
 export function formatSetLine(weight: number, unit: string, reps: number): string {
   if (unit === "bw") {
-    const extra = weight > 0 ? ` · ${weight} kg` : "";
+    const extra = weight > 0 ? ` ${weight} kg` : "";
     return `PC${extra} x ${reps}`;
   }
   return `${weight}${formatWeightUnit(unit)} x ${reps}`;
