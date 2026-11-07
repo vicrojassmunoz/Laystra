@@ -1,4 +1,4 @@
-import { useFocusEffect, useNavigation } from "@react-navigation/native";
+import { RouteProp, useFocusEffect, useNavigation, useRoute } from "@react-navigation/native";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
@@ -15,10 +15,11 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { fetchBodyMetrics } from "../api/bodyMetrics";
 import { fetchExercises } from "../api/exercises";
 import { fetchProgress } from "../api/progress";
-import { fetchRoutines } from "../api/routines";
+import { createRoutine, fetchRoutines } from "../api/routines";
 import { createWorkout } from "../api/workouts";
 import { fetchToday, TodayExercise, TodayResponse } from "../api/today";
 import ExercisePickerList from "../components/ExercisePickerList";
+import SheetHeader from "../components/SheetHeader";
 import SetRow from "../components/SetRow";
 import Button from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
@@ -33,7 +34,8 @@ import { ExerciseDraft, FormTarget, useSession } from "../session/SessionContext
 import { haptic } from "../motion/motion";
 import { makeStyles, space, useTheme } from "../theme/theme";
 import { Exercise, WeightUnit } from "../types/exercise";
-import { Routine } from "../types/routine";
+import { RootStackParamList } from "../types/navigation";
+import { Routine, RoutineExerciseCreate } from "../types/routine";
 import { WorkoutSetCreate } from "../types/workout";
 import { secondaryHint } from "../utils/exercisePicker";
 import { parseDecimalInput } from "../utils/number";
@@ -178,6 +180,32 @@ function freeExercisesToDraftExercises(
   }));
 }
 
+// Ejercicios para POST /routines a partir de un entreno hecho: target_sets = series
+// con reps por ejercicio (los que no tienen ninguna se omiten). Respeta el
+// superset_group solo si sigue cubriendo 2+ ejercicios distintos (el backend
+// rechaza grupos de uno).
+function buildRoutineExercises(rows: ExerciseDraft[]): RoutineExerciseCreate[] {
+  const included = rows
+    .map((row) => ({ row, n: row.sets.filter((s) => s.reps.trim() !== "").length }))
+    .filter((entry) => entry.n > 0);
+  const valid = validSupersetGroups(
+    included.map(({ row }) => ({
+      exerciseId: row.exercise.exercise_id,
+      group: row.exercise.superset_group,
+      hasSets: true,
+    }))
+  );
+  return included.map(({ row, n }, order) => {
+    const group = row.exercise.superset_group;
+    return {
+      exercise_id: row.exercise.exercise_id,
+      target_sets: n,
+      order,
+      superset_group: group != null && valid.has(group) ? group : null,
+    };
+  });
+}
+
 // Título que se muestra arriba del formulario: mientras no se ha elegido nada
 // (formTarget null, primer entreno del día) refleja la rutina de /today; en
 // cuanto el usuario elige otra rutina o "entreno libre" con "Loguear otro
@@ -196,15 +224,22 @@ export default function SesionScreen() {
   const hasDataRef = useRef(false);
 
   const navigation = useNavigation();
+  const route = useRoute<RouteProp<RootStackParamList, "Sesion">>();
+  const quickParam = route.params?.quick === true;
   const styles = useStyles();
   const { colors } = useTheme();
   // Sesión + borrador viven en el provider (SessionContext): al salir de esta
   // pantalla a otra parte de la app el entreno a medias y los cronómetros
   // siguen ahí hasta "Terminar sesión".
   const {
+    hydrated,
     startedAt: sessionStartedAt,
-    lastSetAt,
+    startSession,
     setLastSetAt,
+    restEndAt,
+    startRest,
+    adjustRest,
+    skipRest,
     pausedAt,
     pauseSession,
     resumeSession,
@@ -222,6 +257,9 @@ export default function SesionScreen() {
     setSkipped,
     savedSummaries,
     setSavedSummaries,
+    routineSaved,
+    setRoutineSaved,
+    persistNow,
     expandedAfterSave,
     setExpandedAfterSave,
     notes,
@@ -232,6 +270,18 @@ export default function SesionScreen() {
     nextSetId,
   } = useSession();
   const [saving, setSaving] = useState(false);
+  // "Guardar como rutina" (tras un entreno libre guardado). `routinePrompt` es la
+  // hoja con el nombre; `onClose` (solo al terminar la sesión) continúa el cierre
+  // tanto si se guarda como si se declina.
+  const [routinePrompt, setRoutinePrompt] = useState<{
+    exercises: RoutineExerciseCreate[];
+    onClose?: () => void;
+  } | null>(null);
+  const [routineName, setRoutineName] = useState("Rutina libre");
+  const [routineSaving, setRoutineSaving] = useState(false);
+  const [routineError, setRoutineError] = useState<string | null>(null);
+  // Referencia al prompt abierto: hace idempotente el cierre (onClose una sola vez).
+  const routinePromptRef = useRef<typeof routinePrompt>(null);
   // El usuario descartó el entreno pre-rellenado de hoy (rutina asignada, o el
   // que dejó abierto "Loguear otro entreno") sin llegar a guardarlo -- no
   // quiere loguear nada ahora mismo, ni ese ni ningún otro por el momento.
@@ -259,9 +309,10 @@ export default function SesionScreen() {
   // ahí se elige qué ejercicios (de los que existen, no necesariamente ya
   // marcados) forman un bloque de super-serie para el entreno libre. Al
   // confirmar, vuelve a "exercises" (no cierra todo el picker).
-  const [pickerStep, setPickerStep] = useState<"target" | "exercises" | "free-superset" | null>(
-    null
-  );
+  const [pickerStep, setPickerStep] = useState<
+    "target" | "exercises" | "free-superset" | "add" | null
+  >(null);
+  const [addExerciseQuery, setAddExerciseQuery] = useState("");
   const [freeSelection, setFreeSelection] = useState<number[]>([]);
   // Búsqueda del picker de ejercicios de entreno libre, aparte de la del
   // picker de super-serie anidado -- cada uno se resetea al abrirse, no al
@@ -301,6 +352,7 @@ export default function SesionScreen() {
   function resetSession() {
     setNotes("");
     setLastSetAt(null);
+    setRoutineSaved(false);
   }
 
   // Cierra la sesión y vuelve a Hoy.
@@ -548,7 +600,9 @@ export default function SesionScreen() {
   // está logueando: la fecha, la rutina asignada, o la propia rutina (ejercicios
   // o series objetivo editados desde la pestaña "Rutinas"/"Semana").
   useEffect(() => {
-    if (state.status !== "ready") {
+    // Espera a haber restaurado el borrador guardado (SessionContext): si se
+    // recalculara antes, o con draftKeyRef sin sembrar, machacaría lo restaurado.
+    if (state.status !== "ready" || !hydrated) {
       return;
     }
 
@@ -565,16 +619,52 @@ export default function SesionScreen() {
       ),
     ].join("|");
 
-    if (draftKeyRef.current === key) {
-      // Mismo día, misma rutina: conserva lo que haya en pantalla, tanto si
-      // el usuario sigue rellenando como si ya se guardó (submitted=true) --
-      // si no, volver de otra pestaña "olvidaría" que ya se guardó hoy.
+    // Un único camino decide qué formulario toca: sesión rápida (Hoy navega con
+    // { quick: true }) o rutina de hoy. El param se limpia para que no se repita.
+    const quick = quickParam;
+    if (quick) {
+      navigation.setParams({ quick: undefined });
+    }
+    const keyChanged = draftKeyRef.current !== key;
+    const hasWork = formRows.some((r) =>
+      r.sets.some((s) => s.reps.trim() !== "" || s.weight.trim() !== "")
+    );
+
+    if (keyChanged) {
+      // Cambió el día (o la rutina de hoy): es un día nuevo, así que también se
+      // olvidan los resúmenes de entrenos guardados anteriormente.
+      draftKeyRef.current = key;
+      // El tramo del entreno vuelve a empezar ahora: si la sesión quedó abierta de
+      // un día para otro, duration_seconds no debe incluir la noche. En pausa se
+      // ancla al instante de pausa (resumeSession lo desplazará lo que dure).
+      if (sessionStartedAt !== null) {
+        segmentStartRef.current = pausedAt ?? Date.now();
+      }
+    }
+
+    if (quick && !hasWork && savedSummaries.length === 0) {
+      // Sesión libre desde el primer momento (sin rutina, aunque hoy toque una):
+      // si se cancela el selector se queda así, con el botón "Elegir ejercicios o
+      // una rutina". Si ya hay un entreno a medias se sigue con él.
+      setFormTarget({ routineId: null, routineName: null, exercises: [] });
+      setFormRows([]);
+      setFormError(null);
+      setSubmitted(false);
+      setSkipped(false);
+      if (keyChanged) {
+        setSavedSummaries([]);
+        resetSession();
+      }
+      chooseFreeForAnother();
       return;
     }
 
-    // Cambió el día (o la rutina de hoy): es un día nuevo, así que también se
-    // olvidan los resúmenes de entrenos guardados anteriormente.
-    draftKeyRef.current = key;
+    if (!keyChanged) {
+      // Mismo día, misma rutina: conserva lo que haya en pantalla, tanto si
+      // el usuario sigue rellenando como si ya se guardó (submitted=true).
+      return;
+    }
+
     setFormTarget({
       routineId: state.data.routine_id,
       routineName: state.data.routine_name,
@@ -586,7 +676,8 @@ export default function SesionScreen() {
     setSkipped(false);
     setSavedSummaries([]);
     resetSession();
-  }, [state]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state, hydrated, quickParam]);
 
   function updateSet(exerciseIndex: number, setIndex: number, patch: Partial<SetDraft>) {
     // Asistencia en sesión: cualquier edición cuenta como actividad (reprograma
@@ -597,7 +688,14 @@ export default function SesionScreen() {
     }
     const prevReps = formRows[exerciseIndex]?.sets[setIndex]?.reps ?? "";
     if (patch.reps !== undefined && prevReps.trim() === "" && patch.reps.trim() !== "") {
+      // Primera serie completada de una sesión "preparada": aquí arranca el
+      // cronómetro (y con él la duración y el aviso de inactividad).
+      if (sessionStartedAt === null) {
+        startSession();
+      }
       setLastSetAt(Date.now());
+      // Cuenta atrás de descanso (y su notificación); reinicia la anterior si la había.
+      startRest();
     }
 
     setFormRows((prev) =>
@@ -739,6 +837,68 @@ export default function SesionScreen() {
     setPickerStep(null);
   }
 
+  // Añade UN ejercicio al formulario en curso (con la sesión ya empezada o aún
+  // preparada). Entra con 1 serie vacía; "Añadir serie" cubre el resto.
+  function openAddExercise() {
+    setAddExerciseQuery("");
+    setPickerStep("add");
+  }
+
+  function addExerciseToForm(exercise: Exercise) {
+    if (state.status !== "ready") {
+      return;
+    }
+    const item: TodayExercise = {
+      exercise_id: exercise.id,
+      exercise_name: exercise.name,
+      unit: exercise.unit,
+      target_sets: 1,
+      order: formRows.reduce((max, r) => Math.max(max, r.exercise.order + 1), 0),
+      superset_group: null,
+    };
+    touch();
+    // formRows es la fuente de verdad del formulario: formTarget.exercises no se toca.
+    setFormRows((prev) => [...prev, ...buildDraft([item], nextSetId, state.latestBodyWeight)]);
+    setPickerStep(null);
+  }
+
+  // Quita un ejercicio entero del formulario (no de superseries: ahí se quitan rondas).
+  function removeExercise(exerciseIndex: number) {
+    const row = formRows[exerciseIndex];
+    const doRemove = () => {
+      touch();
+      setFormRows((prev) => prev.filter((_, i) => i !== exerciseIndex));
+    };
+    if (row && row.sets.some((s) => s.reps.trim() !== "")) {
+      showAlert(
+        "Quitar ejercicio",
+        `"${row.exercise.exercise_name}" tiene series con reps. Si lo quitas se pierden.`,
+        [
+          { text: "Cancelar", style: "cancel" },
+          { text: "Quitar", style: "destructive", onPress: doRemove },
+        ]
+      );
+      return;
+    }
+    doRemove();
+  }
+
+  // Key estable por tarjeta: el id de su primera serie (único y no depende de la
+  // posición), para no perder el foco al quitar otro ejercicio.
+  function rowKey(row: ExerciseDraft, index: number): string {
+    return row.sets.length > 0
+      ? `ex-${row.sets[0].id}`
+      : `ex-${row.exercise.exercise_id}-empty-${index}`;
+  }
+
+  // En el paso "add", un ejercicio recién creado entra al catálogo y al formulario.
+  function handleCreatedInAdd(exercise: Exercise) {
+    appendCreatedExercise(exercise);
+    if (!formRows.some((r) => r.exercise.exercise_id === exercise.id)) {
+      addExerciseToForm(exercise);
+    }
+  }
+
   function chooseFreeForAnother() {
     setFreeSelection([]);
     setFreeSupersetBlocks([]);
@@ -873,6 +1033,59 @@ export default function SesionScreen() {
     setExpandedAfterSave(new Set());
   }
 
+  function openRoutinePrompt(exercises: RoutineExerciseCreate[], onClose?: () => void) {
+    setRoutineName("Rutina libre");
+    setRoutineError(null);
+    const prompt = { exercises, onClose };
+    routinePromptRef.current = prompt;
+    setRoutinePrompt(prompt);
+  }
+
+  // Cierra la hoja y, si venía de "Completar", continúa el cierre de la sesión.
+  function closeRoutinePrompt() {
+    const prompt = routinePromptRef.current;
+    if (prompt === null) {
+      return;
+    }
+    routinePromptRef.current = null;
+    setRoutinePrompt(null);
+    prompt.onClose?.();
+  }
+
+  // Cierre iniciado por el usuario (fondo / botón atrás / "Ahora no"): se ignora
+  // mientras se guarda la rutina, para no cerrar la sesión con la petición en vuelo.
+  function dismissRoutinePrompt() {
+    if (routineSaving) {
+      return;
+    }
+    closeRoutinePrompt();
+  }
+
+  function confirmSaveRoutine() {
+    if (!routinePrompt || routineSaving) {
+      return;
+    }
+    const name = routineName.trim();
+    if (name === "") {
+      setRoutineError("Ponle un nombre a la rutina.");
+      return;
+    }
+    setRoutineSaving(true);
+    setRoutineError(null);
+    createRoutine({ name, exercises: routinePrompt.exercises })
+      .then(() => {
+        haptic.success();
+        setRoutineSaved(true);
+        closeRoutinePrompt();
+      })
+      .catch((error: Error) => {
+        setRoutineError(error.message);
+      })
+      .finally(() => {
+        setRoutineSaving(false);
+      });
+  }
+
   // partial: ignora las series sin reps en vez de dar error (guardar a medias).
   // finishAfter: tras guardar con éxito, cierra la sesión y vuelve a Hoy.
   function handleSave(opts: { partial?: boolean; finishAfter?: boolean } = {}) {
@@ -962,21 +1175,31 @@ export default function SesionScreen() {
     // de formTarget -- puede ser distinto al de /today si esto es un "otro entreno".
     touch();
     const trimmedNotes = notes.trim();
+    // Duración de ESTE entreno: desde que empezó la sesión o desde el guardado
+    // anterior, no desde el inicio de la sesión entera. segmentStartRef ya
+    // descuenta las pausas (se desplaza al reanudar); si ahora mismo está en
+    // pausa, el final es el instante de la pausa.
+    const segmentStart = segmentStartRef.current ?? sessionStartedAt;
+    const endAt = pausedAt ?? Date.now();
+    const durationSeconds =
+      segmentStart === null ? null : Math.max(0, Math.round((endAt - segmentStart) / 1000));
+    // Para "Guardar como rutina": series hechas por ejercicio (las que tienen reps).
+    const routineExercises = buildRoutineExercises(rows);
+    const wasFree = formTarget.routineId === null;
     createWorkout({
       date: state.data.date,
       routine_id: formTarget.routineId,
       notes: trimmedNotes === "" ? null : trimmedNotes,
+      duration_seconds: durationSeconds,
       sets,
     })
       .then((workout) => {
         haptic.success();
+        // Escritura inmediata del borrador (ver persistNow en SessionContext).
+        persistNow();
         const distinctExercises = new Set(sets.map((s) => s.exercise_id)).size;
-        // Duración de ESTE entreno: desde que empezó la sesión o desde el
-        // guardado anterior, no desde el inicio de la sesión entera.
-        const segmentStart = segmentStartRef.current ?? sessionStartedAt;
-        const minutes =
-          segmentStart === null ? 0 : Math.round((Date.now() - segmentStart) / 60000);
-        segmentStartRef.current = Date.now();
+        const minutes = durationSeconds === null ? 0 : Math.round(durationSeconds / 60);
+        segmentStartRef.current = endAt;
         const label = `${formTarget.routineName ?? "Entreno libre"} — ${distinctExercises} ejercicio${
           distinctExercises === 1 ? "" : "s"
         }${minutes >= 1 ? ` · ${minutes} min` : ""}`;
@@ -987,8 +1210,20 @@ export default function SesionScreen() {
 
         if (opts.finishAfter) {
           // El háptico de éxito ya sonó; cierra la sesión sin el "medio" de Terminar.
-          stopSession();
-          navigation.reset({ index: 1, routes: [{ name: "Home" }, { name: "Hoy" }] });
+          const close = () => {
+            stopSession();
+            navigation.reset({ index: 1, routes: [{ name: "Home" }, { name: "Hoy" }] });
+          };
+          if (wasFree && routineExercises.length > 0) {
+            // Entreno libre: antes de cerrar, ofrece guardarlo como rutina
+            // (guardar o declinar, ambos continúan el cierre).
+            openRoutinePrompt(routineExercises, close);
+          } else {
+            close();
+          }
+        } else {
+          // Guardar sin terminar: que no suene el aviso de descanso de la última serie.
+          skipRest();
         }
       })
       .catch((error: Error) => {
@@ -1056,7 +1291,9 @@ export default function SesionScreen() {
         >
           <SessionBar
             startedAt={sessionStartedAt}
-            lastSetAt={lastSetAt}
+            restEndAt={restEndAt}
+            onRestAdjust={adjustRest}
+            onRestSkip={skipRest}
             pausedAt={pausedAt}
             onTogglePause={() => {
               haptic.light();
@@ -1074,10 +1311,24 @@ export default function SesionScreen() {
           <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
             <Txt variant="title2">{headerRoutineName(formTarget, state.data)}</Txt>
 
-            {state.data.exercises.length === 0 && (
+            {state.data.exercises.length === 0 && formRows.length === 0 && (
               <Txt variant="subhead" tone="secondary">
                 No hay rutina asignada para hoy. Aprovecha para descansar.
               </Txt>
+            )}
+
+            {/* Día de descanso (o picker cancelado): sin formulario no había forma
+                de abrir el selector, así que se ofrece aquí. */}
+            {!skipped && formRows.length === 0 && (
+              <Card>
+                <Button
+                  title="Elegir ejercicios o una rutina"
+                  variant="filled"
+                  size="large"
+                  fullWidth
+                  onPress={handleLogAnother}
+                />
+              </Card>
             )}
 
             {/* Resumen de entrenos ya guardados hoy. Se muestra siempre que haya
@@ -1123,13 +1374,14 @@ export default function SesionScreen() {
               ).map((entry) => {
                 if (entry.type === "single") {
                   const { row, index: exerciseIndex } = entry.item;
-                  const collapseKey = `ex-${row.exercise.exercise_id}-${exerciseIndex}`;
+                  const rKey = rowKey(row, exerciseIndex);
+                  const collapseKey = rKey;
                   const collapsed = isCollapsedAfterSave(collapseKey);
                   return (
                     // Una rutina puede repetir el mismo ejercicio (p.ej. press
                     // banca pesado + press banca ligero), así que exercise_id
                     // solo no es una key única -- se combina con la posición.
-                    <Card key={`${row.exercise.exercise_id}-${exerciseIndex}`}>
+                    <Card key={rKey}>
                       <Pressable
                         onPress={() => toggleAfterSave(collapseKey)}
                         disabled={!submitted}
@@ -1200,6 +1452,15 @@ export default function SesionScreen() {
                               onPress={() => addSet(exerciseIndex)}
                             />
                           )}
+                          {!submitted && (
+                            <Button
+                              title="Quitar ejercicio"
+                              variant="plain"
+                              size="compact"
+                              disabled={saving}
+                              onPress={() => removeExercise(exerciseIndex)}
+                            />
+                          )}
                         </>
                       )}
                     </Card>
@@ -1208,7 +1469,7 @@ export default function SesionScreen() {
 
                 const indices = entry.items.map((it) => it.index);
                 const members = entry.items.map((it) => ({
-                  key: `${it.row.exercise.exercise_id}-${it.index}`,
+                  key: rowKey(it.row, it.index),
                   exerciseId: it.row.exercise.exercise_id,
                   name: it.row.exercise.exercise_name,
                   unit: it.row.exercise.unit,
@@ -1238,6 +1499,19 @@ export default function SesionScreen() {
                 );
               })}
 
+            {/* Añadir otro ejercicio en cualquier momento mientras se rellena. */}
+            {!skipped && !submitted && formRows.length > 0 && (
+              <Button
+                title="Añadir ejercicio"
+                icon="plus"
+                variant="tinted"
+                size="large"
+                fullWidth
+                disabled={saving}
+                onPress={openAddExercise}
+              />
+            )}
+
             {!skipped && formRows.length > 0 && (!submitted || notes.trim() !== "") && (
               <Card>
                 <Txt variant="headline">Sensaciones</Txt>
@@ -1264,13 +1538,34 @@ export default function SesionScreen() {
                   // El resumen de arriba (savedSummaries) ya deja constancia de que
                   // este entreno se guardó, como último ítem de la lista -- no hace
                   // falta repetirlo aquí también.
-                  <Button
-                    title="Loguear otro entreno"
-                    variant="filled"
-                    size="large"
-                    fullWidth
-                    onPress={handleLogAnother}
-                  />
+                  <>
+                    {/* Entreno libre ya guardado: ofrece convertirlo en rutina.
+                        Declinar = no tocar nada (no se crea nada). */}
+                    {formTarget?.routineId === null &&
+                    !routineSaved &&
+                    buildRoutineExercises(formRows).length > 0 ? (
+                      <Button
+                        title="Guardar como rutina"
+                        variant="tinted"
+                        size="large"
+                        icon="routines"
+                        fullWidth
+                        onPress={() => openRoutinePrompt(buildRoutineExercises(formRows))}
+                      />
+                    ) : null}
+                    {routineSaved ? (
+                      <Txt variant="subhead" tone="success" style={{ textAlign: "center" }}>
+                        Rutina guardada. Ya puedes asignarla en Semana.
+                      </Txt>
+                    ) : null}
+                    <Button
+                      title="Loguear otro entreno"
+                      variant="filled"
+                      size="large"
+                      fullWidth
+                      onPress={handleLogAnother}
+                    />
+                  </>
                 ) : (
                   <>
                     <Button
@@ -1340,7 +1635,7 @@ export default function SesionScreen() {
                 <Pressable style={styles.modalCard} onPress={() => {}}>
                   {pickerStep === "target" && (
                     <>
-                      <Text style={styles.modalTitle}>¿Qué quieres loguear?</Text>
+                      <SheetHeader title="¿Qué quieres loguear?" onClose={() => setPickerStep(null)} />
 
                       <ScrollView style={styles.list}>
                         <TouchableOpacity style={styles.freeOption} onPress={chooseFreeForAnother}>
@@ -1369,7 +1664,7 @@ export default function SesionScreen() {
 
                   {pickerStep === "exercises" && (
                     <>
-                      <Text style={styles.modalTitle}>Elige ejercicios</Text>
+                      <SheetHeader title="Elige ejercicios" onClose={() => setPickerStep(null)} />
 
                       <ExercisePickerList
                         exercises={state.exercises}
@@ -1430,13 +1725,46 @@ export default function SesionScreen() {
                     </>
                   )}
 
+                  {pickerStep === "add" && (
+                    <>
+                      <SheetHeader title="Añadir ejercicio" onClose={() => setPickerStep(null)} />
+
+                      <ExercisePickerList
+                        exercises={state.exercises}
+                        query={addExerciseQuery}
+                        onQueryChange={setAddExerciseQuery}
+                        onCreated={handleCreatedInAdd}
+                        onUpdated={replaceUpdatedExercise}
+                        renderItem={(exercise) => {
+                          const hint = secondaryHint(exercise);
+                          return (
+                            <TouchableOpacity
+                              style={styles.option}
+                              onPress={() => addExerciseToForm(exercise)}
+                            >
+                              <Text style={styles.optionText}>{exercise.name}</Text>
+                              {hint && <Text style={styles.optionHint}>{hint}</Text>}
+                            </TouchableOpacity>
+                          );
+                        }}
+                      />
+
+                      <TouchableOpacity
+                        style={styles.cancelButton}
+                        onPress={() => setPickerStep(null)}
+                      >
+                        <Text style={styles.cancelText}>Cancelar</Text>
+                      </TouchableOpacity>
+                    </>
+                  )}
+
                   {/* Paso anidado dentro de "exercises": elige qué ejercicios
                       (de todos los existentes, no solo los ya marcados) forman
                       un bloque de super-serie para este entreno libre. Al
                       confirmar vuelve a "exercises", no cierra el picker. */}
                   {pickerStep === "free-superset" && (
                     <>
-                      <Text style={styles.modalTitle}>Elige ejercicios para la super-serie</Text>
+                      <SheetHeader title="Elige ejercicios para la super-serie" onClose={() => setPickerStep("exercises")} />
 
                       <ExercisePickerList
                         exercises={state.exercises}
@@ -1506,6 +1834,66 @@ export default function SesionScreen() {
               </KeyboardAvoidingView>
             </Pressable>
           </Modal>
+
+          {/* Hoja "Guardar como rutina": nombre editable (por defecto "Rutina
+              libre"). Tocar fuera o "Ahora no" declina sin crear nada. Es un
+              Modal propio con TextField en vez de Alert.prompt porque ese solo
+              existe en iOS (no en Android ni en la vista web). */}
+          <Modal
+            visible={routinePrompt !== null}
+            transparent
+            animationType="slide"
+            onRequestClose={dismissRoutinePrompt}
+          >
+            <Pressable style={styles.modalBackdrop} onPress={dismissRoutinePrompt}>
+              <KeyboardAvoidingView
+                style={styles.avoider}
+                behavior={Platform.OS === "ios" ? "padding" : undefined}
+                keyboardVerticalOffset={0}
+              >
+                <Pressable style={[styles.modalCard, { gap: space.md }]} onPress={() => {}}>
+                  <Txt variant="title3" style={{ textAlign: "center" }}>
+                    Guardar como rutina
+                  </Txt>
+                  <Txt variant="subhead" tone="secondary">
+                    {routinePrompt?.exercises.length ?? 0} ejercicio
+                    {routinePrompt?.exercises.length === 1 ? "" : "s"}, con las series que has hecho
+                    como objetivo.
+                  </Txt>
+                  <TextField
+                    value={routineName}
+                    onChangeText={setRoutineName}
+                    placeholder="Nombre de la rutina"
+                    maxLength={80}
+                    editable={!routineSaving}
+                    autoCapitalize="sentences"
+                    returnKeyType="done"
+                    onSubmitEditing={confirmSaveRoutine}
+                  />
+                  {routineError ? (
+                    <Txt variant="subhead" tone="danger">
+                      {routineError}
+                    </Txt>
+                  ) : null}
+                  <Button
+                    title={routineSaving ? "Guardando..." : "Guardar rutina"}
+                    variant="filled"
+                    size="large"
+                    fullWidth
+                    disabled={routineSaving}
+                    onPress={confirmSaveRoutine}
+                  />
+                  <Button
+                    title="Ahora no"
+                    variant="plain"
+                    fullWidth
+                    disabled={routineSaving}
+                    onPress={dismissRoutinePrompt}
+                  />
+                </Pressable>
+              </KeyboardAvoidingView>
+            </Pressable>
+          </Modal>
         </KeyboardAvoidingView>
       )}
     </SafeAreaView>
@@ -1545,8 +1933,10 @@ const useStyles = makeStyles(({ colors }) => ({
   // vivir en el padre con altura definida (KeyboardAvoidingView, hijo directo
   // de modalBackdrop que sí tiene flex: 1), no en modalCard -- ahí el % nunca
   // se resolvía y la tarjeta crecía sin límite real.
+  // 92% (no 70%): con el teclado abierto, KeyboardAvoidingView resta su altura
+  // de este tope y con 70% no quedaba sitio para la lista de resultados.
   avoider: {
-    maxHeight: "70%",
+    maxHeight: "92%",
   },
   modalCard: {
     backgroundColor: colors.surface,

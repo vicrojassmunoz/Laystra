@@ -13,10 +13,11 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import SessionPill from "./src/components/SessionPill";
 import AguaScreen from "./src/screens/AguaScreen";
 import AnalisisScreen from "./src/screens/AnalisisScreen";
+import EventosScreen from "./src/screens/EventosScreen";
+import HabitosScreen from "./src/screens/HabitosScreen";
 import HistorialScreen from "./src/screens/HistorialScreen";
 import HomeScreen from "./src/screens/HomeScreen";
 import HoyScreen from "./src/screens/HoyScreen";
-import ObjetivosScreen from "./src/screens/ObjetivosScreen";
 import ProgressScreen from "./src/screens/ProgressScreen";
 import RoutinesScreen from "./src/screens/RoutinesScreen";
 import ScheduleScreen from "./src/screens/ScheduleScreen";
@@ -24,6 +25,7 @@ import SesionScreen from "./src/screens/SesionScreen";
 import UserScreen from "./src/screens/UserScreen";
 import { SessionProvider } from "./src/session/SessionContext";
 import { restoreAppearance } from "./src/theme/appearance";
+import { useHabitReminders } from "./src/utils/useHabitReminders";
 import { useTheme } from "./src/theme/theme";
 import { RootStackParamList } from "./src/types/navigation";
 
@@ -31,10 +33,12 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 const navigationRef = createNavigationContainerRef<RootStackParamList>();
 
 // Home es la única pantalla raíz (hub). Hoy/Rutinas/Semana/Historial/Progreso
-// y Objetivos/User/Analisis se empujan encima con el back nativo del stack —
+// y Eventos/Habitos/User/Analisis se empujan encima con el back nativo del stack —
 // sin bottom tab bar (ROADMAP #10; decisión: tile grande "Hoy" en Home).
 function Root() {
   const { colors, isDark } = useTheme();
+  // Reprograma recordatorios de hábitos al abrir y al volver a primer plano.
+  useHabitReminders();
   // Ruta visible, para ocultar la píldora de sesión en la propia pantalla Sesión.
   const [currentRoute, setCurrentRoute] = useState<string | undefined>();
   const syncRoute = () => setCurrentRoute(navigationRef.getCurrentRoute()?.name);
@@ -85,7 +89,8 @@ function Root() {
         <Stack.Screen name="Semana" component={ScheduleScreen} options={{ title: "Semana" }} />
         <Stack.Screen name="Historial" component={HistorialScreen} options={{ title: "Historial" }} />
         <Stack.Screen name="Progreso" component={ProgressScreen} options={{ title: "Progreso" }} />
-        <Stack.Screen name="Objetivos" component={ObjetivosScreen} options={{ title: "Objetivos" }} />
+        <Stack.Screen name="Eventos" component={EventosScreen} options={{ title: "Eventos" }} />
+        <Stack.Screen name="Habitos" component={HabitosScreen} options={{ title: "Hábitos" }} />
         <Stack.Screen name="User" component={UserScreen} options={{ title: "Perfil" }} />
         <Stack.Screen name="Analisis" component={AnalisisScreen} options={{ title: "Análisis" }} />
         <Stack.Screen name="Agua" component={AguaScreen} options={{ title: "Agua" }} />

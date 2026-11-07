@@ -35,6 +35,8 @@ class WorkoutBase(BaseModel):
     routine_id: int | None = None
     # Sensaciones del entreno, texto libre. Vacío/solo espacios se guarda como None.
     notes: str | None = Field(default=None, max_length=2000)
+    # Duración de la sesión en segundos; None = no medida.
+    duration_seconds: int | None = Field(default=None, ge=0)
 
     @field_validator("notes")
     @classmethod

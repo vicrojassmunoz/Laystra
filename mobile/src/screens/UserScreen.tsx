@@ -1,15 +1,17 @@
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { View } from "react-native";
 
 import { createBodyMetric, deleteBodyMetric, fetchBodyMetrics } from "../api/bodyMetrics";
 import { todayIsoDate } from "../api/today";
 import { exportWorkoutsCsv } from "../api/workouts";
 import { exportWaterCsv } from "../api/water";
+import Avatar from "../components/profile/Avatar";
+import BodyProgress from "../components/profile/BodyProgress";
+import InjuriesSection from "../components/profile/InjuriesSection";
 import Button from "../components/ui/Button";
 import { Card, Section, SectionHeader } from "../components/ui/Card";
 import Chip from "../components/ui/Chip";
-import Icon from "../components/ui/Icon";
 import Row from "../components/ui/Row";
 import Screen, { ScreenError, ScreenLoading } from "../components/ui/Screen";
 import TextField from "../components/ui/TextField";
@@ -17,10 +19,18 @@ import Txt from "../components/ui/Txt";
 import { API_BASE_URL } from "../config";
 import { INACTIVITY_LABEL } from "../session/SessionContext";
 import { AppearancePreference, useAppearancePreference } from "../theme/appearance";
-import { makeStyles, space, useTheme } from "../theme/theme";
+import { makeStyles, space } from "../theme/theme";
 import { BodyMetric } from "../types/bodyMetric";
 import { showAlert } from "../utils/alert";
 import { parseDecimalInput } from "../utils/number";
+import {
+  loadProfileName,
+  loadProfilePhotoUri,
+  pickProfilePhoto,
+  removeProfilePhoto,
+  saveProfileName,
+} from "../utils/profilePhoto";
+import { REST_OPTIONS, formatRestLabel, useRestSeconds } from "../utils/restTimer";
 import { shareCsv } from "../utils/shareCsv";
 
 type State =
@@ -36,44 +46,14 @@ const APPEARANCE_OPTIONS: { value: AppearancePreference; label: string }[] = [
 
 const VISIBLE_METRICS = 6;
 
-function parseIso(iso: string): Date {
-  const [y, m, d] = iso.split("-").map(Number);
-  return new Date(y, m - 1, d);
-}
-
-function daysBetween(fromIso: string, toIso: string): number {
-  return Math.round((parseIso(toIso).getTime() - parseIso(fromIso).getTime()) / 86400000);
-}
-
-function agoLabel(iso: string): string {
-  const days = daysBetween(iso, todayIsoDate());
-  if (days <= 0) return "hoy";
-  if (days === 1) return "ayer";
-  return `hace ${days} días`;
-}
-
-// Cambio de peso respecto a la medición más antigua dentro de los 30 días
-// previos a la última (las mediciones vienen ordenadas de más nueva a más vieja).
-// Devuelve también cuántos días separan ambas, para decirlo tal cual en pantalla.
-function monthChange(metrics: BodyMetric[]): { delta: number; days: number } | null {
-  if (metrics.length < 2) return null;
-  const latest = metrics[0];
-  const inWindow = metrics.slice(1).filter((m) => {
-    const days = daysBetween(m.date, latest.date);
-    return days > 0 && days <= 30;
-  });
-  if (inWindow.length === 0) return null;
-  const oldest = inWindow[inWindow.length - 1];
-  return { delta: latest.weight - oldest.weight, days: daysBetween(oldest.date, latest.date) };
-}
-
 const useStyles = makeStyles(() => ({
-  weightRow: { flexDirection: "row", alignItems: "baseline", gap: space.sm },
+  header: { alignItems: "center", gap: space.md, paddingVertical: space.sm },
+  photoActions: { flexDirection: "row", gap: space.sm },
+  nameField: { alignSelf: "stretch" },
   inline: { flexDirection: "row", alignItems: "center", gap: space.sm },
   twoCols: { flexDirection: "row", gap: space.sm },
   grow: { flex: 1 },
-  chips: { flexDirection: "row", gap: space.sm },
-  trend: { flexDirection: "row", alignItems: "center", gap: space.xs },
+  chips: { flexDirection: "row", flexWrap: "wrap", gap: space.sm },
 }));
 
 // Perfil: tu cuerpo (peso / %grasa), los ajustes de la app (apariencia,
@@ -82,8 +62,8 @@ const useStyles = makeStyles(() => ({
 export default function UserScreen() {
   const navigation = useNavigation();
   const styles = useStyles();
-  const { colors } = useTheme();
-  const [appearance, setAppearance] = useAppearancePreference();
+    const [appearance, setAppearance] = useAppearancePreference();
+  const [restSeconds, setRestSeconds] = useRestSeconds();
   const [state, setState] = useState<State>({ status: "loading" });
   const hasDataRef = useRef(false);
 
@@ -95,6 +75,30 @@ export default function UserScreen() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [showAll, setShowAll] = useState(false);
   const [exporting, setExporting] = useState<"workouts" | "water" | null>(null);
+  const [showForm, setShowForm] = useState(false);
+  const [photoUri, setPhotoUri] = useState<string | null>(null);
+  const [name, setName] = useState("");
+
+  // Foto y nombre viven en el dispositivo (AsyncStorage + carpeta de documentos).
+  useEffect(() => {
+    loadProfilePhotoUri().then(setPhotoUri).catch(() => {});
+    loadProfileName().then(setName).catch(() => {});
+  }, []);
+
+  async function handlePickPhoto() {
+    setActionError(null);
+    try {
+      const uri = await pickProfilePhoto();
+      if (uri) setPhotoUri(uri);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "No se pudo elegir la foto.");
+    }
+  }
+
+  async function handleRemovePhoto() {
+    await removeProfilePhoto();
+    setPhotoUri(null);
+  }
 
   const load = useCallback(() => {
     if (!hasDataRef.current) {
@@ -167,6 +171,7 @@ export default function UserScreen() {
         setWeight("");
         setBodyFatPct("");
         setDate(todayIsoDate());
+        setShowForm(false);
         load();
       })
       .catch((error: Error) => setFormError(error.message))
@@ -197,50 +202,53 @@ export default function UserScreen() {
   }
 
   const { metrics } = state;
-  const latest = metrics[0] ?? null;
-  const change = monthChange(metrics);
   const visible = showAll ? metrics : metrics.slice(0, VISIBLE_METRICS);
   const host = API_BASE_URL.replace(/^https?:\/\//, "");
 
   return (
     <Screen>
-      <Card>
-        <Txt variant="footnote" tone="secondary" weight="600">
-          Peso corporal
-        </Txt>
-        {latest ? (
-          <>
-            <View style={styles.weightRow}>
-              <Txt variant="largeTitle" numeric>
-                {latest.weight}
-              </Txt>
-              <Txt variant="title3" tone="secondary">
-                kg
-              </Txt>
-            </View>
-            <Txt variant="subhead" tone="secondary">
-              {agoLabel(latest.date)}
-              {latest.body_fat_pct != null ? ` · ${latest.body_fat_pct} % de grasa` : ""}
-            </Txt>
-            {change !== null ? (
-              <View style={styles.trend}>
-                <Icon name="progress" size={16} color={colors.labelSecondary} />
-                <Txt variant="subhead" tone="secondary" numeric>
-                  {Math.round(change.delta * 10) === 0
-                    ? `Sin cambios respecto a ${change.days} días antes`
-                    : `${change.delta > 0 ? "+" : "−"}${Math.abs(Math.round(change.delta * 10) / 10)} kg respecto a ${change.days} días antes`}
-                </Txt>
-              </View>
-            ) : null}
-          </>
-        ) : (
-          <Txt variant="subhead" tone="secondary">
-            Aún no hay mediciones. Añade tu peso abajo; los ejercicios de peso corporal (PC) usan
-            la última medición.
-          </Txt>
-        )}
-      </Card>
+      <View style={styles.header}>
+        <Avatar uri={photoUri} name={name} />
+        <View style={styles.photoActions}>
+          <Button
+            title={photoUri ? "Cambiar foto" : "Elegir foto"}
+            variant="tinted"
+            size="compact"
+            onPress={() => void handlePickPhoto()}
+          />
+          {photoUri ? (
+            <Button
+              title="Quitar"
+              variant="plainDestructive"
+              size="compact"
+              onPress={() => void handleRemovePhoto()}
+            />
+          ) : null}
+        </View>
+        <TextField
+          style={styles.nameField}
+          value={name}
+          onChangeText={setName}
+          onEndEditing={() => void saveProfileName(name)}
+          placeholder="Tu nombre (para las iniciales)"
+          autoCorrect={false}
+          accessibilityLabel="Tu nombre"
+        />
+      </View>
 
+      <BodyProgress metrics={metrics} />
+
+      {!showForm ? (
+        <Button
+          title="Nueva medición"
+          icon="plus"
+          variant="tinted"
+          fullWidth
+          onPress={() => setShowForm(true)}
+        />
+      ) : null}
+
+      {showForm ? (
       <Card>
         <Txt variant="headline">Nueva medición</Txt>
         <TextField
@@ -282,7 +290,9 @@ export default function UserScreen() {
           onPress={handleSave}
           disabled={saving}
         />
+        <Button title="Cancelar" variant="plain" fullWidth onPress={() => setShowForm(false)} />
       </Card>
+      ) : null}
 
       {actionError ? (
         <Txt variant="subhead" tone="danger">
@@ -322,6 +332,8 @@ export default function UserScreen() {
         </View>
       ) : null}
 
+      <InjuriesSection />
+
       <View>
         <SectionHeader>Apariencia</SectionHeader>
         <Card>
@@ -337,6 +349,27 @@ export default function UserScreen() {
           </View>
           <Txt variant="footnote" tone="secondary">
             Sistema sigue el modo claro/oscuro de tu iPhone.
+          </Txt>
+        </Card>
+      </View>
+
+      <View>
+        <SectionHeader>Descanso entre series</SectionHeader>
+        <Card>
+          <View style={styles.chips}>
+            {REST_OPTIONS.map((seconds) => (
+              <Chip
+                key={seconds}
+                label={formatRestLabel(seconds)}
+                selected={restSeconds === seconds}
+                onPress={() => setRestSeconds(seconds)}
+              />
+            ))}
+          </View>
+          <Txt variant="footnote" tone="secondary">
+            Al completar una serie empieza una cuenta atrás en Sesión y, con la app en segundo
+            plano, suena una notificación al terminar (sonido estándar de iOS, no una alarma en
+            bucle; respeta el modo silencio y Concentración).
           </Txt>
         </Card>
       </View>

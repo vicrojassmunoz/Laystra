@@ -5,6 +5,9 @@ import { createExercise, updateExercise } from "../api/exercises";
 import { makeStyles, space } from "../theme/theme";
 import { Exercise, WeightUnit } from "../types/exercise";
 import { MUSCLE_GROUP_ORDER, filterExercises, groupExercisesByMuscle } from "../utils/exercisePicker";
+import { relatedAreas, relatedInjuries } from "../utils/injuryMap";
+import { useActiveInjuries } from "../utils/useActiveInjuries";
+import { useKeyboardVisible } from "../utils/useKeyboardVisible";
 import Button from "./ui/Button";
 import Chip from "./ui/Chip";
 import TextField from "./ui/TextField";
@@ -108,9 +111,17 @@ export default function ExercisePickerList({
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  // Aviso no bloqueante: las lesiones activas se leen una vez al abrir el picker.
+  const injuries = useActiveInjuries();
+  // Con el teclado abierto la hoja queda muy baja: se ocultan los elementos
+  // secundarios para que los resultados de la búsqueda tengan sitio.
+  const keyboardVisible = useKeyboardVisible();
 
   const filtered = filterExercises(exercises, query);
   const groups = groupExercisesByMuscle(filtered);
+  // Cabecera solo si alguna lesión activa se relaciona con algún ejercicio del catálogo
+  // (p. ej. una lesión "otro" no genera avisos).
+  const hasRelated = exercises.some((e) => relatedInjuries(e, injuries).length > 0);
 
   function openCreate() {
     setFormError(null);
@@ -194,10 +205,23 @@ export default function ExercisePickerList({
           autoCorrect={false}
           accessibilityLabel="Buscar ejercicio"
         />
-        <Button title="Nuevo ejercicio" icon="plus" variant="tinted" fullWidth onPress={openCreate} />
+        {keyboardVisible ? null : (
+          <Button title="Nuevo ejercicio" icon="plus" variant="tinted" fullWidth onPress={openCreate} />
+        )}
+        {hasRelated && !keyboardVisible ? (
+          <Txt variant="footnote" tone="warning">
+            Tienes una lesión activa. Los ejercicios marcados podrían cargar esa zona; es solo una
+            aproximación, no un diagnóstico. Que un ejercicio no tenga aviso no significa que sea
+            seguro.
+          </Txt>
+        ) : null}
       </View>
 
-      <ScrollView style={styles.list} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        style={styles.list}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+      >
         {groups.length === 0 ? (
           <Txt variant="subhead" tone="secondary" style={{ textAlign: "center", marginTop: space.md }}>
             Sin resultados.
@@ -211,17 +235,28 @@ export default function ExercisePickerList({
                 {group.label}
               </Txt>
             </View>
-            {group.exercises.map((exercise) => (
-              <View key={exercise.id} style={styles.exerciseRow}>
-                <View style={styles.exerciseSelection}>{renderItem(exercise)}</View>
-                <Button
-                  title="Editar"
-                  variant="plain"
-                  size="compact"
-                  onPress={() => openEdit(exercise)}
-                />
-              </View>
-            ))}
+            {group.exercises.map((exercise) => {
+              const areas = relatedAreas(exercise, injuries);
+              return (
+                <View key={exercise.id}>
+                  <View style={styles.exerciseRow}>
+                    <View style={styles.exerciseSelection}>{renderItem(exercise)}</View>
+                    <Button
+                      title="Editar"
+                      variant="plain"
+                      size="compact"
+                      onPress={() => openEdit(exercise)}
+                    />
+                  </View>
+                  {areas.length > 0 ? (
+                    <Txt variant="caption" tone="warning" style={{ marginTop: -space.xs, marginBottom: space.xs }}>
+                      Podría cargar tu zona lesionada ({areas.join(", ")}). Ve con cuidado y, si
+                      dudas, consúltalo con un profesional.
+                    </Txt>
+                  ) : null}
+                </View>
+              );
+            })}
           </View>
         ))}
       </ScrollView>

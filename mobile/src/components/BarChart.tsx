@@ -23,12 +23,13 @@ const useStyles = makeStyles(({ colors }) => ({
   axisEnd: { flexDirection: "row", justifyContent: "flex-end" },
 }));
 
-// Gráfico de barras sencillo (siempre desde cero, para no exagerar cambios
-// pequeños). `maxLabel` es el valor de la barra más alta; `startLabel` /
+// Gráfico de barras sencillo (por defecto desde cero, para no exagerar cambios
+// pequeños; `floor` permite fijar un mínimo distinto). `maxLabel` es el valor de la barra más alta; `startLabel` /
 // `endLabel` ponen contexto en el eje horizontal (primera y última fecha).
 export default function BarChart({
   bars,
   height = 120,
+  floor = 0,
   maxLabel,
   startLabel,
   endLabel,
@@ -36,6 +37,10 @@ export default function BarChart({
 }: {
   bars: Bar[];
   height?: number;
+  // Valor que representa la base del gráfico (0 por defecto, siempre honesto).
+  // Para series con poca variación (peso corporal) se puede subir; quien lo use
+  // debe decirlo en pantalla.
+  floor?: number;
   maxLabel?: string;
   startLabel?: string;
   endLabel?: string;
@@ -43,7 +48,7 @@ export default function BarChart({
 }) {
   const styles = useStyles();
   const { colors } = useTheme();
-  const max = Math.max(0, ...bars.map((b) => b.value));
+  const max = Math.max(floor, ...bars.map((b) => b.value));
 
   return (
     <View style={styles.wrap} accessible accessibilityLabel={accessibilityLabel}>
@@ -54,7 +59,7 @@ export default function BarChart({
       ) : null}
       <View style={[styles.plot, { height }]}>
         {bars.map((bar, index) => {
-          const ratio = max > 0 ? bar.value / max : 0;
+          const ratio = max > floor ? (bar.value - floor) / (max - floor) : 0;
           return (
             <View key={index} style={[styles.barSlot, { height }]}>
               <View

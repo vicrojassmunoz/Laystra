@@ -16,6 +16,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { fetchExercises } from "../api/exercises";
 import { createRoutine, deleteRoutine, fetchRoutines, updateRoutine } from "../api/routines";
 import ExercisePickerList from "../components/ExercisePickerList";
+import SheetHeader from "../components/SheetHeader";
 import Button from "../components/ui/Button";
 import FadeInView from "../components/ui/FadeInView";
 import { Card } from "../components/ui/Card";
@@ -630,8 +631,13 @@ export default function RoutinesScreen() {
         </ScrollView>
       </KeyboardAvoidingView>
 
-      <Modal visible={pickerRowId !== null} transparent animationType="slide">
-        <View style={styles.modalBackdrop}>
+      <Modal
+        visible={pickerRowId !== null}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setPickerRowId(null)}
+      >
+        <Pressable style={styles.modalBackdrop} onPress={() => setPickerRowId(null)}>
           {/* Este Modal se renderiza fuera del navigator de tabs, así que no
               lleva useBottomTabBarHeight() como offset (eso es correcto para
               el KeyboardAvoidingView de la pantalla normal más arriba, que sí
@@ -642,8 +648,8 @@ export default function RoutinesScreen() {
             behavior={Platform.OS === "ios" ? "padding" : undefined}
             keyboardVerticalOffset={0}
           >
-            <View style={styles.modalCard}>
-              <Text style={styles.modalTitle}>Elige un ejercicio</Text>
+            <Pressable style={styles.modalCard} onPress={() => {}}>
+              <SheetHeader title="Elige un ejercicio" onClose={() => setPickerRowId(null)} />
 
               <ExercisePickerList
                 exercises={exercises}
@@ -668,24 +674,32 @@ export default function RoutinesScreen() {
               <TouchableOpacity style={styles.cancelButton} onPress={() => setPickerRowId(null)}>
                 <Text style={styles.cancelText}>Cancelar</Text>
               </TouchableOpacity>
-            </View>
+            </Pressable>
           </KeyboardAvoidingView>
-        </View>
+        </Pressable>
       </Modal>
 
       {/* Picker de multi-selección para armar un bloque de super-serie --
           distinto del modal de arriba, que elige un solo ejercicio para una
           fila concreta. Mismo estilo visual (sin cerrar al tocar fuera),
           consistente con el resto de esta pantalla. */}
-      <Modal visible={supersetPickerVisible} transparent animationType="slide">
-        <View style={styles.modalBackdrop}>
+      <Modal
+        visible={supersetPickerVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setSupersetPickerVisible(false)}
+      >
+        <Pressable style={styles.modalBackdrop} onPress={() => setSupersetPickerVisible(false)}>
           <KeyboardAvoidingView
             style={styles.avoider}
             behavior={Platform.OS === "ios" ? "padding" : undefined}
             keyboardVerticalOffset={0}
           >
-            <View style={styles.modalCard}>
-              <Text style={styles.modalTitle}>Elige ejercicios para la super-serie</Text>
+            <Pressable style={styles.modalCard} onPress={() => {}}>
+              <SheetHeader
+                title="Elige ejercicios para la super-serie"
+                onClose={() => setSupersetPickerVisible(false)}
+              />
 
               <ExercisePickerList
                 exercises={exercises}
@@ -730,9 +744,9 @@ export default function RoutinesScreen() {
                   </Text>
                 </TouchableOpacity>
               </View>
-            </View>
+            </Pressable>
           </KeyboardAvoidingView>
-        </View>
+        </Pressable>
       </Modal>
     </SafeAreaView>
   );
@@ -918,8 +932,10 @@ const useStyles = makeStyles(({ colors }) => ({
   // que el límite nunca se aplicaba de verdad: la tarjeta crecía tanto como
   // su contenido (todos los ejercicios) y lo que no cabía en pantalla
   // quedaba cortado por el borde, no accesible con scroll.
+  // (92% y no 70%: con el teclado abierto KeyboardAvoidingView resta su altura de
+  // este tope; con 70% no quedaba sitio para los resultados del buscador.)
   avoider: {
-    maxHeight: "70%",
+    maxHeight: "92%",
   },
   modalCard: {
     backgroundColor: colors.surface,

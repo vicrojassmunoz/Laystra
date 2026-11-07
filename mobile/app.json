@@ -36,11 +36,26 @@
       "expo-status-bar",
       "expo-font",
       [
+        "expo-sensors",
+        {
+          "motionPermission": "Laystra usa el contador de pasos de tu iPhone para mostrar tus pasos diarios y guardarlos en tu historial."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Laystra necesita acceder a tus fotos para que puedas elegir tu foto de perfil. La foto se queda solo en tu iPhone.",
+          "cameraPermission": false,
+          "microphonePermission": false
+        }
+      ],
+      [
         "expo-notifications",
         {
           "enableRemoteNotifications": false
         }
-      ]
+      ],
+      "@react-native-community/datetimepicker"
     ]
   }
 }

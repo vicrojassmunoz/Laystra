@@ -2,20 +2,29 @@ import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import { useCallback, useRef, useState } from "react";
 import { View } from "react-native";
 
+import { fetchGoals } from "../api/goals";
+import { fetchHabitsToday } from "../api/habits";
 import { fetchSchedule } from "../api/schedule";
 import { fetchToday, todayIsoDate } from "../api/today";
 import { fetchWaterDay } from "../api/water";
 import { fetchWorkouts } from "../api/workouts";
 import { Card, Section } from "../components/ui/Card";
 import PressableScale from "../components/ui/PressableScale";
+import ProgressBar from "../components/ui/ProgressBar";
 import Row from "../components/ui/Row";
 import Screen, { ScreenError, ScreenLoading } from "../components/ui/Screen";
 import Txt from "../components/ui/Txt";
 import { useSession } from "../session/SessionContext";
 import { makeStyles, space, useTheme } from "../theme/theme";
+import { Goal } from "../types/goal";
+import { HabitProgress } from "../types/habit";
 import { ScheduleEntry } from "../types/schedule";
 import { WaterDay } from "../types/water";
 import { Workout } from "../types/workout";
+import { countdownLabel, daysUntil, nextEvent } from "../utils/events";
+import { syncHabitReminders } from "../utils/habitReminders";
+import { formatSteps, stepsGoalFrom } from "../utils/steps";
+import { useSteps } from "../utils/useSteps";
 import { formatMl } from "../utils/water";
 
 const DAY_LABELS = ["L", "M", "X", "J", "V", "S", "D"];
@@ -32,7 +41,14 @@ type DayInfo = {
 type State =
   | { status: "loading" }
   | { status: "error"; message: string }
-  | { status: "ready"; days: DayInfo[]; water: WaterDay | null; routineName: string | null };
+  | {
+      status: "ready";
+      days: DayInfo[];
+      water: WaterDay | null;
+      routineName: string | null;
+      habits: HabitProgress[] | null;
+      goals: Goal[] | null;
+    };
 
 // Construye las 7 fechas locales (YYYY-MM-DD, sin drift UTC) de la semana
 // que contiene "hoy", empezando en lunes -- mismo convenio de día que
@@ -95,6 +111,7 @@ const useStyles = makeStyles(({ colors }) => ({
     borderColor: "transparent",
   },
   dayToday: { borderColor: colors.tint },
+  stepsBar: { paddingHorizontal: space.lg, paddingBottom: space.md },
   stripHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "baseline" },
 }));
 
@@ -102,9 +119,10 @@ export default function HomeScreen() {
   const navigation = useNavigation();
   const styles = useStyles();
   const { colors } = useTheme();
-  const { active, paused } = useSession();
+  const { active, paused, running } = useSession();
   const [state, setState] = useState<State>({ status: "loading" });
   const hasDataRef = useRef(false);
+  const steps = useSteps();
 
   const load = useCallback(() => {
     if (!hasDataRef.current) {
@@ -119,15 +137,21 @@ export default function HomeScreen() {
       fetchWorkouts(),
       fetchWaterDay(todayIso).catch(() => null),
       fetchToday().catch(() => null),
+      fetchHabitsToday(todayIso).catch(() => null),
+      fetchGoals().catch(() => null),
     ])
-      .then(([schedule, workouts, water, today]) => {
+      .then(([schedule, workouts, water, today, habits, goals]) => {
         hasDataRef.current = true;
         setState({
           status: "ready",
           days: deriveDays(schedule, workouts, todayIso),
           water,
           routineName: today?.routine_name ?? null,
+          habits,
+          goals,
         });
+        // El agua o los pasos pueden haber cumplido un hábito: cancela el aviso de hoy.
+        void syncHabitReminders();
       })
       .catch((error: Error) => {
         if (!hasDataRef.current) {
@@ -151,7 +175,10 @@ export default function HomeScreen() {
     return <ScreenError message={state.message} />;
   }
 
-  const { days, water, routineName } = state;
+  const { days, water, routineName, habits, goals } = state;
+  const stepsGoal = stepsGoalFrom(habits);
+  const habitsDone = habits ? habits.filter((h) => h.done).length : 0;
+  const event = goals ? nextEvent(goals, todayIsoDate()) : null;
 
   const dotColors = (d: DayInfo): { bg: string; fg: string } => {
     switch (d.status) {
@@ -206,9 +233,11 @@ export default function HomeScreen() {
           title="Hoy"
           subtitle={
             active
-              ? paused
-                ? "Sesión en pausa"
-                : "Sesión en curso"
+              ? !running
+                ? "Sesión preparada"
+                : paused
+                  ? "Sesión en pausa"
+                  : "Sesión en curso"
               : routineName
                 ? `Toca: ${routineName}`
                 : "Día de descanso"
@@ -222,12 +251,58 @@ export default function HomeScreen() {
           value={water ? `${formatMl(water.total_ml)} / ${formatMl(water.goal_ml)}` : undefined}
           onPress={() => navigation.navigate("Agua")}
         />
+        <Row
+          icon="steps"
+          title="Pasos"
+          subtitle={
+            steps.permission === "unavailable"
+              ? "Este dispositivo no tiene contador de pasos"
+              : steps.permission === "denied" || steps.permission === "undetermined"
+                ? "Sin permiso de movimiento"
+                : "Pasos del iPhone (no incluye pulsera ni reloj)"
+          }
+          value={
+            steps.permission === "granted"
+              ? `${formatSteps(steps.today ?? 0)} / ${formatSteps(stepsGoal)}`
+              : undefined
+          }
+        />
+        {steps.permission === "denied" || steps.permission === "undetermined" ? (
+          <Row title="Activar pasos" titleTone="tint" onPress={steps.activate} chevron={false} />
+        ) : steps.permission === "granted" ? (
+          <View style={styles.stepsBar}>
+            <ProgressBar value={(steps.today ?? 0) / stepsGoal} tone="success" />
+          </View>
+        ) : null}
+      </Section>
+
+      <Section title="Hábitos y eventos">
+        <Row
+          icon="habits"
+          title="Hábitos de hoy"
+          value={habits ? `${habitsDone} / ${habits.length}` : undefined}
+          onPress={() => navigation.navigate("Habitos")}
+        />
+        {habits && habits.length > 0 ? (
+          <View style={styles.stepsBar}>
+            <ProgressBar value={habitsDone / habits.length} tone="success" />
+          </View>
+        ) : null}
+        {event && event.target_date ? (
+          <Row
+            icon="goals"
+            title={event.text}
+            subtitle={event.target_date}
+            value={countdownLabel(daysUntil(event.target_date, todayIsoDate()))}
+            onPress={() => navigation.navigate("Eventos")}
+          />
+        ) : null}
       </Section>
 
       <Section title="Seguimiento">
         <Row icon="history" title="Historial" onPress={() => navigation.navigate("Historial")} />
         <Row icon="progress" title="Progreso" onPress={() => navigation.navigate("Progreso")} />
-        <Row icon="goals" title="Objetivos" onPress={() => navigation.navigate("Objetivos")} />
+        <Row icon="goals" title="Eventos" onPress={() => navigation.navigate("Eventos")} />
         <Row icon="analysis" title="Análisis" onPress={() => navigation.navigate("Analisis")} />
       </Section>
 

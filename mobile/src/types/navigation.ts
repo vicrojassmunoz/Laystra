@@ -3,12 +3,14 @@
 export type RootStackParamList = {
   Home: undefined;
   Hoy: undefined;
-  Sesion: undefined;
+  // quick: abrir directamente el selector de ejercicios (Sesión rápida, sin rutina).
+  Sesion: { quick?: boolean } | undefined;
   Rutinas: undefined;
   Semana: undefined;
   Historial: undefined;
   Progreso: undefined;
-  Objetivos: undefined;
+  Eventos: undefined;
+  Habitos: undefined;
   User: undefined;
   Analisis: undefined;
   Agua: undefined;

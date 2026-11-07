@@ -11,8 +11,11 @@ import Txt from "./ui/Txt";
 type Props = {
   // ms epoch del inicio de sesión; null = aún no empezada.
   startedAt: number | null;
-  // ms epoch de la última serie completada (reps escritas); ancla del descanso.
-  lastSetAt: number | null;
+  // ms epoch del fin de la cuenta atrás de descanso; null = sin descanso activo.
+  restEndAt: number | null;
+  // Suma/resta segundos al descanso; saltarlo lo descarta.
+  onRestAdjust: (deltaSeconds: number) => void;
+  onRestSkip: () => void;
   // ms epoch de la pausa; null = corriendo.
   pausedAt: number | null;
   onTogglePause: () => void;
@@ -48,16 +51,20 @@ const useStyles = makeStyles(({ colors }) => ({
   topRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: space.md },
   clocks: { flexDirection: "row", gap: space.xl },
   buttons: { flexDirection: "row", alignItems: "center", gap: space.sm },
+  restRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: space.sm },
+  restAdjust: { flexDirection: "row", gap: space.sm },
   tipRow: { flexDirection: "row", alignItems: "center", gap: space.sm },
 }));
 
-// Barra de asistencia en sesión (ROADMAP #7): cronómetro de sesión, descanso
-// desde la última serie, siguiente ejercicio y un tip estático. Solo en primer
-// plano -- la alarma real con la app en background es el ítem #8 (EAS). El
+// Barra de asistencia en sesión: cronómetro de sesión, cuenta atrás de descanso
+// (±15 s / saltar; la alarma en segundo plano es una notificación local que
+// programa SessionContext), siguiente ejercicio y un tip estático. El
 // tick de 1 s vive aquí dentro para no re-renderizar toda la pantalla Sesión.
 export default function SessionBar({
   startedAt,
-  lastSetAt,
+  restEndAt,
+  onRestAdjust,
+  onRestSkip,
   pausedAt,
   onTogglePause,
   onComplete,
@@ -81,6 +88,9 @@ export default function SessionBar({
   // Congelado en la pausa: ambos relojes miden contra el instante de pausa.
   const clockNow = pausedAt ?? now;
   const paused = pausedAt !== null;
+  // Cuenta atrás de descanso: se queda en 00:00 (en verde) al terminar.
+  const restRemaining = restEndAt === null ? null : Math.max(0, Math.ceil((restEndAt - clockNow) / 1000));
+  const restDone = restRemaining === 0;
 
   return (
     // El fondo cambia de color al pausar/reanudar (indica el estado) en 200 ms.
@@ -99,8 +109,19 @@ export default function SessionBar({
             <Txt variant="caption" tone="secondary" weight="600">
               Descanso
             </Txt>
-            <Txt variant="title2" numeric tone={paused ? "warning" : "label"}>
-              {lastSetAt === null ? "--:--" : formatClock((clockNow - lastSetAt) / 1000)}
+            <Txt
+              variant="title2"
+              numeric
+              tone={paused ? "warning" : restDone ? "success" : "label"}
+              accessibilityLabel={
+                restRemaining === null
+                  ? "Sin descanso en curso"
+                  : restDone
+                    ? "Descanso terminado"
+                    : `Descanso, quedan ${restRemaining} segundos`
+              }
+            >
+              {restRemaining === null ? "--:--" : formatClock(restRemaining)}
             </Txt>
           </View>
         </View>
@@ -111,6 +132,7 @@ export default function SessionBar({
             variant={paused ? "filled" : "tinted"}
             size="compact"
             iconOnly
+            disabled={startedAt === null}
             onPress={onTogglePause}
           />
           <Button title="Completar" icon="check" variant="filled" size="compact" onPress={onComplete} />
@@ -128,6 +150,31 @@ export default function SessionBar({
       {paused ? (
         <Txt variant="subhead" tone="warning" weight="600">
           Sesión en pausa
+        </Txt>
+      ) : null}
+      {restRemaining !== null ? (
+        <View style={styles.restRow}>
+          {restDone ? (
+            <Txt variant="subhead" tone="success" weight="600" style={{ flex: 1 }}>
+              Descanso terminado
+            </Txt>
+          ) : (
+            <View style={styles.restAdjust}>
+              <Button title="−15 s" variant="tinted" size="compact" onPress={() => onRestAdjust(-15)} />
+              <Button title="+15 s" variant="tinted" size="compact" onPress={() => onRestAdjust(15)} />
+            </View>
+          )}
+          <Button
+            title={restDone ? "Listo" : "Saltar"}
+            variant={restDone ? "filled" : "plain"}
+            size="compact"
+            onPress={onRestSkip}
+          />
+        </View>
+      ) : null}
+      {startedAt === null ? (
+        <Txt variant="footnote" tone="secondary">
+          Sesión preparada: el cronómetro empieza al completar tu primera serie.
         </Txt>
       ) : null}
       {nextLabel ? (

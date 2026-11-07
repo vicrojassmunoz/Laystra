@@ -23,6 +23,7 @@ import { Exercise } from "../types/exercise";
 import { Routine } from "../types/routine";
 import { WaterDay } from "../types/water";
 import { Workout } from "../types/workout";
+import { formatDuration } from "../utils/duration";
 import { formatMl } from "../utils/water";
 import { summarizeByExercise, workoutStats } from "../utils/workoutSummary";
 
@@ -70,7 +71,8 @@ export default function HoyScreen() {
   const navigation = useNavigation();
   const styles = useStyles();
   const { colors } = useTheme();
-  const { active, startedAt, pausedAt, startSession, notificationsDenied } = useSession();
+  const { active, hydrated, startedAt, pausedAt, prepareSession, notificationsDenied } =
+    useSession();
   const [state, setState] = useState<State>({ status: "loading" });
   const hasDataRef = useRef(false);
   // Entrenos de hoy desplegados (ids). Vacío = todos recogidos.
@@ -129,11 +131,26 @@ export default function HoyScreen() {
   );
 
   function openSession() {
+    // Antes de hidratar aún no se sabe si hay un borrador guardado que restaurar.
+    if (!hydrated) {
+      return;
+    }
     if (!active) {
       haptic.light();
-      startSession();
+      // Sesión "preparada": el cronómetro arranca al completar la primera serie.
+      prepareSession();
     }
     navigation.navigate("Sesion");
+  }
+
+  // Sesión rápida: sin rutina; Sesión abre el selector de ejercicios al entrar.
+  function openQuickSession() {
+    if (active || !hydrated) {
+      return;
+    }
+    haptic.light();
+    prepareSession();
+    navigation.navigate("Sesion", { quick: true });
   }
 
   if (state.status === "loading") {
@@ -157,22 +174,42 @@ export default function HoyScreen() {
       </Txt>
 
       <Card>
-        {active && startedAt !== null ? (
+        {active ? (
           <>
             <View style={styles.statusRow}>
               <View
-                style={[styles.dot, { backgroundColor: paused ? colors.warning : colors.success }]}
+                style={[
+                  styles.dot,
+                  {
+                    backgroundColor:
+                      startedAt === null
+                        ? colors.labelTertiary
+                        : paused
+                          ? colors.warning
+                          : colors.success,
+                  },
+                ]}
               />
-              <Txt variant="subhead" tone={paused ? "warning" : "success"} weight="600">
-                {paused ? "Sesión en pausa" : "Sesión en curso"}
+              <Txt
+                variant="subhead"
+                tone={startedAt === null ? "secondary" : paused ? "warning" : "success"}
+                weight="600"
+              >
+                {startedAt === null ? "Sesión preparada" : paused ? "Sesión en pausa" : "Sesión en curso"}
               </Txt>
             </View>
-            <SessionClock
-              startedAt={startedAt}
-              pausedAt={pausedAt}
-              variant="largeTitle"
-              tone={paused ? "secondary" : "label"}
-            />
+            {startedAt === null ? (
+              <Txt variant="subhead" tone="secondary">
+                El cronómetro empieza cuando completes tu primera serie.
+              </Txt>
+            ) : (
+              <SessionClock
+                startedAt={startedAt}
+                pausedAt={pausedAt}
+                variant="largeTitle"
+                tone={paused ? "secondary" : "label"}
+              />
+            )}
             <View style={{ marginTop: space.sm }}>
               <Button
                 title="Volver a la sesión"
@@ -198,16 +235,26 @@ export default function HoyScreen() {
             <Txt variant="subhead" tone="secondary">
               {today.exercises.length > 0
                 ? `${today.exercises.length} ejercicio${today.exercises.length === 1 ? "" : "s"} planificados`
-                : "Puedes entrenar igualmente: elige una rutina o un entreno libre dentro de la sesión."}
+                : "Puedes entrenar igualmente: empieza la sesión o lanza una sesión rápida sin rutina."}
             </Txt>
-            <View style={{ marginTop: space.sm }}>
+            <View style={{ marginTop: space.sm, gap: space.sm }}>
               <Button
                 title="Empezar sesión"
                 variant="filled"
                 size="large"
                 icon="play"
                 fullWidth
+                disabled={!hydrated}
                 onPress={openSession}
+              />
+              <Button
+                title="Sesión rápida"
+                variant="tinted"
+                size="large"
+                icon="quick"
+                fullWidth
+                disabled={!hydrated}
+                onPress={openQuickSession}
               />
             </View>
           </>
@@ -243,6 +290,9 @@ export default function HoyScreen() {
                   <Txt variant="subhead" tone="secondary" numeric>
                     {stats.exercises} ejercicio{stats.exercises === 1 ? "" : "s"} · {stats.sets} serie
                     {stats.sets === 1 ? "" : "s"} · {Math.round(stats.volumeKg)} kg de volumen
+                    {formatDuration(workout.duration_seconds)
+                      ? ` · ${formatDuration(workout.duration_seconds)}`
+                      : ""}
                   </Txt>
                   {workout.notes ? (
                     <View style={styles.notes}>

@@ -10,14 +10,18 @@ from app.routers import (
     body_metrics,
     exercises,
     goals,
+    habits,
     health,
+    injuries,
     routines,
     schedule,
+    steps,
     today,
     water,
     workouts,
 )
 from app.seed import seed_if_empty
+from app.services.habits import ensure_builtin_habits
 
 
 @asynccontextmanager
@@ -26,6 +30,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     db = SessionLocal()
     try:
         seed_if_empty(db)
+        ensure_builtin_habits(db)
     finally:
         db.close()
     yield
@@ -51,3 +56,6 @@ app.include_router(body_metrics.router)
 app.include_router(goals.router)
 app.include_router(analytics.router)
 app.include_router(water.router)
+app.include_router(injuries.router)
+app.include_router(habits.router)
+app.include_router(steps.router)

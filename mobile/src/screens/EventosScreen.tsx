@@ -4,6 +4,7 @@ import { Pressable, View } from "react-native";
 
 import { createGoal, deleteGoal, fetchGoals, updateGoal } from "../api/goals";
 import { todayIsoDate } from "../api/today";
+import PickerField from "../components/PickerField";
 import Button from "../components/ui/Button";
 import { Card, SectionHeader } from "../components/ui/Card";
 import Icon from "../components/ui/Icon";
@@ -14,6 +15,7 @@ import { haptic } from "../motion/motion";
 import { makeStyles, space, useTheme } from "../theme/theme";
 import { Goal } from "../types/goal";
 import { showAlert } from "../utils/alert";
+import { countdownLabel, daysUntil } from "../utils/events";
 import { parseDecimalInput } from "../utils/number";
 
 type State =
@@ -21,11 +23,11 @@ type State =
   | { status: "error"; message: string }
   | { status: "ready"; goals: Goal[] };
 
-// Objetivos: CRUD manual, mismo patrón de formulario alta/edición que
+// Eventos (antes Objetivos; mismos Goal del backend): CRUD manual, mismo patrón de formulario alta/edición que
 // RoutinesScreen (editingId null = alta, no-null = edición). El backend tiene
 // PUT de reemplazo total, así que el toggle de "hecho" reutiliza el mismo
 // updateGoal que editar texto/objetivo -- ver toggleDone.
-export default function ObjetivosScreen() {
+export default function EventosScreen() {
   const styles = useStyles();
   const { colors } = useTheme();
   const [state, setState] = useState<State>({ status: "loading" });
@@ -33,15 +35,15 @@ export default function ObjetivosScreen() {
 
   const [text, setText] = useState("");
   const [targetValue, setTargetValue] = useState("");
-  const [targetDate, setTargetDate] = useState("");
+  const [targetDate, setTargetDate] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
-  // null = formulario en modo "Nuevo objetivo"; si tiene un id, está editando
+  // null = formulario en modo "Nuevo evento"; si tiene un id, está editando
   // ese objetivo (PUT en vez de POST al guardar), igual que en RoutinesScreen.
   const [editingId, setEditingId] = useState<number | null>(null);
-  // El formulario solo se muestra al crear (botón "Nuevo objetivo") o al editar.
+  // El formulario solo se muestra al crear (botón "Nuevo evento") o al editar.
   const [creating, setCreating] = useState(false);
   const formOpen = creating || editingId !== null;
 
@@ -73,7 +75,7 @@ export default function ObjetivosScreen() {
     setCreating(false);
     setText("");
     setTargetValue("");
-    setTargetDate("");
+    setTargetDate(null);
     setFormError(null);
   }
 
@@ -81,12 +83,12 @@ export default function ObjetivosScreen() {
     setEditingId(goal.id);
     setText(goal.text);
     setTargetValue(goal.target_value !== null ? String(goal.target_value) : "");
-    setTargetDate(goal.target_date ?? "");
+    setTargetDate(goal.target_date);
     setFormError(null);
   }
 
   function confirmDelete(goal: Goal) {
-    showAlert("¿Borrar objetivo?", `Se borrará "${goal.text}" permanentemente.`, [
+    showAlert("¿Borrar evento?", `Se borrará "${goal.text}" permanentemente.`, [
       { text: "Cancelar", style: "cancel" },
       {
         text: "Borrar",
@@ -131,7 +133,7 @@ export default function ObjetivosScreen() {
     setFormError(null);
 
     if (!text.trim()) {
-      setFormError("Ponle un texto al objetivo.");
+      setFormError("Ponle un título al evento.");
       return;
     }
 
@@ -144,10 +146,10 @@ export default function ObjetivosScreen() {
       }
     }
 
-    const targetDateValue = targetDate.trim() !== "" ? targetDate.trim() : null;
+    const targetDateValue = targetDate;
     // Opcional -- solo se valida el formato si el usuario escribió algo.
     if (targetDateValue !== null && !/^\d{4}-\d{2}-\d{2}$/.test(targetDateValue)) {
-      setFormError("Fecha objetivo inválida. Usa el formato AAAA-MM-DD.");
+      setFormError("Fecha inválida. Usa el formato AAAA-MM-DD.");
       return;
     }
 
@@ -185,24 +187,23 @@ export default function ObjetivosScreen() {
   }
 
   const { goals } = state;
-  const pending = goals.filter((g) => !g.done);
+  // Con fecha primero (la más cercana arriba); sin fecha al final.
+  const pending = goals
+    .filter((g) => !g.done)
+    .sort((a, b) =>
+      a.target_date === b.target_date
+        ? a.id - b.id
+        : a.target_date === null
+          ? 1
+          : b.target_date === null
+            ? -1
+            : a.target_date.localeCompare(b.target_date)
+    );
   const done = goals.filter((g) => g.done);
   const today = todayIsoDate();
 
-  // "en 12 días" / "hoy" / "hace 3 días": solo informativo, junto a la fecha.
-  function dueLabel(iso: string): { text: string; overdue: boolean } {
-    const [y, m, d] = iso.split("-").map(Number);
-    const [ty, tm, td] = today.split("-").map(Number);
-    const days = Math.round(
-      (new Date(y, m - 1, d).getTime() - new Date(ty, tm - 1, td).getTime()) / 86400000
-    );
-    if (days === 0) return { text: "vence hoy", overdue: false };
-    if (days > 0) return { text: `en ${days} día${days === 1 ? "" : "s"}`, overdue: false };
-    return { text: `venció hace ${-days} día${days === -1 ? "" : "s"}`, overdue: true };
-  }
-
   function renderGoal(goal: Goal) {
-    const due = goal.target_date ? dueLabel(goal.target_date) : null;
+    const days = goal.target_date ? daysUntil(goal.target_date, today) : null;
     return (
       <Card key={goal.id}>
         <View style={styles.goalRow}>
@@ -210,7 +211,7 @@ export default function ObjetivosScreen() {
             onPress={() => toggleDone(goal)}
             accessibilityRole="checkbox"
             accessibilityState={{ checked: goal.done }}
-            accessibilityLabel={goal.done ? "Marcar como pendiente" : "Marcar como cumplido"}
+            accessibilityLabel={goal.done ? "Marcar como pendiente" : "Marcar como completado"}
             style={styles.toggle}
           >
             <Icon
@@ -229,16 +230,16 @@ export default function ObjetivosScreen() {
             </Txt>
             {goal.target_value !== null ? (
               <Txt variant="subhead" tone="secondary" numeric>
-                Objetivo: {goal.target_value}
+                Valor objetivo: {goal.target_value}
               </Txt>
             ) : null}
-            {goal.target_date !== null && due ? (
+            {goal.target_date !== null && days !== null ? (
               <Txt
                 variant="subhead"
-                tone={due.overdue && !goal.done ? "danger" : "secondary"}
+                tone={days < 0 && !goal.done ? "danger" : "secondary"}
                 numeric
               >
-                {goal.target_date} · {goal.done ? "cumplido" : due.text}
+                {goal.target_date} · {goal.done ? "completado" : countdownLabel(days)}
               </Txt>
             ) : null}
           </View>
@@ -252,7 +253,7 @@ export default function ObjetivosScreen() {
     <Screen>
       {!formOpen ? (
         <Button
-          title="Nuevo objetivo"
+          title="Nuevo evento"
           icon="plus"
           variant="filled"
           size="large"
@@ -263,12 +264,12 @@ export default function ObjetivosScreen() {
 
       {formOpen ? (
         <Card>
-          <Txt variant="title3">{editingId !== null ? "Editar objetivo" : "Nuevo objetivo"}</Txt>
+          <Txt variant="title3">{editingId !== null ? "Editar evento" : "Nuevo evento"}</Txt>
           <TextField
-            placeholder="Texto del objetivo"
+            placeholder="Título del evento"
             value={text}
             onChangeText={setText}
-            accessibilityLabel="Texto del objetivo"
+            accessibilityLabel="Título del evento"
           />
           <TextField
             placeholder="Valor objetivo (opcional)"
@@ -277,14 +278,7 @@ export default function ObjetivosScreen() {
             onChangeText={setTargetValue}
             accessibilityLabel="Valor objetivo"
           />
-          <TextField
-            placeholder="Fecha AAAA-MM-DD (opcional)"
-            value={targetDate}
-            onChangeText={setTargetDate}
-            autoCapitalize="none"
-            autoCorrect={false}
-            accessibilityLabel="Fecha objetivo"
-          />
+          <PickerField mode="date" label="Fecha" value={targetDate} onChange={setTargetDate} />
 
           {formError ? (
             <Txt variant="subhead" tone="danger">
@@ -293,7 +287,7 @@ export default function ObjetivosScreen() {
           ) : null}
 
           <Button
-            title={saving ? "Guardando..." : editingId !== null ? "Guardar cambios" : "Guardar objetivo"}
+            title={saving ? "Guardando..." : editingId !== null ? "Guardar cambios" : "Guardar evento"}
             variant="filled"
             size="large"
             fullWidth
@@ -309,7 +303,7 @@ export default function ObjetivosScreen() {
           />
           {editingId !== null ? (
             <Button
-              title="Borrar objetivo"
+              title="Borrar evento"
               variant="destructive"
               fullWidth
               disabled={saving}
@@ -330,10 +324,9 @@ export default function ObjetivosScreen() {
 
       {goals.length === 0 && !formOpen ? (
         <Card>
-          <Txt variant="headline">Todavía no hay objetivos</Txt>
+          <Txt variant="headline">Todavía no hay eventos</Txt>
           <Txt variant="subhead" tone="secondary">
-            Apunta lo que quieres conseguir (un peso, una marca, una fecha) y márcalo cuando lo
-            cumplas.
+            Apunta lo que viene (una competición, un peso para una fecha) y márcalo al cumplirlo.
           </Txt>
         </Card>
       ) : null}
@@ -347,7 +340,7 @@ export default function ObjetivosScreen() {
 
       {done.length > 0 ? (
         <View style={{ gap: space.md }}>
-          <SectionHeader>{`Cumplidos (${done.length})`}</SectionHeader>
+          <SectionHeader>{`Completados (${done.length})`}</SectionHeader>
           {done.map(renderGoal)}
         </View>
       ) : null}

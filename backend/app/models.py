@@ -1,6 +1,6 @@
 from datetime import date as date_
 
-from sqlalchemy import ForeignKey
+from sqlalchemy import ForeignKey, Index, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -98,6 +98,9 @@ class Workout(Base):
     # Sensaciones del entreno (texto libre). Nulo = sin nota. ADD COLUMN
     # idempotente en app/db.py para la DB de producción.
     notes: Mapped[str | None] = mapped_column(nullable=True, default=None)
+    # Duración de la sesión en segundos (cronómetro de la pantalla Sesión). Nulo =
+    # no medida. ADD COLUMN idempotente en app/db.py.
+    duration_seconds: Mapped[int | None] = mapped_column(nullable=True, default=None)
 
     sets: Mapped[list["WorkoutSet"]] = relationship(
         back_populates="workout",
@@ -177,3 +180,60 @@ class WaterSettings(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     goal_ml: Mapped[int] = mapped_column(default=2500)
+
+
+class Injury(Base):
+    __tablename__ = "injuries"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    title: Mapped[str]
+    body_area: Mapped[str]
+    severity: Mapped[str]
+    since: Mapped[date_]
+    active: Mapped[bool] = mapped_column(default=True)
+    notes: Mapped[str | None] = mapped_column(nullable=True, default=None)
+
+
+class Habit(Base):
+    __tablename__ = "habits"
+    # A lo sumo un hábito water y uno steps (índice único parcial por kind).
+    # En BDs ya existentes lo crea db._ensure_builtin_habit_index (create_all no
+    # añade índices a tablas existentes).
+    __table_args__ = (
+        Index(
+            "uq_habits_builtin_kind",
+            "kind",
+            unique=True,
+            sqlite_where=text("kind IN ('water', 'steps')"),
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str]
+    kind: Mapped[str]  # water | steps | check | count
+    target: Mapped[float | None] = mapped_column(nullable=True, default=None)
+    unit: Mapped[str | None] = mapped_column(nullable=True, default=None)
+    reminder_time: Mapped[str | None] = mapped_column(nullable=True, default=None)  # "HH:MM"
+    active: Mapped[bool] = mapped_column(default=True)
+    position: Mapped[int] = mapped_column(default=0)
+
+    logs: Mapped[list["HabitLog"]] = relationship(cascade="all, delete-orphan")
+
+
+class HabitLog(Base):
+    """Registro diario de hábitos check/count. water y steps NO se registran aquí."""
+
+    __tablename__ = "habit_logs"
+    __table_args__ = (UniqueConstraint("habit_id", "date", name="uq_habit_logs_habit_date"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    habit_id: Mapped[int] = mapped_column(ForeignKey("habits.id", ondelete="CASCADE"))
+    date: Mapped[date_]
+    value: Mapped[float]
+
+
+class StepsDay(Base):
+    __tablename__ = "steps_days"
+
+    date: Mapped[date_] = mapped_column(primary_key=True)
+    steps: Mapped[int]

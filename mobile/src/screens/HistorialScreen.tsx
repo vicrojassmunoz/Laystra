@@ -14,8 +14,10 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { fetchExercises } from "../api/exercises";
 import { fetchRoutines } from "../api/routines";
 import { todayIsoDate } from "../api/today";
+import { formatDuration } from "../utils/duration";
 import { deleteWorkout, exportWorkoutsCsv, fetchWorkouts, updateWorkout } from "../api/workouts";
 import ExercisePickerList from "../components/ExercisePickerList";
+import SheetHeader from "../components/SheetHeader";
 import SupersetBlock, { SetDraft } from "../components/SupersetBlock";
 import SetRow from "../components/SetRow";
 import Button from "../components/ui/Button";
@@ -458,6 +460,8 @@ export default function HistorialScreen() {
       date: workout.date,
       routine_id: workout.routine_id,
       notes: trimmedNotes === "" ? null : trimmedNotes,
+      // PUT = reemplazo total: sin reenviarla, la duración guardada se borraría.
+      duration_seconds: workout.duration_seconds ?? null,
       sets,
     })
       .then(() => {
@@ -738,6 +742,9 @@ export default function HistorialScreen() {
                         <Txt variant="footnote" tone="secondary" numeric>
                           {stats.sets} serie{stats.sets === 1 ? "" : "s"} ·{" "}
                           {formatVolume(stats.volumeKg)} de volumen
+                          {formatDuration(workout.duration_seconds)
+                            ? ` · ${formatDuration(workout.duration_seconds)}`
+                            : ""}
                         </Txt>
                       </View>
                       <Icon
@@ -810,15 +817,20 @@ export default function HistorialScreen() {
         </ScrollView>
       </KeyboardAvoidingView>
 
-      <Modal visible={addExercisePickerVisible} transparent animationType="slide">
-        <View style={styles.modalBackdrop}>
+      <Modal
+        visible={addExercisePickerVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setAddExercisePickerVisible(false)}
+      >
+        <Pressable style={styles.modalBackdrop} onPress={() => setAddExercisePickerVisible(false)}>
           <KeyboardAvoidingView
             style={styles.avoider}
             behavior={Platform.OS === "ios" ? "padding" : undefined}
             keyboardVerticalOffset={0}
           >
-            <View style={styles.modalCard}>
-              <Text style={styles.modalTitle}>Añadir ejercicio</Text>
+            <Pressable style={styles.modalCard} onPress={() => {}}>
+              <SheetHeader title="Añadir ejercicio" onClose={() => setAddExercisePickerVisible(false)} />
               {state.status === "ready" && (
                 <ExercisePickerList
                   exercises={state.exercises}
@@ -846,9 +858,9 @@ export default function HistorialScreen() {
               >
                 <Text style={styles.cancelText}>Cancelar</Text>
               </TouchableOpacity>
-            </View>
+            </Pressable>
           </KeyboardAvoidingView>
-        </View>
+        </Pressable>
       </Modal>
     </SafeAreaView>
   );
@@ -999,8 +1011,10 @@ const useStyles = makeStyles(({ colors }) => ({
     backgroundColor: "rgba(0,0,0,0.4)",
     justifyContent: "flex-end",
   },
+  // 92% y no 70%: con el teclado abierto KeyboardAvoidingView resta su altura de
+  // este tope; con 70% no quedaba sitio para los resultados del buscador.
   avoider: {
-    maxHeight: "70%",
+    maxHeight: "92%",
   },
   modalCard: {
     backgroundColor: colors.surface,

@@ -6,6 +6,7 @@ import { useSession } from "../session/SessionContext";
 import { makeStyles, space, useTheme } from "../theme/theme";
 import SessionClock from "./SessionClock";
 import Icon from "./ui/Icon";
+import Txt from "./ui/Txt";
 import PressableScale from "./ui/PressableScale";
 
 const useStyles = makeStyles(({ colors }) => ({
@@ -47,11 +48,13 @@ export default function SessionPill({
   const { active, startedAt, pausedAt } = useSession();
   const insets = useSafeAreaInsets();
 
-  if (!active || startedAt === null || currentRoute === "Sesion") {
+  if (!active || currentRoute === "Sesion") {
     return null;
   }
 
   const paused = pausedAt !== null;
+  // Preparada: sesión abierta pero el cronómetro aún no corre.
+  const preparing = startedAt === null;
 
   return (
     // Aparece / desaparece con un fundido corto (elemento "ocasional").
@@ -63,18 +66,35 @@ export default function SessionPill({
       <PressableScale
         onPress={onPress}
         accessibilityRole="button"
-        accessibilityLabel={paused ? "Volver a la sesión en pausa" : "Volver a la sesión en curso"}
+        accessibilityLabel={
+          preparing
+            ? "Volver a la sesión preparada"
+            : paused
+              ? "Volver a la sesión en pausa"
+              : "Volver a la sesión en curso"
+        }
         hitSlop={8}
         boxStyle={styles.pill}
       >
-        <View style={[styles.dot, { backgroundColor: paused ? colors.warning : colors.success }]} />
-        <Icon name="train" size={16} color={colors.tint} />
-        <SessionClock
-          startedAt={startedAt}
-          pausedAt={pausedAt}
-          variant="subhead"
-          tone={paused ? "warning" : "label"}
+        <View
+          style={[
+            styles.dot,
+            { backgroundColor: preparing ? colors.labelTertiary : paused ? colors.warning : colors.success },
+          ]}
         />
+        <Icon name="train" size={16} color={colors.tint} />
+        {preparing ? (
+          <Txt variant="subhead" tone="secondary">
+            Preparada
+          </Txt>
+        ) : (
+          <SessionClock
+            startedAt={startedAt}
+            pausedAt={pausedAt}
+            variant="subhead"
+            tone={paused ? "warning" : "label"}
+          />
+        )}
       </PressableScale>
     </Animated.View>
   );

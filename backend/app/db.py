@@ -1,3 +1,4 @@
+import logging
 import os
 from collections.abc import Generator
 from pathlib import Path
@@ -33,6 +34,29 @@ def init_db() -> None:
     _add_missing_columns()
     _backfill_muscle_groups()
     _backfill_workout_set_units()
+    _ensure_builtin_habit_index()
+
+
+def _ensure_builtin_habit_index(target_engine: Engine | None = None) -> None:
+    """Índice único parcial sobre habits(kind) para water/steps. Idempotente. Si
+    la BD ya tuviera duplicados la creación falla: se omite (no tumba el arranque)
+    y ensure_builtin_habits sigue siendo tolerante; hay que deduplicar a mano."""
+    with (target_engine or engine).connect() as conn:
+        if not {row[1] for row in conn.execute(text("PRAGMA table_info(habits)"))}:
+            return
+        try:
+            conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_habits_builtin_kind "
+                    "ON habits(kind) WHERE kind IN ('water', 'steps')"
+                )
+            )
+            conn.commit()
+        except Exception:  # IntegrityError por duplicados previos
+            conn.rollback()
+            logging.getLogger(__name__).warning(
+                "uq_habits_builtin_kind not created: duplicate water/steps habits exist"
+            )
 
 
 # Ligero mecanismo de migración ad-hoc: este proyecto no usa Alembic, y
@@ -48,7 +72,7 @@ _COLUMNS_TO_ADD: dict[str, list[tuple[str, str]]] = {
     "routine_exercises": [("superset_group", "INTEGER")],
     "workout_sets": [("superset_group", "INTEGER"), ("unit", "TEXT")],
     "exercises": [("muscle_group_primary", "TEXT")],
-    "workouts": [("notes", "TEXT")],
+    "workouts": [("notes", "TEXT"), ("duration_seconds", "INTEGER")],
 }
 
 

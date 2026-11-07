@@ -42,6 +42,7 @@ def create_workout(payload: WorkoutCreate, db: Session = Depends(get_db)) -> mod
         date=payload.date,
         routine_id=payload.routine_id,
         notes=payload.notes,
+        duration_seconds=payload.duration_seconds,
         sets=_sets_from_payload(payload.sets, db),
     )
     db.add(workout)
@@ -115,6 +116,7 @@ def update_workout(
     workout.date = payload.date
     workout.routine_id = payload.routine_id
     workout.notes = payload.notes
+    workout.duration_seconds = payload.duration_seconds
     workout.sets = _sets_from_payload(payload.sets, db)
     db.commit()
     db.refresh(workout)

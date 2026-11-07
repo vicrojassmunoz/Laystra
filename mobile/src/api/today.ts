@@ -1,5 +1,6 @@
 import { API_BASE_URL } from "../config";
 import { Exercise } from "../types/exercise";
+import { todayIsoDate } from "../utils/date";
 import { buildErrorMessage } from "./http";
 
 // superset_group: null = ejercicio suelto; mismo entero = mismo bloque de
@@ -21,13 +22,8 @@ export type TodayResponse = {
   exercises: TodayExercise[];
 };
 
-export function todayIsoDate(): string {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
+// Reexporta el util compartido para no tocar los imports existentes.
+export { todayIsoDate };
 
 export async function fetchToday(): Promise<TodayResponse> {
   const response = await fetch(`${API_BASE_URL}/today?date=${todayIsoDate()}`);
